@@ -1,0 +1,124 @@
+{
+  "entities": {
+    "tenant": {
+      "title": "Tenant",
+      "description": "A merchant tenant instance in the FenixCMS SaaS ecosystem.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 120 },
+        "slug": { "type": "string", "maxLength": 80 },
+        "domain": { "type": "string", "maxLength": 120 },
+        "status": { "type": "string", "enum": ["active", "suspended", "trial", "expired"] },
+        "planId": { "type": "string", "maxLength": 50 },
+        "ownerEmail": { "type": "string", "maxLength": 120 },
+        "ownerName": { "type": "string", "maxLength": 120 },
+        "themeId": { "type": "string", "maxLength": 50 },
+        "defaultLocale": { "type": "string", "maxLength": 10 },
+        "currency": { "type": "string", "maxLength": 5 },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "name", "slug", "status", "ownerEmail"]
+    },
+    "license": {
+      "title": "License",
+      "description": "A SaaS subscription license enabling a tenant store.",
+      "type": "object",
+      "properties": {
+        "licenseKey": { "type": "string", "maxLength": 128 },
+        "planId": { "type": "string", "maxLength": 50 },
+        "status": { "type": "string", "enum": ["active", "pending", "suspended", "expired"] },
+        "customerEmail": { "type": "string", "maxLength": 120 },
+        "customerName": { "type": "string", "maxLength": 120 },
+        "price": { "type": "number" },
+        "billingPeriod": { "type": "string", "enum": ["monthly", "yearly"] },
+        "paymentProvider": { "type": "string", "maxLength": 50 },
+        "tenantId": { "type": "string", "maxLength": 128 },
+        "validFrom": { "type": "string", "maxLength": 50 },
+        "validTo": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["licenseKey", "planId", "status", "customerEmail"]
+    },
+    "product": {
+      "title": "Product",
+      "description": "E-commerce product entity belonging to a specific tenant.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "tenantId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 200 },
+        "slug": { "type": "string", "maxLength": 200 },
+        "description": { "type": "string", "maxLength": 5000 },
+        "price": { "type": "number" },
+        "compareAtPrice": { "type": "number" },
+        "sku": { "type": "string", "maxLength": 80 },
+        "stock": { "type": "number" },
+        "category": { "type": "string", "maxLength": 80 },
+        "status": { "type": "string", "enum": ["active", "draft", "archived"] },
+        "rating": { "type": "number" },
+        "reviewsCount": { "type": "number" }
+      },
+      "required": ["id", "tenantId", "title", "price"]
+    },
+    "order": {
+      "title": "Order",
+      "description": "An e-commerce purchase order created by a shopper on a tenant storefront.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "tenantId": { "type": "string", "maxLength": 128 },
+        "orderNumber": { "type": "string", "maxLength": 50 },
+        "customerName": { "type": "string", "maxLength": 120 },
+        "customerEmail": { "type": "string", "maxLength": 120 },
+        "customerPhone": { "type": "string", "maxLength": 40 },
+        "subtotal": { "type": "number" },
+        "shippingCost": { "type": "number" },
+        "tax": { "type": "number" },
+        "total": { "type": "number" },
+        "paymentMethod": { "type": "string", "enum": ["paypal", "stripe", "bank_transfer", "cash_on_delivery"] },
+        "paymentStatus": { "type": "string", "enum": ["paid", "pending", "failed", "refunded"] },
+        "fulfillmentStatus": { "type": "string", "enum": ["unfulfilled", "processing", "shipped", "delivered"] },
+        "carrier": { "type": "string", "maxLength": 50 },
+        "trackingNumber": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "tenantId", "orderNumber", "total", "paymentMethod", "paymentStatus"]
+    },
+    "pluginConfig": {
+      "title": "PluginConfig",
+      "description": "Installed and active plugin configuration for a tenant.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "tenantId": { "type": "string", "maxLength": 128 },
+        "pluginKey": { "type": "string", "maxLength": 60 },
+        "name": { "type": "string", "maxLength": 100 },
+        "isEnabled": { "type": "boolean" },
+        "installedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "tenantId", "pluginKey", "isEnabled"]
+    }
+  },
+  "firestore": {
+    "/tenants/{tenantId}": {
+      "schema": { "$ref": "#/entities/tenant" },
+      "description": "Tenants collection containing store setups."
+    },
+    "/licenses/{licenseId}": {
+      "schema": { "$ref": "#/entities/license" },
+      "description": "Licenses collection for SaaS subscriptions."
+    },
+    "/products/{productId}": {
+      "schema": { "$ref": "#/entities/product" },
+      "description": "Products collection for client e-commerce stores."
+    },
+    "/orders/{orderId}": {
+      "schema": { "$ref": "#/entities/order" },
+      "description": "Customer purchase orders."
+    },
+    "/plugins/{pluginId}": {
+      "schema": { "$ref": "#/entities/pluginConfig" },
+      "description": "Active plugin configurations per tenant."
+    }
+  }
+}
