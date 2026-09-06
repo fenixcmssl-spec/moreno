@@ -429,12 +429,20 @@ export function SaasLanding() {
 
                   <div className="space-y-3 pb-6 border-b border-slate-700 text-xs">
                     <div className="flex items-center justify-between text-slate-300">
-                      <span className="text-slate-400">Catálogo:</span>
-                      <span className="font-bold text-white">{plan.maxProducts.toLocaleString()} productos</span>
+                      <span className="text-slate-400">Capacidad:</span>
+                      <span className="font-bold text-white" suppressHydrationWarning>
+                        {plan.maxProducts 
+                          ? `${plan.maxProducts} productos` 
+                          : plan.entitlements?.['blog.posts_max'] 
+                            ? `${plan.entitlements['blog.posts_max']} artículos`
+                            : plan.entitlements?.['classifieds.ads_max']
+                              ? `${plan.entitlements['classifieds.ads_max']} anuncios`
+                              : 'Ilimitado'}
+                      </span>
                     </div>
                     <div className="flex items-center justify-between text-slate-300">
                       <span className="text-slate-400">Almacenamiento:</span>
-                      <span className="font-bold text-white">{plan.maxStorageMb} MB</span>
+                      <span className="font-bold text-white" suppressHydrationWarning>{plan.maxStorageMb || plan.entitlements?.['storage.max_mb'] || 5000} MB</span>
                     </div>
                     <div className="flex items-center justify-between text-slate-300">
                       <span className="text-slate-400">Dominio Propio:</span>

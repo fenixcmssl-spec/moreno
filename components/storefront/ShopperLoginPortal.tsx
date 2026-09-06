@@ -64,7 +64,7 @@ export function ShopperLoginPortal() {
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-slate-900 font-mono">{ord.orderNumber}</span>
                       <span className="text-slate-400">•</span>
-                      <span className="text-slate-500">{new Date(ord.createdAt).toLocaleDateString()}</span>
+                      <span className="text-slate-500" suppressHydrationWarning>{new Date(ord.createdAt).toLocaleDateString()}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold uppercase">

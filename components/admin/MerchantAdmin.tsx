@@ -51,8 +51,16 @@ import {
   Layers,
   DownloadCloud,
   Laptop,
-  Image as ImageIcon
+  Image as ImageIcon,
+  FileText,
+  Tag
 } from 'lucide-react';
+import { BlogManager } from '@/components/admin/BlogManager';
+import { ClassifiedsManager } from '@/components/admin/ClassifiedsManager';
+import { TenantBrandingSettings } from '@/components/admin/TenantBrandingSettings';
+import { ThemeBuilderModal } from '@/components/admin/ThemeBuilderModal';
+import { MediaLibraryModal } from '@/components/admin/MediaLibraryModal';
+import { ThemeService, ThemeRecord } from '@/lib/services/theme.service';
 
 export function MerchantAdmin() {
   const { 
@@ -80,8 +88,12 @@ export function MerchantAdmin() {
   } = useStore();
 
   const [activeTab, setActiveTab] = useState<
-    'dashboard' | 'products' | 'orders' | 'plugins' | 'themes' | 'wp_import' | 'languages' | 'settings'
+    'dashboard' | 'products' | 'orders' | 'blog' | 'classifieds' | 'plugins' | 'themes' | 'media' | 'wp_import' | 'languages' | 'settings'
   >('dashboard');
+
+  const [isThemeBuilderOpen, setIsThemeBuilderOpen] = useState(false);
+  const [selectedBuilderTheme, setSelectedBuilderTheme] = useState<ThemeRecord | null>(null);
+  const [isMediaLibraryOpen, setIsMediaLibraryOpen] = useState(false);
 
   // Product CRUD Modal state
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
@@ -136,10 +148,10 @@ export function MerchantAdmin() {
     headerText: '#ffffff'
   });
   const [themeCustomConfig, setThemeCustomConfig] = useState({
-    primaryColor: activeTheme.colors.primary,
-    accentColor: activeTheme.colors.accent,
-    headerBg: activeTheme.colors.headerBg,
-    headerText: activeTheme.colors.headerText
+    primaryColor: activeTheme?.colors?.primary || activeTheme?.palette?.primary || '#f59e0b',
+    accentColor: activeTheme?.colors?.accent || activeTheme?.palette?.secondary || '#10b981',
+    headerBg: activeTheme?.colors?.headerBg || '#0f172a',
+    headerText: activeTheme?.colors?.headerText || '#ffffff'
   });
 
   // Language Upload & Add state
@@ -307,7 +319,7 @@ export function MerchantAdmin() {
               }`}
             >
               <div className="flex items-center gap-2.5">
-                <Package className="w-4 h-4" />
+                <Package className="w-4 h-4 text-blue-400" />
                 <span>{getTranslation(currentLocale, 'merchant.products')}</span>
               </div>
               <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${activeTab === 'products' ? 'bg-slate-950/20 text-slate-900' : 'bg-slate-800 text-slate-300'}`}>
@@ -322,7 +334,7 @@ export function MerchantAdmin() {
               }`}
             >
               <div className="flex items-center gap-2.5">
-                <ShoppingBag className="w-4 h-4" />
+                <ShoppingBag className="w-4 h-4 text-emerald-400" />
                 <span>{getTranslation(currentLocale, 'merchant.orders')}</span>
               </div>
               <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${activeTab === 'orders' ? 'bg-slate-950/20 text-slate-900' : 'bg-slate-800 text-slate-300'}`}>
@@ -330,26 +342,31 @@ export function MerchantAdmin() {
               </span>
             </button>
 
-            <div className="pt-3 pb-1">
-              <span className="text-[10px] font-extrabold uppercase text-slate-500 tracking-wider px-3">
-                Ecosistema Extensible
-              </span>
-            </div>
-
             <button
-              onClick={() => setActiveTab('plugins')}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg transition ${
-                activeTab === 'plugins' ? 'bg-amber-500 text-slate-950 font-bold shadow' : 'hover:bg-slate-800 hover:text-white'
+              onClick={() => setActiveTab('blog')}
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition ${
+                activeTab === 'blog' ? 'bg-amber-500 text-slate-950 font-bold shadow' : 'hover:bg-slate-800 hover:text-white'
               }`}
             >
-              <div className="flex items-center gap-2.5">
-                <Puzzle className="w-4 h-4 text-emerald-400" />
-                <span>{getTranslation(currentLocale, 'merchant.plugins')}</span>
-              </div>
-              <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${activeTab === 'plugins' ? 'bg-slate-950/20 text-slate-900' : 'bg-slate-800 text-slate-300'}`}>
-                {plugins.length}
-              </span>
+              <FileText className="w-4 h-4 text-emerald-400" />
+              <span>Blog & Artículos</span>
             </button>
+
+            <button
+              onClick={() => setActiveTab('classifieds')}
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition ${
+                activeTab === 'classifieds' ? 'bg-amber-500 text-slate-950 font-bold shadow' : 'hover:bg-slate-800 hover:text-white'
+              }`}
+            >
+              <Tag className="w-4 h-4 text-purple-400" />
+              <span>Clasificados & Anuncios</span>
+            </button>
+
+            <div className="pt-3 pb-1">
+              <span className="text-[10px] font-extrabold uppercase text-slate-500 tracking-wider px-3">
+                Diseño & Ecosistema
+              </span>
+            </div>
 
             <button
               onClick={() => setActiveTab('themes')}
@@ -358,7 +375,30 @@ export function MerchantAdmin() {
               }`}
             >
               <Palette className="w-4 h-4 text-purple-400" />
-              <span>{getTranslation(currentLocale, 'merchant.themes')}</span>
+              <span>{getTranslation(currentLocale, 'merchant.themes')} & Builder</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('plugins')}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg transition ${
+                activeTab === 'plugins' ? 'bg-amber-500 text-slate-950 font-bold shadow' : 'hover:bg-slate-800 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Puzzle className="w-4 h-4 text-amber-400" />
+                <span>{getTranslation(currentLocale, 'merchant.plugins')}</span>
+              </div>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${activeTab === 'plugins' ? 'bg-slate-950/20 text-slate-900' : 'bg-slate-800 text-slate-300'}`}>
+                {plugins.length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setIsMediaLibraryOpen(true)}
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition hover:bg-slate-800 hover:text-white text-slate-400"
+            >
+              <ImageIcon className="w-4 h-4 text-blue-400" />
+              <span>Biblioteca de Medios</span>
             </button>
 
             <button
@@ -372,23 +412,13 @@ export function MerchantAdmin() {
             </button>
 
             <button
-              onClick={() => setActiveTab('languages')}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition ${
-                activeTab === 'languages' ? 'bg-amber-500 text-slate-950 font-bold shadow' : 'hover:bg-slate-800 hover:text-white'
-              }`}
-            >
-              <Globe className="w-4 h-4 text-amber-400" />
-              <span>{getTranslation(currentLocale, 'merchant.languages')}</span>
-            </button>
-
-            <button
               onClick={() => setActiveTab('settings')}
               className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition ${
                 activeTab === 'settings' ? 'bg-amber-500 text-slate-950 font-bold shadow' : 'hover:bg-slate-800 hover:text-white'
               }`}
             >
-              <Settings className="w-4 h-4" />
-              <span>{getTranslation(currentLocale, 'merchant.settings')}</span>
+              <Settings className="w-4 h-4 text-slate-300" />
+              <span>Identidad & Branding</span>
             </button>
           </nav>
         </div>
@@ -484,7 +514,7 @@ export function MerchantAdmin() {
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
                   <div className="text-[11px] font-bold text-slate-400 uppercase">Plugins Activos</div>
                   <div className="text-2xl font-black text-blue-400 mt-1">
-                    {plugins.filter(p => p.isEnabled).length}
+                    {plugins.filter(p => p.enabled || p.isEnabled).length}
                   </div>
                   <div className="text-[10px] text-slate-500 mt-1">PayPal, Stripe, Correos, COD</div>
                 </div>
@@ -840,6 +870,17 @@ export function MerchantAdmin() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
+                      const allThemes = ThemeService.getAllThemes();
+                      setSelectedBuilderTheme(allThemes[0]);
+                      setIsThemeBuilderOpen(true);
+                    }}
+                    className="px-3.5 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center gap-1.5 shadow transition"
+                  >
+                    <Sparkles className="w-4 h-4 text-purple-200" />
+                    <span>Theme Builder Pro (Visual)</span>
+                  </button>
+                  <button
+                    onClick={() => {
                       setThemeModalTab('upload');
                       setIsNewThemeModalOpen(true);
                     }}
@@ -1189,29 +1230,19 @@ export function MerchantAdmin() {
             </div>
           )}
 
-          {/* TAB 8: STORE SETTINGS */}
+          {/* TAB: BLOG & MAGAZINE */}
+          {activeTab === 'blog' && (
+            <BlogManager tenantId={tenant.id} />
+          )}
+
+          {/* TAB: CLASSIFIEDS */}
+          {activeTab === 'classifieds' && (
+            <ClassifiedsManager tenantId={tenant.id} />
+          )}
+
+          {/* TAB: STORE SETTINGS & BRANDING */}
           {activeTab === 'settings' && (
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
-              <h1 className="text-xl font-extrabold text-white">Ajustes Generales de la Tienda</h1>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-                <div>
-                  <label className="block text-slate-400 mb-1">Nombre Comercial de la Tienda</label>
-                  <input type="text" value={tenant.name} readOnly className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white" />
-                </div>
-                <div>
-                  <label className="block text-slate-400 mb-1">Dominio Personalizado</label>
-                  <input type="text" value={tenant.customDomain || 'tutienda.com'} readOnly className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-emerald-400 font-mono" />
-                </div>
-                <div>
-                  <label className="block text-slate-400 mb-1">Email de Soporte</label>
-                  <input type="text" value={tenant.settings.supportEmail} readOnly className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white" />
-                </div>
-                <div>
-                  <label className="block text-slate-400 mb-1">Envío Gratis a partir de (€)</label>
-                  <input type="text" value={`${tenant.settings.freeShippingThreshold}€`} readOnly className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-amber-400 font-bold" />
-                </div>
-              </div>
-            </div>
+            <TenantBrandingSettings />
           )}
 
         </div>
@@ -2186,6 +2217,25 @@ export function MerchantAdmin() {
 
           </div>
         </div>
+      )}
+
+      {/* THEME BUILDER PRO MODAL */}
+      {isThemeBuilderOpen && (
+        <ThemeBuilderModal
+          tenantId={tenant.id}
+          theme={selectedBuilderTheme || ThemeService.getAllThemes()[0]}
+          isOpen={isThemeBuilderOpen}
+          onClose={() => setIsThemeBuilderOpen(false)}
+        />
+      )}
+
+      {/* MEDIA LIBRARY MODAL */}
+      {isMediaLibraryOpen && (
+        <MediaLibraryModal
+          tenantId={tenant.id}
+          isOpen={isMediaLibraryOpen}
+          onClose={() => setIsMediaLibraryOpen(false)}
+        />
       )}
 
     </div>

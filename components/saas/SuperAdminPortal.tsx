@@ -37,8 +37,12 @@ import {
   FileArchive
 } from 'lucide-react';
 
+import { ApplicationsManager } from './ApplicationsManager';
+import { AuditLogsViewer } from './AuditLogsViewer';
+
 export function SuperAdminPortal() {
   const { 
+    applications,
     licenses, 
     toggleLicenseStatus, 
     updateLicense,
@@ -55,10 +59,11 @@ export function SuperAdminPortal() {
     currentLocale,
     isAuthenticated,
     currentUser,
-    logoutBackend
+    logoutBackend,
+    auditLogs
   } = useStore();
 
-  const [activeTab, setActiveTab] = useState<'licenses' | 'plans' | 'marketplace' | 'tenants'>('licenses');
+  const [activeTab, setActiveTab] = useState<'licenses' | 'plans' | 'applications' | 'marketplace' | 'tenants' | 'audit'>('licenses');
   const [searchQuery, setSearchQuery] = useState('');
   const [marketplaceFilter, setMarketplaceFilter] = useState<'all' | 'plugin' | 'theme'>('all');
 
@@ -236,8 +241,8 @@ export function SuperAdminPortal() {
     setEditPlanPriceMonthly(plan.priceMonthly);
     setEditPlanPriceYearly(plan.priceYearly);
     setEditPlanDescription(plan.description);
-    setEditPlanMaxProducts(plan.maxProducts);
-    setEditPlanMaxStorageMb(plan.maxStorageMb);
+    setEditPlanMaxProducts(plan.maxProducts || plan.entitlements?.['products.max'] || 1000);
+    setEditPlanMaxStorageMb(plan.maxStorageMb || plan.entitlements?.['storage.max_mb'] || 5000);
   };
 
   const handleSavePlanChanges = async (e: React.FormEvent) => {
@@ -284,14 +289,14 @@ export function SuperAdminPortal() {
     setMktName(item.name);
     setMktCategory(item.category);
     setMktPrice(item.price);
-    setMktBillingType(item.billingType);
+    setMktBillingType((item.billingType as any) || 'one_time');
     setMktBadge(item.badge || '');
-    setMktShortDescription(item.shortDescription);
+    setMktShortDescription(item.shortDescription || '');
     setMktDescription(item.description);
     setMktPreviewImage(item.previewImage || '');
-    setMktAuthor(item.author);
-    setMktVersion(item.version);
-    setMktIsPublished(item.isPublished);
+    setMktAuthor(item.author || 'Fenix Official');
+    setMktVersion(item.version || '1.0.0');
+    setMktIsPublished(item.isPublished ?? true);
     setMktIsFeatured(item.isFeatured || false);
     setMktUploadedFileName(item.downloadFileName || '');
     setMktZipFileSize('240 KB');
@@ -366,6 +371,8 @@ export function SuperAdminPortal() {
     const key = `FNX-${selectedPlan.name.substring(0, 3).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}-${randomSuffix}`;
 
     await createLicense({
+      tenantId: `tenant_${(newLicStoreSlug || newLicStoreName).toLowerCase().replace(/[^a-z0-9]/g, '')}`,
+      applicationId: selectedPlan.applicationId || 'app_ecommerce',
       licenseKey: key,
       planId: selectedPlan.id,
       planName: selectedPlan.name,
@@ -380,6 +387,7 @@ export function SuperAdminPortal() {
       transactionId: `MANUAL-EMIT-${Date.now()}`,
       validFrom: new Date().toISOString(),
       validTo: validToDate.toISOString(),
+      entitlements: selectedPlan.entitlements,
       maxProducts: selectedPlan.maxProducts,
       maxStorageMb: selectedPlan.maxStorageMb
     });
@@ -508,6 +516,18 @@ export function SuperAdminPortal() {
           </button>
 
           <button
+            onClick={() => setActiveTab('applications')}
+            className={`px-4 py-2.5 font-bold transition border-b-2 flex items-center gap-2 ${
+              activeTab === 'applications'
+                ? 'border-amber-500 text-amber-400 bg-slate-900/40'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Layers className="w-4 h-4" />
+            <span>Catálogo de Aplicaciones ({applications.length})</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('plans')}
             className={`px-4 py-2.5 font-bold transition border-b-2 flex items-center gap-2 ${
               activeTab === 'plans'
@@ -541,6 +561,18 @@ export function SuperAdminPortal() {
           >
             <Store className="w-4 h-4" />
             <span>{getTranslation(currentLocale, 'superadmin.tab_tenants')}</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('audit')}
+            className={`px-4 py-2.5 font-bold transition border-b-2 flex items-center gap-2 ${
+              activeTab === 'audit'
+                ? 'border-cyan-500 text-cyan-400 bg-slate-900/40'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Shield className="w-4 h-4" />
+            <span>Auditoría & Seguridad ({auditLogs.length})</span>
           </button>
         </div>
 
@@ -677,6 +709,11 @@ export function SuperAdminPortal() {
           </div>
         )}
 
+        {/* TAB: APPLICATIONS CATALOG (Fase 1 y 2) */}
+        {activeTab === 'applications' && (
+          <ApplicationsManager />
+        )}
+
         {/* TAB 2: PLANS & PRICING CATALOG */}
         {activeTab === 'plans' && (
           <div className="space-y-4">
@@ -713,12 +750,20 @@ export function SuperAdminPortal() {
 
                     <div className="text-xs text-slate-300 space-y-2 pt-4 border-t border-slate-800 mt-4">
                       <div className="flex justify-between">
-                        <span className="text-slate-400">Límite de Productos:</span>
-                        <span className="font-bold text-white">{p.maxProducts.toLocaleString()}</span>
+                        <span className="text-slate-400">Capacidad Principal:</span>
+                        <span className="font-bold text-white" suppressHydrationWarning>
+                          {p.maxProducts 
+                            ? `${p.maxProducts} productos` 
+                            : p.entitlements?.['blog.posts_max'] 
+                              ? `${p.entitlements['blog.posts_max']} artículos`
+                              : p.entitlements?.['classifieds.ads_max']
+                                ? `${p.entitlements['classifieds.ads_max']} anuncios`
+                                : 'Ilimitado'}
+                        </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-slate-400">Almacenamiento:</span>
-                        <span className="font-bold text-white">{p.maxStorageMb} MB</span>
+                        <span className="font-bold text-white" suppressHydrationWarning>{p.maxStorageMb || p.entitlements?.['storage.max_mb'] || 5000} MB</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-slate-400">Dominio Personalizado:</span>
@@ -956,6 +1001,11 @@ export function SuperAdminPortal() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* TAB 5: AUDIT LOGS & SECURITY */}
+        {activeTab === 'audit' && (
+          <AuditLogsViewer />
         )}
 
         {/* MODAL 1: EDITAR / EXTENDER DURACIÓN DE LICENCIA */}

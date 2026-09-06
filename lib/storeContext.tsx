@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { 
   DomainRoute, 
   SupportedLocale, 
@@ -12,7 +12,14 @@ import {
   PluginDefinition, 
   ThemeDefinition, 
   CartItem,
-  MarketplaceItem
+  MarketplaceItem,
+  ApplicationDefinition,
+  BlogPost,
+  ClassifiedAdItem,
+  MediaItem,
+  AuditLogItem,
+  PlanEntitlements,
+  TenantBranding
 } from '@/types';
 import { 
   INITIAL_PLANS, 
@@ -22,10 +29,38 @@ import {
   INITIAL_ORDERS, 
   INITIAL_PLUGINS, 
   INITIAL_THEMES,
-  INITIAL_MARKETPLACE_ITEMS
+  INITIAL_MARKETPLACE_ITEMS,
+  INITIAL_BLOG_POSTS,
+  INITIAL_CLASSIFIED_ADS,
+  INITIAL_MEDIA_ITEMS
 } from './initialData';
-import { db, handleFirestoreError, OperationType } from './firebase';
-import { doc, setDoc, getDoc, collection, getDocs } from 'firebase/firestore';
+import { INITIAL_APPLICATIONS, ApplicationService } from './services/application.service';
+import { AuditService } from './services/audit.service';
+import { db } from './firebase';
+import { doc, getDoc } from 'firebase/firestore';
+
+function subscribeAuthStore(callback: () => void) {
+  if (typeof window === 'undefined') return () => {};
+  window.addEventListener('storage', callback);
+  window.addEventListener('fenix_auth_update', callback);
+  return () => {
+    window.removeEventListener('storage', callback);
+    window.removeEventListener('fenix_auth_update', callback);
+  };
+}
+
+function getAuthSnapshot(): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    return localStorage.getItem('fenix_backend_auth') || '';
+  } catch {
+    return '';
+  }
+}
+
+function getAuthServerSnapshot(): string {
+  return '';
+}
 
 interface StoreContextType {
   currentRoute: DomainRoute;
@@ -39,12 +74,35 @@ interface StoreContextType {
   loginBackend: (email: string, pass: string) => { success: boolean; error?: string };
   logoutBackend: () => void;
   
-  // Data state
+  // Applications & Plans Catalog (Fase 1 y 2)
+  applications: ApplicationDefinition[];
+  createApplication: (app: Omit<ApplicationDefinition, 'id' | 'createdAt'>) => Promise<ApplicationDefinition>;
+  updateApplication: (id: string, updates: Partial<ApplicationDefinition>) => Promise<void>;
+  toggleApplicationStatus: (id: string) => Promise<void>;
+  
   plans: SaaSPlan[];
+  updatePlan: (planId: string, updates: Partial<SaaSPlan>) => Promise<void>;
+  createPlan: (planData: Omit<SaaSPlan, 'id'>) => Promise<SaaSPlan>;
+  updatePlanEntitlements: (planId: string, entitlements: PlanEntitlements) => Promise<void>;
+  
+  // Licencias & Tenants
   licenses: SaaSLicense[];
   tenant: TenantStore;
+  updateTenant: (updates: Partial<TenantStore>) => Promise<void>;
+  updateTenantBranding: (branding: Partial<TenantBranding>) => Promise<void>;
+  createLicense: (licenseData: Omit<SaaSLicense, 'id' | 'createdAt'>) => Promise<SaaSLicense>;
+  updateLicense: (licenseId: string, updates: Partial<SaaSLicense>) => Promise<void>;
+  toggleLicenseStatus: (licenseId: string, status: 'active' | 'suspended' | 'expired') => void;
+  
+  // Módulos de Contenido (Ecommerce, Blog, Clasificados, Media)
   products: ProductItem[];
   orders: StoreOrder[];
+  blogPosts: BlogPost[];
+  classifiedAds: ClassifiedAdItem[];
+  mediaItems: MediaItem[];
+  auditLogs: AuditLogItem[];
+  logAction: (action: string, entity: string, details?: Record<string, any>) => void;
+  
   plugins: PluginDefinition[];
   themes: ThemeDefinition[];
   activeTheme: ThemeDefinition;
@@ -73,11 +131,6 @@ interface StoreContextType {
     storeSlug: string
   ) => Promise<{ success: boolean; license: SaaSLicense; tenant: TenantStore }>;
   
-  toggleLicenseStatus: (licenseId: string, status: 'active' | 'suspended' | 'expired') => void;
-  updateLicense: (licenseId: string, updates: Partial<SaaSLicense>) => Promise<void>;
-  createLicense: (licenseData: Omit<SaaSLicense, 'id' | 'createdAt'>) => Promise<SaaSLicense>;
-  updatePlan: (planId: string, updates: Partial<SaaSPlan>) => Promise<void>;
-  
   // Marketplace items CRUD
   addMarketplaceItem: (item: Omit<MarketplaceItem, 'id' | 'createdAt'>) => Promise<MarketplaceItem>;
   updateMarketplaceItem: (id: string, updates: Partial<MarketplaceItem>) => Promise<void>;
@@ -86,6 +139,20 @@ interface StoreContextType {
   addProduct: (product: Omit<ProductItem, 'id' | 'createdAt'>) => Promise<ProductItem>;
   updateProduct: (productId: string, updates: Partial<ProductItem>) => Promise<void>;
   deleteProduct: (productId: string) => Promise<void>;
+  
+  // Blog CRUD
+  addBlogPost: (post: Omit<BlogPost, 'id' | 'viewsCount' | 'publishedAt'>) => Promise<BlogPost>;
+  updateBlogPost: (id: string, updates: Partial<BlogPost>) => Promise<void>;
+  deleteBlogPost: (id: string) => Promise<void>;
+  
+  // Clasificados CRUD
+  addClassifiedAd: (ad: Omit<ClassifiedAdItem, 'id' | 'viewsCount' | 'favoritesCount' | 'createdAt'>) => Promise<ClassifiedAdItem>;
+  updateClassifiedAd: (id: string, updates: Partial<ClassifiedAdItem>) => Promise<void>;
+  deleteClassifiedAd: (id: string) => Promise<void>;
+  
+  // Media CRUD
+  addMediaItem: (file: { filename: string; url: string; mimeType: string; size: number; alt?: string }) => Promise<MediaItem>;
+  deleteMediaItem: (id: string) => Promise<void>;
   
   createOrder: (orderData: Omit<StoreOrder, 'id' | 'orderNumber' | 'createdAt'>) => Promise<StoreOrder>;
   updateOrderStatus: (orderId: string, updates: Partial<StoreOrder>) => Promise<void>;
@@ -108,88 +175,31 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [currentRoute, setCurrentRoute] = useState<DomainRoute>('saas_landing');
   const [currentLocale, setCurrentLocale] = useState<SupportedLocale>('es');
 
-  // Backend Authentication State with lazy local storage reading
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    try {
-      const savedAuth = localStorage.getItem('fenix_backend_auth');
-      if (savedAuth) {
-        const parsed = JSON.parse(savedAuth);
-        return Boolean(parsed && parsed.email);
-      }
-    } catch {
-      return false;
-    }
-    return false;
-  });
-
-  const [currentUser, setCurrentUser] = useState<{ email: string; name: string; role: 'super_admin' | 'merchant_admin' } | null>(() => {
-    if (typeof window === 'undefined') return null;
-    try {
-      const savedAuth = localStorage.getItem('fenix_backend_auth');
-      if (savedAuth) {
-        const parsed = JSON.parse(savedAuth);
-        if (parsed && parsed.email) return parsed;
-      }
-    } catch {
-      return null;
-    }
-    return null;
-  });
-
-  const loginBackend = (inputEmail: string, inputPass: string) => {
-    const cleanEmail = inputEmail.trim().toLowerCase();
-    const cleanPass = inputPass.trim();
-
-    // Required Super Admin credentials requested by user
-    if (cleanEmail === 'info@fenixcms.es' && cleanPass === 'Patricia1980@') {
-      const user = {
-        email: 'info@fenixcms.es',
-        name: 'Super Administrador FenixCMS',
-        role: 'super_admin' as const
-      };
-      setIsAuthenticated(true);
-      setCurrentUser(user);
-      try {
-        localStorage.setItem('fenix_backend_auth', JSON.stringify(user));
-      } catch {}
-      return { success: true };
-    }
-
-    // Also support merchant store admin access if matching store email
-    if (cleanEmail === tenant.ownerEmail.toLowerCase() && (cleanPass === 'Patricia1980@' || cleanPass === tenant.licenseKey || cleanPass === 'admin123')) {
-      const user = {
-        email: tenant.ownerEmail,
-        name: tenant.ownerName || 'Administrador Tienda',
-        role: 'merchant_admin' as const
-      };
-      setIsAuthenticated(true);
-      setCurrentUser(user);
-      try {
-        localStorage.setItem('fenix_backend_auth', JSON.stringify(user));
-      } catch {}
-      return { success: true };
-    }
-
-    return { 
-      success: false, 
-      error: 'Credenciales no válidas. El usuario debe ser info@fenixcms.es con su contraseña de acceso asignada.' 
-    };
-  };
-
-  const logoutBackend = () => {
-    setIsAuthenticated(false);
-    setCurrentUser(null);
-    try {
-      localStorage.removeItem('fenix_backend_auth');
-    } catch {}
-  };
+  // Backend Authentication State synced via useSyncExternalStore
+  const authRaw = useSyncExternalStore(subscribeAuthStore, getAuthSnapshot, getAuthServerSnapshot);
   
+  const currentUser = useMemo<{ email: string; name: string; role: 'super_admin' | 'merchant_admin' } | null>(() => {
+    if (!authRaw) return null;
+    try {
+      const parsed = JSON.parse(authRaw);
+      if (parsed && parsed.email) return parsed;
+    } catch {}
+    return null;
+  }, [authRaw]);
+
+  const isAuthenticated = Boolean(currentUser && currentUser.email);
+
+  const [applications, setApplications] = useState<ApplicationDefinition[]>(INITIAL_APPLICATIONS);
   const [plans, setPlans] = useState<SaaSPlan[]>(INITIAL_PLANS);
   const [licenses, setLicenses] = useState<SaaSLicense[]>(INITIAL_LICENSES);
   const [tenant, setTenant] = useState<TenantStore>(INITIAL_TENANT);
   const [products, setProducts] = useState<ProductItem[]>(INITIAL_PRODUCTS);
   const [orders, setOrders] = useState<StoreOrder[]>(INITIAL_ORDERS);
+  const [blogPosts, setBlogPosts] = useState<BlogPost[]>(INITIAL_BLOG_POSTS);
+  const [classifiedAds, setClassifiedAds] = useState<ClassifiedAdItem[]>(INITIAL_CLASSIFIED_ADS);
+  const [mediaItems, setMediaItems] = useState<MediaItem[]>(INITIAL_MEDIA_ITEMS);
+  const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>(AuditService.getAll());
+  
   const [plugins, setPlugins] = useState<PluginDefinition[]>(INITIAL_PLUGINS);
   const [themes, setThemes] = useState<ThemeDefinition[]>(INITIAL_THEMES);
   const [marketplaceItems, setMarketplaceItems] = useState<MarketplaceItem[]>(INITIAL_MARKETPLACE_ITEMS);
@@ -198,7 +208,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
   const [selectedProductForModal, setSelectedProductForModal] = useState<ProductItem | null>(null);
-  const [isDbConnected, setIsDbConnected] = useState<boolean>(true);
+  const [isDbConnected] = useState<boolean>(true);
 
   // Sync initial setup with Firestore if possible
   useEffect(() => {
@@ -207,7 +217,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const tenantRef = doc(db, 'tenants', 'tenant_demo');
         const snap = await getDoc(tenantRef);
         if (snap.exists()) {
-          setTenant(snap.data() as TenantStore);
+          setTenant(prev => ({ ...prev, ...(snap.data() as Partial<TenantStore>) }));
         }
       } catch (err) {
         console.warn('Firestore initial read notice:', err);
@@ -221,6 +231,65 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const setActiveThemeId = (id: string) => {
     setActiveThemeIdState(id);
     setTenant(prev => ({ ...prev, themeId: id }));
+  };
+
+  const logAction = useCallback((action: string, entity: string, details?: Record<string, any>) => {
+    const entry = AuditService.log(action, entity, details, tenant?.id, currentUser?.email || 'info@fenixcms.es');
+    setAuditLogs(prev => [entry, ...prev]);
+  }, [tenant?.id, currentUser?.email]);
+
+  const loginBackend = (inputEmail: string, inputPass: string) => {
+    const cleanEmail = inputEmail.trim().toLowerCase();
+    const cleanPass = inputPass.trim();
+
+    // Required Super Admin credentials
+    if (cleanEmail === 'info@fenixcms.es' && cleanPass === 'Patricia1980@') {
+      const user = {
+        email: 'info@fenixcms.es',
+        name: 'Super Administrador FenixCMS',
+        role: 'super_admin' as const
+      };
+      try {
+        localStorage.setItem('fenix_backend_auth', JSON.stringify(user));
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('fenix_auth_update'));
+        }
+      } catch {}
+      logAction('SUPER_ADMIN_LOGIN', 'Auth', { email: cleanEmail });
+      return { success: true };
+    }
+
+    // Merchant Store Admin access
+    if (cleanEmail === tenant.ownerEmail.toLowerCase() && (cleanPass === 'Patricia1980@' || cleanPass === tenant.licenseKey || cleanPass === 'admin123')) {
+      const user = {
+        email: tenant.ownerEmail,
+        name: tenant.ownerName || 'Administrador Tienda',
+        role: 'merchant_admin' as const
+      };
+      try {
+        localStorage.setItem('fenix_backend_auth', JSON.stringify(user));
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('fenix_auth_update'));
+        }
+      } catch {}
+      logAction('MERCHANT_LOGIN', 'Auth', { email: cleanEmail, tenant: tenant.name });
+      return { success: true };
+    }
+
+    return { 
+      success: false, 
+      error: 'Credenciales no válidas. El usuario debe ser info@fenixcms.es con su contraseña de acceso asignada.' 
+    };
+  };
+
+  const logoutBackend = () => {
+    try {
+      localStorage.removeItem('fenix_backend_auth');
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('fenix_auth_update'));
+      }
+    } catch {}
+    logAction('USER_LOGOUT', 'Auth');
   };
 
   // Cart actions
@@ -255,7 +324,57 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const clearCart = () => setCart([]);
 
-  // Buy License via PayPal
+  // Applications CRUD
+  const createApplication = async (appData: Omit<ApplicationDefinition, 'id' | 'createdAt'>) => {
+    const newApp = ApplicationService.create(appData);
+    setApplications(prev => [...prev, newApp]);
+    logAction('APPLICATION_CREATED', 'Application', { key: newApp.key, name: newApp.name });
+    return newApp;
+  };
+
+  const updateApplication = async (id: string, updates: Partial<ApplicationDefinition>) => {
+    setApplications(prev => prev.map(a => a.id === id ? { ...a, ...updates } : a));
+    logAction('APPLICATION_UPDATED', 'Application', { id, updates });
+  };
+
+  const toggleApplicationStatus = async (id: string) => {
+    setApplications(prev => prev.map(a => {
+      if (a.id === id) {
+        const nextStatus = a.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+        logAction('APPLICATION_STATUS_TOGGLED', 'Application', { id, status: nextStatus });
+        return { ...a, status: nextStatus };
+      }
+      return a;
+    }));
+  };
+
+  // Plans & Entitlements CRUD
+  const updatePlan = async (planId: string, updates: Partial<SaaSPlan>) => {
+    setPlans(prev => prev.map(p => p.id === planId ? { ...p, ...updates } : p));
+    logAction('PLAN_UPDATED', 'Plan', { planId, updates });
+  };
+
+  const createPlan = async (planData: Omit<SaaSPlan, 'id'>) => {
+    const newPlan: SaaSPlan = {
+      ...planData,
+      id: `plan_${Date.now()}`
+    };
+    setPlans(prev => [...prev, newPlan]);
+    logAction('PLAN_CREATED', 'Plan', { name: newPlan.name, price: newPlan.priceMonthly });
+    return newPlan;
+  };
+
+  const updatePlanEntitlements = async (planId: string, entitlements: PlanEntitlements) => {
+    setPlans(prev => prev.map(p => {
+      if (p.id === planId) {
+        return { ...p, entitlements: { ...p.entitlements, ...entitlements } };
+      }
+      return p;
+    }));
+    logAction('PLAN_ENTITLEMENTS_UPDATED', 'Plan', { planId, entitlements });
+  };
+
+  // Licenses CRUD
   const buyLicenseWithPayPal = async (
     planId: string, 
     customerName: string, 
@@ -265,12 +384,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     storeSlug: string
   ) => {
     const selectedPlan = plans.find(p => p.id === planId) || plans[1];
-    const generatedLicenseKey = `FNX-${planId.toUpperCase().slice(0, 3)}-${Math.floor(1000 + Math.random() * 9000)}-${storeSlug.toUpperCase().slice(0, 6)}`;
+    const generatedLicenseKey = `FNX-${selectedPlan.slug.toUpperCase().slice(0, 3)}-${Math.floor(1000 + Math.random() * 9000)}-${storeSlug.toUpperCase().slice(0, 6)}`;
     const newLicenseId = `lic_${Date.now()}`;
     const newTenantId = `tenant_${storeSlug.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
 
     const newLicense: SaaSLicense = {
       id: newLicenseId,
+      tenantId: newTenantId,
+      applicationId: selectedPlan.applicationId || 'app_ecommerce',
       licenseKey: generatedLicenseKey,
       planId: selectedPlan.id,
       planName: selectedPlan.name,
@@ -279,230 +400,288 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       customerEmail,
       tenantSlug: storeSlug,
       tenantName: storeName,
-      price: billingPeriod === 'monthly' ? selectedPlan.priceMonthly : selectedPlan.priceYearly,
+      price: billingPeriod === 'yearly' ? selectedPlan.priceYearly : selectedPlan.priceMonthly,
       billingPeriod,
       paymentProvider: 'paypal',
       transactionId: `PP-TX-${Date.now()}`,
       validFrom: new Date().toISOString(),
-      validTo: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
-      maxProducts: selectedPlan.maxProducts,
-      maxStorageMb: selectedPlan.maxStorageMb,
+      validTo: new Date(Date.now() + (billingPeriod === 'yearly' ? 365 : 30) * 24 * 60 * 60 * 1000).toISOString(),
+      autoRenew: true,
+      entitlements: selectedPlan.entitlements,
       createdAt: new Date().toISOString()
     };
 
-    const newTenantStore: TenantStore = {
+    const newTenant: TenantStore = {
       id: newTenantId,
       name: storeName,
       slug: storeSlug,
       domain: `${storeSlug}.fenixcms.es`,
-      customDomain: `${storeSlug}.com`,
       status: 'active',
+      applicationId: selectedPlan.applicationId || 'app_ecommerce',
+      enabledApplications: ['ECOMMERCE', 'BLOG'],
       planId: selectedPlan.id,
       licenseKey: generatedLicenseKey,
       ownerEmail: customerEmail,
       ownerName: customerName,
       themeId: 'theme_fenix_market',
       currency: 'EUR',
-      defaultLocale: currentLocale,
-      supportedLocales: ['es', 'it', 'en', 'fr', 'de', 'pt'],
+      defaultLocale: 'es',
+      supportedLocales: ['es', 'en', 'it', 'fr', 'de', 'pt'],
+      branding: {
+        primaryColor: '#f59e0b',
+        accentColor: '#10b981',
+        fontFamily: 'Inter, sans-serif'
+      },
       settings: {
-        storeName: storeName,
-        tagline: 'Tu nueva tienda online con tecnología FenixCMS',
+        storeName,
+        tagline: 'Tienda Oficial creada con FenixCMS',
         supportEmail: customerEmail,
-        phone: '+34 600 000 000',
-        address: 'Sede Principal, Madrid',
+        phone: '+34 900 000 000',
+        address: 'Calle Principal 10, Madrid',
         taxRate: 21,
         shippingBaseCost: 3.99,
-        freeShippingThreshold: 30.00
+        freeShippingThreshold: 50.00
       },
-      activePlugins: [
-        'plugin_paypal',
-        'plugin_stripe',
-        'plugin_bank_transfer',
-        'plugin_cash_on_delivery',
-        'plugin_correos',
-        'plugin_fenix_import'
-      ],
+      activePlugins: ['plugin_paypal', 'plugin_stripe', 'plugin_correos', 'plugin_fenix_import'],
       createdAt: new Date().toISOString()
     };
 
     setLicenses(prev => [newLicense, ...prev]);
-    setTenant(newTenantStore);
+    setTenant(newTenant);
+    logAction('LICENSE_PURCHASED', 'License', { key: generatedLicenseKey, store: storeName, customer: customerEmail });
 
-    // Save to Firestore asynchronously
-    try {
-      await setDoc(doc(db, 'licenses', newLicenseId), newLicense);
-      await setDoc(doc(db, 'tenants', newTenantId), newTenantStore);
-    } catch (e) {
-      console.warn('Firestore write fallback info:', e);
-    }
-
-    return { success: true, license: newLicense, tenant: newTenantStore };
+    return { success: true, license: newLicense, tenant: newTenant };
   };
 
   const toggleLicenseStatus = (licenseId: string, status: 'active' | 'suspended' | 'expired') => {
     setLicenses(prev => prev.map(l => l.id === licenseId ? { ...l, status } : l));
+    logAction('LICENSE_STATUS_TOGGLED', 'License', { licenseId, status });
   };
 
   const updateLicense = async (licenseId: string, updates: Partial<SaaSLicense>) => {
     setLicenses(prev => prev.map(l => l.id === licenseId ? { ...l, ...updates } : l));
-    try {
-      await setDoc(doc(db, 'licenses', licenseId), updates, { merge: true });
-    } catch (e) {
-      console.warn('License update notice:', e);
-    }
+    logAction('LICENSE_UPDATED', 'License', { licenseId, updates });
   };
 
-  const createLicense = async (licenseData: Omit<SaaSLicense, 'id' | 'createdAt'>): Promise<SaaSLicense> => {
+  const createLicense = async (licenseData: Omit<SaaSLicense, 'id' | 'createdAt'>) => {
     const newLicense: SaaSLicense = {
       ...licenseData,
       id: `lic_${Date.now()}`,
       createdAt: new Date().toISOString()
     };
     setLicenses(prev => [newLicense, ...prev]);
-    try {
-      await setDoc(doc(db, 'licenses', newLicense.id), newLicense);
-    } catch (e) {
-      console.warn('License create notice:', e);
-    }
+    logAction('LICENSE_CREATED_MANUAL', 'License', { key: newLicense.licenseKey, customer: newLicense.customerEmail });
     return newLicense;
   };
 
-  const updatePlan = async (planId: string, updates: Partial<SaaSPlan>) => {
-    setPlans(prev => prev.map(p => p.id === planId ? { ...p, ...updates } : p));
+  const updateTenant = async (updates: Partial<TenantStore>) => {
+    setTenant(prev => ({ ...prev, ...updates }));
+    logAction('TENANT_SETTINGS_UPDATED', 'Tenant', updates);
   };
 
-  // Marketplace items CRUD
-  const addMarketplaceItem = async (itemData: Omit<MarketplaceItem, 'id' | 'createdAt'>): Promise<MarketplaceItem> => {
-    const newItem: MarketplaceItem = {
-      ...itemData,
-      id: `mkt_${Date.now()}`,
-      createdAt: new Date().toISOString()
-    };
-    setMarketplaceItems(prev => [newItem, ...prev]);
-    return newItem;
-  };
-
-  const updateMarketplaceItem = async (id: string, updates: Partial<MarketplaceItem>) => {
-    setMarketplaceItems(prev => prev.map(item => item.id === id ? { ...item, ...updates } : item));
-  };
-
-  const deleteMarketplaceItem = async (id: string) => {
-    setMarketplaceItems(prev => prev.filter(item => item.id !== id));
+  const updateTenantBranding = async (branding: Partial<TenantBranding>) => {
+    setTenant(prev => ({
+      ...prev,
+      branding: { ...prev.branding, ...branding }
+    }));
+    logAction('TENANT_BRANDING_UPDATED', 'Tenant', branding);
   };
 
   // Products CRUD
-  const addProduct = async (productData: Omit<ProductItem, 'id' | 'createdAt'>): Promise<ProductItem> => {
+  const addProduct = async (productData: Omit<ProductItem, 'id' | 'createdAt'>) => {
     const newProduct: ProductItem = {
       ...productData,
       id: `prod_${Date.now()}`,
       createdAt: new Date().toISOString()
     };
     setProducts(prev => [newProduct, ...prev]);
-    
-    try {
-      await setDoc(doc(db, 'products', newProduct.id), newProduct);
-    } catch (e) {
-      console.warn('Product save notice:', e);
-    }
+    logAction('PRODUCT_CREATED', 'Product', { title: newProduct.title, sku: newProduct.sku });
     return newProduct;
   };
 
   const updateProduct = async (productId: string, updates: Partial<ProductItem>) => {
     setProducts(prev => prev.map(p => p.id === productId ? { ...p, ...updates } : p));
-    try {
-      await setDoc(doc(db, 'products', productId), updates, { merge: true });
-    } catch (e) {
-      console.warn('Product update notice:', e);
-    }
+    logAction('PRODUCT_UPDATED', 'Product', { productId, updates });
   };
 
   const deleteProduct = async (productId: string) => {
     setProducts(prev => prev.filter(p => p.id !== productId));
+    logAction('PRODUCT_DELETED', 'Product', { productId });
   };
 
-  // Orders
-  const createOrder = async (orderData: Omit<StoreOrder, 'id' | 'orderNumber' | 'createdAt'>): Promise<StoreOrder> => {
-    const orderNumber = `ORD-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+  // Blog CRUD
+  const addBlogPost = async (postData: Omit<BlogPost, 'id' | 'viewsCount' | 'publishedAt'>) => {
+    const newPost: BlogPost = {
+      ...postData,
+      id: `post_${Date.now()}`,
+      viewsCount: 0,
+      publishedAt: new Date().toISOString()
+    };
+    setBlogPosts(prev => [newPost, ...prev]);
+    logAction('BLOG_POST_CREATED', 'BlogPost', { title: newPost.title, slug: newPost.slug });
+    return newPost;
+  };
+
+  const updateBlogPost = async (id: string, updates: Partial<BlogPost>) => {
+    setBlogPosts(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
+    logAction('BLOG_POST_UPDATED', 'BlogPost', { id, updates });
+  };
+
+  const deleteBlogPost = async (id: string) => {
+    setBlogPosts(prev => prev.filter(p => p.id !== id));
+    logAction('BLOG_POST_DELETED', 'BlogPost', { id });
+  };
+
+  // Classified Ads CRUD
+  const addClassifiedAd = async (adData: Omit<ClassifiedAdItem, 'id' | 'viewsCount' | 'favoritesCount' | 'createdAt'>) => {
+    const newAd: ClassifiedAdItem = {
+      ...adData,
+      id: `ad_${Date.now()}`,
+      viewsCount: 0,
+      favoritesCount: 0,
+      createdAt: new Date().toISOString()
+    };
+    setClassifiedAds(prev => [newAd, ...prev]);
+    logAction('CLASSIFIED_AD_CREATED', 'ClassifiedAd', { title: newAd.title, price: newAd.price });
+    return newAd;
+  };
+
+  const updateClassifiedAd = async (id: string, updates: Partial<ClassifiedAdItem>) => {
+    setClassifiedAds(prev => prev.map(a => a.id === id ? { ...a, ...updates } : a));
+    logAction('CLASSIFIED_AD_UPDATED', 'ClassifiedAd', { id, updates });
+  };
+
+  const deleteClassifiedAd = async (id: string) => {
+    setClassifiedAds(prev => prev.filter(a => a.id !== id));
+    logAction('CLASSIFIED_AD_DELETED', 'ClassifiedAd', { id });
+  };
+
+  // Media Library CRUD
+  const addMediaItem = async (file: { filename: string; url: string; mimeType: string; size: number; alt?: string }) => {
+    const newMedia: MediaItem = {
+      id: `med_${Date.now()}`,
+      tenantId: tenant?.id || 'tenant_demo',
+      filename: file.filename,
+      url: file.url,
+      mimeType: file.mimeType,
+      size: file.size,
+      alt: file.alt || file.filename,
+      createdAt: new Date().toISOString()
+    };
+    setMediaItems(prev => [newMedia, ...prev]);
+    logAction('MEDIA_UPLOADED', 'Media', { filename: file.filename, size: file.size });
+    return newMedia;
+  };
+
+  const deleteMediaItem = async (id: string) => {
+    setMediaItems(prev => prev.filter(m => m.id !== id));
+    logAction('MEDIA_DELETED', 'Media', { id });
+  };
+
+  // Orders CRUD
+  const createOrder = async (orderData: Omit<StoreOrder, 'id' | 'orderNumber' | 'createdAt'>) => {
+    const orderNum = `FNX-${Math.floor(100000 + Math.random() * 900000)}`;
     const newOrder: StoreOrder = {
       ...orderData,
       id: `ord_${Date.now()}`,
-      orderNumber,
+      orderNumber: orderNum,
       createdAt: new Date().toISOString()
     };
     setOrders(prev => [newOrder, ...prev]);
-    
-    try {
-      await setDoc(doc(db, 'orders', newOrder.id), newOrder);
-    } catch (e) {
-      console.warn('Order save notice:', e);
-    }
+    logAction('ORDER_PLACED', 'Order', { orderNumber: orderNum, total: newOrder.total });
     return newOrder;
   };
 
   const updateOrderStatus = async (orderId: string, updates: Partial<StoreOrder>) => {
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...updates } : o));
-    try {
-      await setDoc(doc(db, 'orders', orderId), updates, { merge: true });
-    } catch (e) {
-      console.warn('Order update notice:', e);
-    }
+    logAction('ORDER_STATUS_UPDATED', 'Order', { orderId, updates });
   };
 
-  // Plugins
+  // Plugins & Themes
   const togglePlugin = async (pluginId: string) => {
-    setPlugins(prev => prev.map(p => p.id === pluginId ? { ...p, isEnabled: !p.isEnabled } : p));
+    setPlugins(prev => prev.map(p => {
+      if (p.id === pluginId) {
+        const nextEnabled = !p.enabled;
+        logAction('PLUGIN_TOGGLED', 'Plugin', { pluginId, enabled: nextEnabled });
+        return { ...p, enabled: nextEnabled };
+      }
+      return p;
+    }));
   };
 
   const updatePluginConfig = async (pluginId: string, config: Record<string, any>) => {
     setPlugins(prev => prev.map(p => p.id === pluginId ? { ...p, config: { ...p.config, ...config } } : p));
+    logAction('PLUGIN_CONFIG_UPDATED', 'Plugin', { pluginId });
   };
 
   const installNewPlugin = async (plugin: PluginDefinition) => {
     setPlugins(prev => [...prev, plugin]);
+    logAction('PLUGIN_INSTALLED', 'Plugin', { name: plugin.name });
   };
 
-  // Themes
   const installNewTheme = async (theme: ThemeDefinition) => {
     setThemes(prev => [...prev, theme]);
-    setActiveThemeId(theme.id);
+    logAction('THEME_INSTALLED', 'Theme', { name: theme.name });
   };
 
-  // Batch import (Fenix All Import)
-  const importProductsBatch = async (items: Partial<ProductItem>[]): Promise<{ importedCount: number }> => {
-    const formatted: ProductItem[] = items.map((item, idx) => ({
-      id: `prod_imp_${Date.now()}_${idx}`,
-      tenantId: tenant.id,
-      title: item.title || `Producto Importado #${idx + 1}`,
-      slug: (item.title || `producto-${idx}`).toLowerCase().replace(/[^a-z0-9]/g, '-'),
-      description: item.description || 'Descripción detallada de producto importado vía Fenix All Import Pro.',
-      category: item.category || 'General',
-      price: Number(item.price) || 29.99,
-      compareAtPrice: item.compareAtPrice ? Number(item.compareAtPrice) : undefined,
-      sku: item.sku || `SKU-IMP-${Math.floor(1000 + Math.random() * 9000)}`,
-      stock: Number(item.stock) || 50,
-      rating: 4.8,
-      reviewsCount: Math.floor(10 + Math.random() * 200),
-      images: item.images && item.images.length > 0 ? item.images : ['https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=800&q=80'],
-      tags: ['importado', 'fenix-all-import'],
-      status: 'active',
+  const addMarketplaceItem = async (item: Omit<MarketplaceItem, 'id'>) => {
+    const newItem: MarketplaceItem = {
+      ...item,
+      id: `mkt_${Date.now()}`
+    };
+    setMarketplaceItems(prev => [newItem, ...prev]);
+    logAction('MARKETPLACE_ITEM_PUBLISHED', 'Marketplace', { name: newItem.name, type: newItem.type });
+    return newItem;
+  };
+
+  const updateMarketplaceItem = async (id: string, updates: Partial<MarketplaceItem>) => {
+    setMarketplaceItems(prev => prev.map(i => i.id === id ? { ...i, ...updates } : i));
+  };
+
+  const deleteMarketplaceItem = async (id: string) => {
+    setMarketplaceItems(prev => prev.filter(i => i.id !== id));
+  };
+
+  const importProductsBatch = async (newProducts: Partial<ProductItem>[]) => {
+    const formatted: ProductItem[] = newProducts.map((p, idx) => ({
+      id: `imp_${Date.now()}_${idx}`,
+      tenantId: tenant?.id || 'tenant_demo',
+      title: p.title || 'Producto Importado',
+      slug: (p.title || 'producto-importado').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+      description: p.description || '',
+      category: p.category || 'General',
+      price: Number(p.price) || 19.99,
+      compareAtPrice: p.compareAtPrice ? Number(p.compareAtPrice) : undefined,
+      sku: p.sku || `SKU-IMP-${Math.floor(1000 + Math.random() * 9000)}`,
+      stock: Number(p.stock) || 10,
+      rating: 5,
+      reviewsCount: 0,
+      images: p.images && p.images.length ? p.images : ['https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&q=80'],
+      tags: p.tags || ['importado'],
+      status: 'ACTIVE',
       createdAt: new Date().toISOString()
     }));
 
     setProducts(prev => [...formatted, ...prev]);
+    logAction('PRODUCTS_IMPORTED_BATCH', 'Product', { count: formatted.length });
     return { importedCount: formatted.length };
   };
 
   const resetToDemoData = () => {
+    setApplications(INITIAL_APPLICATIONS);
     setPlans(INITIAL_PLANS);
     setLicenses(INITIAL_LICENSES);
     setTenant(INITIAL_TENANT);
     setProducts(INITIAL_PRODUCTS);
     setOrders(INITIAL_ORDERS);
+    setBlogPosts(INITIAL_BLOG_POSTS);
+    setClassifiedAds(INITIAL_CLASSIFIED_ADS);
+    setMediaItems(INITIAL_MEDIA_ITEMS);
     setPlugins(INITIAL_PLUGINS);
     setThemes(INITIAL_THEMES);
     setActiveThemeIdState('theme_fenix_market');
     setCart([]);
+    logAction('SYSTEM_RESET_DEMO', 'System');
   };
 
   return (
@@ -515,11 +694,25 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       currentUser,
       loginBackend,
       logoutBackend,
+      applications,
+      createApplication,
+      updateApplication,
+      toggleApplicationStatus,
       plans,
+      createPlan,
+      updatePlan,
+      updatePlanEntitlements,
       licenses,
       tenant,
+      updateTenant,
+      updateTenantBranding,
       products,
       orders,
+      blogPosts,
+      classifiedAds,
+      mediaItems,
+      auditLogs,
+      logAction,
       plugins,
       themes,
       activeTheme,
@@ -537,13 +730,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       toggleLicenseStatus,
       updateLicense,
       createLicense,
-      updatePlan,
       addMarketplaceItem,
       updateMarketplaceItem,
       deleteMarketplaceItem,
       addProduct,
       updateProduct,
       deleteProduct,
+      addBlogPost,
+      updateBlogPost,
+      deleteBlogPost,
+      addClassifiedAd,
+      updateClassifiedAd,
+      deleteClassifiedAd,
+      addMediaItem,
+      deleteMediaItem,
       createOrder,
       updateOrderStatus,
       togglePlugin,

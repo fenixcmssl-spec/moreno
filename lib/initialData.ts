@@ -1,13 +1,39 @@
-import { SaaSPlan, SaaSLicense, TenantStore, ProductItem, StoreOrder, PluginDefinition, ThemeDefinition, MarketplaceItem } from '@/types';
+import { 
+  SaaSPlan, 
+  SaaSLicense, 
+  TenantStore, 
+  ProductItem, 
+  StoreOrder, 
+  PluginDefinition, 
+  ThemeDefinition, 
+  MarketplaceItem,
+  BlogPost,
+  BlogCategory,
+  ClassifiedAdItem,
+  ClassifiedCategoryItem,
+  MediaItem,
+  CMSPage
+} from '@/types';
 
 export const INITIAL_PLANS: SaaSPlan[] = [
   {
     id: 'plan_starter',
+    applicationId: 'app_ecommerce',
     name: 'Starter Merchant',
+    slug: 'starter-merchant',
     badge: 'Para Emprendedores',
     priceMonthly: 29,
     priceYearly: 290,
     description: 'Ideal para lanzar tu primera tienda online con todas las funciones esenciales.',
+    status: 'ACTIVE',
+    entitlements: {
+      'products.max': 100,
+      'storage.max_mb': 1000,
+      'domains.max': 1,
+      'users.max': 2,
+      'ai.enabled': false,
+      'plugins.allowed': ['plugin_paypal', 'plugin_stripe', 'plugin_correos', 'plugin_fenix_import']
+    },
     maxProducts: 100,
     maxStorageMb: 1000,
     customDomainAllowed: true,
@@ -23,12 +49,23 @@ export const INITIAL_PLANS: SaaSPlan[] = [
   },
   {
     id: 'plan_pro',
+    applicationId: 'app_ecommerce',
     name: 'Professional Store',
+    slug: 'pro-store',
     badge: 'Más Popular',
     popular: true,
     priceMonthly: 79,
     priceYearly: 790,
     description: 'Para negocios en crecimiento que requieren catálogo ilimitado y automatizaciones.',
+    status: 'ACTIVE',
+    entitlements: {
+      'products.max': 2500,
+      'storage.max_mb': 10000,
+      'domains.max': 3,
+      'users.max': 5,
+      'ai.enabled': true,
+      'customTheme.enabled': true
+    },
     maxProducts: 2500,
     maxStorageMb: 10000,
     customDomainAllowed: true,
@@ -45,11 +82,22 @@ export const INITIAL_PLANS: SaaSPlan[] = [
   },
   {
     id: 'plan_enterprise',
+    applicationId: 'app_ecommerce',
     name: 'Enterprise Network',
+    slug: 'enterprise-network',
     badge: 'Máxima Potencia',
     priceMonthly: 199,
     priceYearly: 1990,
     description: 'Para grandes catálogos, marcas consolidadas y agencias multi-tienda.',
+    status: 'ACTIVE',
+    entitlements: {
+      'products.max': 50000,
+      'storage.max_mb': 100000,
+      'domains.max': 10,
+      'users.max': 25,
+      'ai.enabled': true,
+      'customTheme.enabled': true
+    },
     maxProducts: 50000,
     maxStorageMb: 100000,
     customDomainAllowed: true,
@@ -61,12 +109,60 @@ export const INITIAL_PLANS: SaaSPlan[] = [
       'SLA garantizado 99.99%',
       'Account Manager y soporte telefónico dedicado'
     ]
+  },
+  {
+    id: 'plan_blog_starter',
+    applicationId: 'app_blog',
+    name: 'Blog Creator',
+    slug: 'blog-creator',
+    badge: 'Editorial',
+    priceMonthly: 19,
+    priceYearly: 190,
+    description: 'Sistema completo para redactores, revistas y blogs con monetización y SEO.',
+    status: 'ACTIVE',
+    entitlements: {
+      'blog.posts_max': 500,
+      'storage.max_mb': 5000,
+      'domains.max': 1,
+      'users.max': 3
+    },
+    features: [
+      'Entradas ilimitadas y categorías',
+      'Gestión de autores con perfiles públicos',
+      'Optimización SEO y OpenGraph automática',
+      'Moderación de comentarios con anti-spam'
+    ]
+  },
+  {
+    id: 'plan_classifieds_pro',
+    applicationId: 'app_classifieds',
+    name: 'Portal Clasificados Pro',
+    slug: 'clasificados-pro',
+    badge: 'Marketplace C2C',
+    priceMonthly: 49,
+    priceYearly: 490,
+    description: 'Plataforma de anuncios clasificados con pasarela para destacados y chat entre usuarios.',
+    status: 'ACTIVE',
+    entitlements: {
+      'classifieds.ads_max': 5000,
+      'storage.max_mb': 20000,
+      'domains.max': 2,
+      'users.max': 10
+    },
+    features: [
+      'Publicación de anuncios con múltiples fotos',
+      'Filtros por provincia, ciudad y distancia',
+      'Sistema de mensajería interna y favoritos',
+      'Cobro por anuncios destacados y banners'
+    ]
   }
 ];
 
 export const INITIAL_LICENSES: SaaSLicense[] = [
   {
     id: 'lic_882910',
+    tenantId: 'tenant_demo',
+    applicationId: 'app_ecommerce',
     licenseKey: 'FNX-PRO-9823-X981-DEMO',
     planId: 'plan_pro',
     planName: 'Professional Store',
@@ -81,12 +177,13 @@ export const INITIAL_LICENSES: SaaSLicense[] = [
     transactionId: 'PP-TX-9938172635',
     validFrom: '2026-09-01T00:00:00Z',
     validTo: '2027-09-01T00:00:00Z',
-    maxProducts: 2500,
-    maxStorageMb: 10000,
+    autoRenew: true,
     createdAt: '2026-09-01T10:30:00Z'
   },
   {
     id: 'lic_771239',
+    tenantId: 'tenant_milano',
+    applicationId: 'app_ecommerce',
     licenseKey: 'FNX-STA-4412-K872-BOUTIQUE',
     planId: 'plan_starter',
     planName: 'Starter Merchant',
@@ -101,8 +198,7 @@ export const INITIAL_LICENSES: SaaSLicense[] = [
     transactionId: 'PP-TX-1029384756',
     validFrom: '2026-08-15T00:00:00Z',
     validTo: '2027-08-15T00:00:00Z',
-    maxProducts: 100,
-    maxStorageMb: 1000,
+    autoRenew: true,
     createdAt: '2026-08-15T09:00:00Z'
   }
 ];
@@ -114,6 +210,8 @@ export const INITIAL_TENANT: TenantStore = {
   domain: 'demo.fenixcms.es',
   customDomain: 'tutienda.com',
   status: 'active',
+  applicationId: 'app_ecommerce',
+  enabledApplications: ['ECOMMERCE', 'BLOG'],
   planId: 'plan_pro',
   licenseKey: 'FNX-PRO-9823-X981-DEMO',
   ownerEmail: 'info@fenixcms.es',
@@ -122,6 +220,13 @@ export const INITIAL_TENANT: TenantStore = {
   currency: 'EUR',
   defaultLocale: 'es',
   supportedLocales: ['es', 'it', 'en', 'fr', 'de', 'pt'],
+  branding: {
+    primaryColor: '#f59e0b',
+    accentColor: '#10b981',
+    fontFamily: 'Inter, sans-serif',
+    logoUrl: 'https://images.unsplash.com/photo-1472851294608-062f824d29cc?w=120&q=80',
+    faviconUrl: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=32&q=80'
+  },
   settings: {
     storeName: 'Mi Tienda Online',
     tagline: 'Todo lo que buscas, al mejor precio y con entrega rápida',
@@ -863,5 +968,147 @@ export const INITIAL_MARKETPLACE_ITEMS: MarketplaceItem[] = [
     isFeatured: true,
     downloadFileName: 'theme-cyber-dark-v1.5.0.zip',
     createdAt: '2026-08-30T10:00:00Z'
+  }
+];
+
+export const INITIAL_BLOG_CATEGORIES: BlogCategory[] = [
+  { id: 'bcat_1', tenantId: 'tenant_demo', name: 'Tecnología & Gadgets', slug: 'tecnologia', description: 'Novedades y análisis del sector tecnológico', postsCount: 3 },
+  { id: 'bcat_2', tenantId: 'tenant_demo', name: 'Guías de Compra', slug: 'guias-compra', description: 'Comparativas y recomendaciones de expertos', postsCount: 2 },
+  { id: 'bcat_3', tenantId: 'tenant_demo', name: 'Comercio Online', slug: 'ecommerce', description: 'Estrategias y noticias del comercio electrónico', postsCount: 1 }
+];
+
+export const INITIAL_BLOG_POSTS: BlogPost[] = [
+  {
+    id: 'post_1',
+    tenantId: 'tenant_demo',
+    title: 'Top 5 Auriculares con Cancelación de Ruido para Teletrabajar en 2026',
+    slug: 'top-5-auriculares-cancelacion-ruido-2026',
+    excerpt: 'Analizamos los modelos más destacados del mercado con mejor autonomía, micrófonos con inteligencia artificial y comodidad.',
+    content: 'El teletrabajo y la concentración en entornos con ruido demandan auriculares con cancelación activa de ruido híbrida. En esta comparativa analizamos la respuesta de frecuencia, la reducción de decibelios y la duración de batería de los modelos líderes.',
+    category: 'Tecnología & Gadgets',
+    author: { name: 'Carlos Mendoza', avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&q=80' },
+    featuredImage: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&q=80',
+    tags: ['auriculares', 'anc', 'gadgets', 'teletrabajo'],
+    status: 'PUBLISHED',
+    publishedAt: '2026-09-02T12:00:00Z',
+    viewsCount: 480,
+    seoTitle: 'Los Mejores Auriculares con Cancelación de Ruido 2026',
+    seoDescription: 'Guía y comparativa de auriculares inalámbricos con cancelación activa de ruido.'
+  },
+  {
+    id: 'post_2',
+    tenantId: 'tenant_demo',
+    title: 'Cómo Elegir un Teclado Mecánico Ergonómico para Programar y Escribir',
+    slug: 'como-elegir-teclado-mecanico-ergonomico',
+    excerpt: 'Descubre los tipos de switches (Lineales, Táctiles y Clicky) y los formatos 60%, TKL y Completo para evitar fatiga en muñecas.',
+    content: 'Un teclado mecánico de calidad no solo mejora la velocidad de mecanografía sino que previene el síndrome del túnel carpiano. Te explicamos los tipos de switches Hot-Swap, la lubricación y la conectividad inalámbrica de baja latencia.',
+    category: 'Guías de Compra',
+    author: { name: 'Elena Rossi', avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&q=80' },
+    featuredImage: 'https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=800&q=80',
+    tags: ['teclados', 'ergonomia', 'hardware', 'setup'],
+    status: 'PUBLISHED',
+    publishedAt: '2026-09-03T15:30:00Z',
+    viewsCount: 310
+  }
+];
+
+export const INITIAL_CLASSIFIED_CATEGORIES: ClassifiedCategoryItem[] = [
+  { id: 'ccat_1', tenantId: 'tenant_demo', name: 'Informática & Telefonía', slug: 'informatica', icon: 'Laptop', adsCount: 14 },
+  { id: 'ccat_2', tenantId: 'tenant_demo', name: 'Motor & Accesorios', slug: 'motor', icon: 'Car', adsCount: 8 },
+  { id: 'ccat_3', tenantId: 'tenant_demo', name: 'Hogar & Electrodomésticos', slug: 'hogar', icon: 'Home', adsCount: 19 },
+  { id: 'ccat_4', tenantId: 'tenant_demo', name: 'Moda & Complementos', slug: 'moda', icon: 'Shirt', adsCount: 25 }
+];
+
+export const INITIAL_CLASSIFIED_ADS: ClassifiedAdItem[] = [
+  {
+    id: 'ad_1',
+    tenantId: 'tenant_demo',
+    title: 'MacBook Pro M3 14" 18GB RAM 512GB SSD Impecable',
+    slug: 'macbook-pro-m3-14-impecable',
+    description: 'En perfecto estado, comprado hace 4 meses con factura y garantía oficial. Incluye cargador MagSafe original y funda de transporte.',
+    category: 'Informática & Telefonía',
+    categoryId: 'ccat_1',
+    price: 1450,
+    location: 'Madrid Centro, España',
+    images: ['https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=800&q=80'],
+    status: 'PUBLISHED',
+    featured: true,
+    sellerName: 'David S.',
+    sellerPhone: '+34 611 223 344',
+    attributes: { 'Estado': 'Como nuevo', 'Garantía': '18 meses restantes' },
+    viewsCount: 185,
+    favoritesCount: 24,
+    createdAt: '2026-09-03T10:00:00Z'
+  },
+  {
+    id: 'ad_2',
+    tenantId: 'tenant_demo',
+    title: 'Bicicleta de Carretera Carbono Shimano Ultegra Talla 54',
+    slug: 'bicicleta-carretera-carbono-ultegra',
+    description: 'Cuadro monocasco de carbono, grupo completo Shimano Ultegra R8000 de 11 velocidades, ruedas Mavic Ksyrium Pro.',
+    category: 'Motor & Accesorios',
+    categoryId: 'ccat_2',
+    price: 890,
+    location: 'Barcelona, España',
+    images: ['https://images.unsplash.com/photo-1485965120184-e220f721d03e?w=800&q=80'],
+    status: 'PUBLISHED',
+    featured: false,
+    sellerName: 'Marcos R.',
+    sellerPhone: '+34 622 998 877',
+    viewsCount: 94,
+    favoritesCount: 11,
+    createdAt: '2026-09-04T16:20:00Z'
+  }
+];
+
+export const INITIAL_MEDIA_ITEMS: MediaItem[] = [
+  {
+    id: 'med_1',
+    tenantId: 'tenant_demo',
+    filename: 'logo-fenix-corporation.png',
+    url: 'https://images.unsplash.com/photo-1472851294608-062f824d29cc?w=300&q=80',
+    mimeType: 'image/png',
+    size: 45000,
+    width: 400,
+    height: 120,
+    alt: 'Logo Fenix',
+    createdAt: '2026-09-01T09:00:00Z'
+  },
+  {
+    id: 'med_2',
+    tenantId: 'tenant_demo',
+    filename: 'banner-ofertas-otono.webp',
+    url: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=1200&q=80',
+    mimeType: 'image/webp',
+    size: 128000,
+    width: 1200,
+    height: 500,
+    alt: 'Banner Campaña',
+    createdAt: '2026-09-02T11:20:00Z'
+  }
+];
+
+export const INITIAL_CMS_PAGES: CMSPage[] = [
+  {
+    id: 'page_1',
+    tenantId: 'tenant_demo',
+    slug: 'sobre-nosotros',
+    title: 'Sobre Nosotros',
+    content: 'Somos una empresa comprometida con ofrecer productos de alta tecnología y calidad certificada con envíos rápidos en 24/48 horas.',
+    status: 'ACTIVE',
+    seoTitle: 'Conoce Nuestra Empresa | Historia y Misión',
+    seoDescription: 'Descubre el equipo y los valores detrás de nuestra tienda.',
+    updatedAt: '2026-09-01T10:00:00Z'
+  },
+  {
+    id: 'page_2',
+    tenantId: 'tenant_demo',
+    slug: 'envios-y-devoluciones',
+    title: 'Envíos y Devoluciones',
+    content: 'Realizamos todos nuestros envíos nacionales a través de Correos Express con entrega en 24h. Dispones de 30 días para cualquier cambio o devolución.',
+    status: 'ACTIVE',
+    seoTitle: 'Política de Envíos Rápidos y Devoluciones',
+    seoDescription: 'Información sobre envíos con Correos Express y garantías.',
+    updatedAt: '2026-09-01T10:00:00Z'
   }
 ];

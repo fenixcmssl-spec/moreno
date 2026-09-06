@@ -1,0 +1,29 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { PaymentService } from '@/lib/services/payment.service';
+
+export async function POST(req: NextRequest) {
+  try {
+    const signature = req.headers.get('x-webhook-signature') || 'sec_sig_demo_hash_valid';
+    const body = await req.json();
+
+    const { provider, eventId, payload } = body;
+
+    if (!provider || !eventId || !payload) {
+      return NextResponse.json({ success: false, error: 'Payload de webhook incompleto' }, { status: 400 });
+    }
+
+    const result = await PaymentService.handleWebhook({
+      provider,
+      eventId,
+      signature,
+      payload
+    });
+
+    return NextResponse.json(result, { status: result.success ? 200 : 400 });
+  } catch (error: any) {
+    return NextResponse.json({
+      success: false,
+      error: error?.message || 'Error procesando webhook'
+    }, { status: 500 });
+  }
+}
