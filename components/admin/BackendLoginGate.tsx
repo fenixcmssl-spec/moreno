@@ -33,7 +33,13 @@ export function BackendLoginGate({
     const result = loginBackend(email, password);
     setIsLoading(false);
 
-    if (!result.success) {
+    if (result.success) {
+      if (targetDestination === 'super_admin') {
+        setCurrentRoute('saas_admin');
+      } else {
+        setCurrentRoute('store_admin');
+      }
+    } else {
       setErrorMessage(result.error || 'Credenciales incorrectas');
     }
   };

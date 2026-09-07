@@ -83,6 +83,9 @@ interface StoreContextType {
   plans: SaaSPlan[];
   updatePlan: (planId: string, updates: Partial<SaaSPlan>) => Promise<void>;
   createPlan: (planData: Omit<SaaSPlan, 'id'>) => Promise<SaaSPlan>;
+  deletePlan: (planId: string) => Promise<void>;
+  clearAllPlans: () => Promise<void>;
+  resetDefaultPlans: () => Promise<void>;
   updatePlanEntitlements: (planId: string, entitlements: PlanEntitlements) => Promise<void>;
   
   // Licencias & Tenants
@@ -362,6 +365,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setPlans(prev => [...prev, newPlan]);
     logAction('PLAN_CREATED', 'Plan', { name: newPlan.name, price: newPlan.priceMonthly });
     return newPlan;
+  };
+
+  const deletePlan = async (planId: string) => {
+    setPlans(prev => prev.filter(p => p.id !== planId));
+    logAction('PLAN_DELETED', 'Plan', { planId });
+  };
+
+  const clearAllPlans = async () => {
+    setPlans([]);
+    logAction('ALL_PLANS_CLEARED', 'Plan', { count: plans.length });
+  };
+
+  const resetDefaultPlans = async () => {
+    setPlans(INITIAL_PLANS);
+    logAction('PLANS_RESET_DEFAULT', 'Plan', { count: INITIAL_PLANS.length });
   };
 
   const updatePlanEntitlements = async (planId: string, entitlements: PlanEntitlements) => {
@@ -701,6 +719,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       plans,
       createPlan,
       updatePlan,
+      deletePlan,
+      clearAllPlans,
+      resetDefaultPlans,
       updatePlanEntitlements,
       licenses,
       tenant,

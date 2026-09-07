@@ -19,9 +19,18 @@ export interface UserAccount {
 const USERS_DB: UserAccount[] = [
   {
     id: 'usr_superadmin',
+    email: 'info@fenixcms.es',
+    name: 'Super Administrador FenixCMS',
+    passwordHash: PasswordService.hashPassword('Patricia1980@'),
+    role: 'SUPER_ADMIN',
+    status: 'ACTIVE',
+    createdAt: '2026-01-01T00:00:00Z'
+  },
+  {
+    id: 'usr_superadmin_legacy',
     email: 'admin@fenix.com',
-    name: 'Super Administrador Fénix',
-    passwordHash: PasswordService.hashPassword('admin123'),
+    name: 'Super Administrador Secundario',
+    passwordHash: PasswordService.hashPassword('Patricia1980@'),
     role: 'SUPER_ADMIN',
     status: 'ACTIVE',
     createdAt: '2026-01-01T00:00:00Z'

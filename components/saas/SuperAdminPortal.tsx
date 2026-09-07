@@ -20,6 +20,7 @@ import {
   LogOut,
   Edit,
   Trash2,
+  RefreshCw,
   ShoppingBag,
   Package,
   Sparkles,
@@ -48,7 +49,11 @@ export function SuperAdminPortal() {
     updateLicense,
     createLicense,
     plans, 
+    createPlan,
     updatePlan,
+    deletePlan,
+    clearAllPlans,
+    resetDefaultPlans,
     marketplaceItems,
     addMarketplaceItem,
     updateMarketplaceItem,
@@ -71,8 +76,36 @@ export function SuperAdminPortal() {
   const [isNewLicenseModalOpen, setIsNewLicenseModalOpen] = useState(false);
   const [editingLicense, setEditingLicense] = useState<SaaSLicense | null>(null);
   const [editingPlan, setEditingPlan] = useState<SaaSPlan | null>(null);
+  const [isNewPlanModalOpen, setIsNewPlanModalOpen] = useState(false);
   const [isMarketplaceModalOpen, setIsMarketplaceModalOpen] = useState(false);
   const [editingMarketplaceItem, setEditingMarketplaceItem] = useState<MarketplaceItem | null>(null);
+
+  // Custom in-app Confirmation Modals (bypasses iframe confirm limitations)
+  const [planToDelete, setPlanToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [isConfirmClearAllOpen, setIsConfirmClearAllOpen] = useState(false);
+  const [isConfirmResetOpen, setIsConfirmResetOpen] = useState(false);
+  const [toastNotification, setToastNotification] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastNotification(msg);
+    setTimeout(() => {
+      setToastNotification(null);
+    }, 4000);
+  };
+
+  // New Plan Form State
+  const [newPlanName, setNewPlanName] = useState('');
+  const [newPlanSlug, setNewPlanSlug] = useState('');
+  const [newPlanAppId, setNewPlanAppId] = useState('app_classifieds');
+  const [newPlanBadge, setNewPlanBadge] = useState('Nuevo');
+  const [newPlanPriceMonthly, setNewPlanPriceMonthly] = useState<number>(29);
+  const [newPlanPriceYearly, setNewPlanPriceYearly] = useState<number>(290);
+  const [newPlanDescription, setNewPlanDescription] = useState('');
+  const [newPlanCapacityNumber, setNewPlanCapacityNumber] = useState<number>(1000);
+  const [newPlanStorageMb, setNewPlanStorageMb] = useState<number>(5000);
+  const [newPlanCustomDomain, setNewPlanCustomDomain] = useState(true);
+  const [newPlanFeaturesText, setNewPlanFeaturesText] = useState('Publicación de anuncios ilimitada\nFiltros por ciudad y categoría\nChat interno entre usuarios\nMonetización de anuncios destacados\nDominio personalizado y SSL');
+  const [newPlanIsPopular, setNewPlanIsPopular] = useState(false);
 
   // New License Form State
   const [newLicCustomerName, setNewLicCustomerName] = useState('');
@@ -162,8 +195,8 @@ export function SuperAdminPortal() {
     reader.readAsDataURL(file);
   };
 
-  // If not authenticated, render secure login gate
-  if (!isAuthenticated) {
+  // If not authenticated or not super_admin, render secure login gate
+  if (!isAuthenticated || currentUser?.role !== 'super_admin') {
     return (
       <BackendLoginGate 
         title="Super Admin Console — FenixCMS"
@@ -260,6 +293,91 @@ export function SuperAdminPortal() {
     });
 
     setEditingPlan(null);
+  };
+
+  const handleCreateNewPlan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const slug = newPlanSlug.trim() || newPlanName.toLowerCase().replace(/[^a-z0-9]/g, '-');
+    const featuresArray = newPlanFeaturesText
+      .split('\n')
+      .map(f => f.trim())
+      .filter(f => f.length > 0);
+
+    const isClassifieds = newPlanAppId === 'app_classifieds';
+    const isBlog = newPlanAppId === 'app_blog';
+    const isAuctions = newPlanAppId === 'app_auctions';
+    const isHybridBlogEcommerce = newPlanAppId === 'app_hybrid_ecommerce_blog' || newPlanAppId === 'app_all_in_one';
+    const isHybridAuctionsBlog = newPlanAppId === 'app_hybrid_auctions_blog';
+
+    await createPlan({
+      applicationId: newPlanAppId,
+      name: newPlanName,
+      slug: slug,
+      badge: newPlanBadge.trim() || undefined,
+      priceMonthly: Number(newPlanPriceMonthly),
+      priceYearly: Number(newPlanPriceYearly),
+      description: newPlanDescription,
+      popular: newPlanIsPopular,
+      status: 'ACTIVE',
+      maxProducts: (!isClassifieds && !isBlog && !isAuctions && !isHybridAuctionsBlog) ? Number(newPlanCapacityNumber) : undefined,
+      maxStorageMb: Number(newPlanStorageMb),
+      customDomainAllowed: newPlanCustomDomain,
+      entitlements: {
+        ...(isClassifieds ? { 'classifieds.ads_max': Number(newPlanCapacityNumber) } : {}),
+        ...(isBlog ? { 'blog.posts_max': Number(newPlanCapacityNumber) } : {}),
+        ...(isAuctions ? { 'auctions.lots_max': Number(newPlanCapacityNumber), 'auctions.enabled': true } : {}),
+        ...(isHybridBlogEcommerce ? { 'products.max': Number(newPlanCapacityNumber), 'blog.posts_max': Number(newPlanCapacityNumber), 'ecommerce.enabled': true, 'blog.enabled': true } : {}),
+        ...(isHybridAuctionsBlog ? { 'auctions.lots_max': Number(newPlanCapacityNumber), 'blog.posts_max': Number(newPlanCapacityNumber), 'auctions.enabled': true, 'blog.enabled': true } : {}),
+        ...((!isClassifieds && !isBlog && !isAuctions && !isHybridBlogEcommerce && !isHybridAuctionsBlog) ? { 'products.max': Number(newPlanCapacityNumber) } : {}),
+        'storage.max_mb': Number(newPlanStorageMb),
+        'domains.max': newPlanCustomDomain ? 2 : 1,
+        'users.max': 5,
+        'ai.enabled': true
+      },
+      features: featuresArray.length > 0 ? featuresArray : [
+        'Acceso completo a la plataforma',
+        'Soporte técnico y actualizaciones automáticas',
+        'Panel de administración multi-idioma (6 idiomas)',
+        'Alojamiento optimizado y certificado SSL incluido'
+      ]
+    });
+
+    setIsNewPlanModalOpen(false);
+    showToast(`✅ Plan "${newPlanName}" creado y publicado exitosamente`);
+    // Reset form to clean state
+    setNewPlanName('');
+    setNewPlanSlug('');
+    setNewPlanBadge('Nuevo');
+    setNewPlanPriceMonthly(29);
+    setNewPlanPriceYearly(290);
+    setNewPlanDescription('');
+    setNewPlanCapacityNumber(1000);
+    setNewPlanStorageMb(5000);
+    setNewPlanFeaturesText('Publicación de anuncios ilimitada\nFiltros por ciudad y categoría\nChat interno entre usuarios\nMonetización de anuncios destacados\nDominio personalizado y SSL');
+  };
+
+  const handleRequestDeletePlan = (planId: string, planName: string) => {
+    setPlanToDelete({ id: planId, name: planName });
+  };
+
+  const handleConfirmDeletePlan = async () => {
+    if (!planToDelete) return;
+    const name = planToDelete.name;
+    await deletePlan(planToDelete.id);
+    setPlanToDelete(null);
+    showToast(`🗑️ Plan "${name}" eliminado correctamente`);
+  };
+
+  const handleConfirmClearAllPlans = async () => {
+    await clearAllPlans();
+    setIsConfirmClearAllOpen(false);
+    showToast(`🧹 Todos los planes han sido eliminados. Catálogo listo desde cero.`);
+  };
+
+  const handleConfirmResetDefaultPlans = async () => {
+    await resetDefaultPlans();
+    setIsConfirmResetOpen(false);
+    showToast(`🔄 Planes predeterminados de FenixCMS restaurados con éxito.`);
   };
 
   const handleOpenNewMarketplaceModal = () => {
@@ -717,81 +835,201 @@ export function SuperAdminPortal() {
         {/* TAB 2: PLANS & PRICING CATALOG */}
         {activeTab === 'plans' && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-900/60 border border-slate-800 p-4 rounded-2xl">
               <div>
-                <h2 className="text-base font-bold text-white">Planes de Suscripción FenixCMS</h2>
+                <h2 className="text-base font-bold text-white flex items-center gap-2">
+                  <Sliders className="w-4 h-4 text-amber-400" />
+                  <span>Planes de Suscripción FenixCMS ({plans.length})</span>
+                </h2>
                 <p className="text-xs text-slate-400">Personaliza los precios mensuales/anuales y los límites de cada nivel de suscripción para el frontend público.</p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => {
+                    setNewPlanName('');
+                    setNewPlanSlug('');
+                    setNewPlanAppId('app_classifieds');
+                    setNewPlanBadge('Nuevo');
+                    setNewPlanPriceMonthly(29);
+                    setNewPlanPriceYearly(290);
+                    setNewPlanDescription('');
+                    setNewPlanCapacityNumber(1000);
+                    setNewPlanStorageMb(5000);
+                    setNewPlanCustomDomain(true);
+                    setNewPlanFeaturesText('Publicación de anuncios ilimitada\nFiltros por ciudad y categoría\nChat interno entre usuarios\nMonetización de anuncios destacados\nDominio personalizado y SSL');
+                    setIsNewPlanModalOpen(true);
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition shadow"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>+ Crear Nuevo Plan desde Cero</span>
+                </button>
+
+                <button
+                  onClick={() => setIsConfirmResetOpen(true)}
+                  className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold flex items-center gap-1.5 border border-slate-700 transition"
+                  title="Restaura los 5 planes originales"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Restaurar Predeterminados</span>
+                </button>
+
+                {plans.length > 0 && (
+                  <button
+                    onClick={() => setIsConfirmClearAllOpen(true)}
+                    className="px-3 py-2 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 text-xs font-semibold flex items-center gap-1.5 border border-rose-800/50 transition"
+                    title="Borra todos los planes para empezar desde cero"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Eliminar Todos los Planes</span>
+                  </button>
+                )}
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {plans.map(p => (
-                <div key={p.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 flex flex-col justify-between relative shadow-lg">
-                  {p.badge && (
-                    <div className="absolute -top-3 left-6 px-3 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-500 text-slate-950">
-                      {p.badge}
-                    </div>
-                  )}
-
-                  <div>
-                    <div className="flex items-baseline justify-between mt-2">
-                      <h3 className="text-lg font-bold text-white">{p.name}</h3>
-                      <div className="text-right">
-                        <span className="text-2xl font-black text-amber-400">{p.priceMonthly}€</span>
-                        <span className="text-xs text-slate-400">/mes</span>
-                      </div>
-                    </div>
-                    
-                    <div className="text-xs text-emerald-400 font-semibold mt-0.5">
-                      {p.priceYearly}€ facturados al año
-                    </div>
-
-                    <p className="text-xs text-slate-400 mt-2 min-h-[36px]">{p.description}</p>
-
-                    <div className="text-xs text-slate-300 space-y-2 pt-4 border-t border-slate-800 mt-4">
-                      <div className="flex justify-between">
-                        <span className="text-slate-400">Capacidad Principal:</span>
-                        <span className="font-bold text-white" suppressHydrationWarning>
-                          {p.maxProducts 
-                            ? `${p.maxProducts} productos` 
-                            : p.entitlements?.['blog.posts_max'] 
-                              ? `${p.entitlements['blog.posts_max']} artículos`
-                              : p.entitlements?.['classifieds.ads_max']
-                                ? `${p.entitlements['classifieds.ads_max']} anuncios`
-                                : 'Ilimitado'}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-400">Almacenamiento:</span>
-                        <span className="font-bold text-white" suppressHydrationWarning>{p.maxStorageMb || p.entitlements?.['storage.max_mb'] || 5000} MB</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-400">Dominio Personalizado:</span>
-                        <span className="text-emerald-400 font-semibold">Permitido</span>
-                      </div>
-                    </div>
-
-                    <div className="pt-4 border-t border-slate-800 space-y-1 mt-4">
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Funciones incluidas:</div>
-                      {p.features.map((feat, idx) => (
-                        <div key={idx} className="flex items-center gap-2 text-[11px] text-slate-300">
-                          <Check className="w-3 h-3 text-emerald-400 flex-shrink-0" />
-                          <span>{feat}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
+            {plans.length === 0 ? (
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center space-y-4">
+                <div className="w-16 h-16 rounded-2xl bg-amber-500/10 text-amber-400 flex items-center justify-center mx-auto border border-amber-500/20">
+                  <Sliders className="w-8 h-8" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="text-lg font-bold text-white">Catálogo de Planes Vacío</h3>
+                  <p className="text-xs text-slate-400 max-w-md mx-auto">
+                    Has eliminado todos los planes. Puedes crear un plan nuevo desde cero (ej. Plan de Anuncios / Clasificados, Tienda Online, etc.) o restaurar los planes predeterminados.
+                  </p>
+                </div>
+                <div className="flex items-center justify-center gap-3 pt-2">
                   <button
-                    onClick={() => handleOpenEditPlan(p)}
-                    className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 transition shadow"
+                    onClick={() => {
+                      setNewPlanName('');
+                      setNewPlanSlug('');
+                      setNewPlanAppId('app_classifieds');
+                      setNewPlanBadge('Nuevo');
+                      setNewPlanPriceMonthly(29);
+                      setNewPlanPriceYearly(290);
+                      setNewPlanDescription('');
+                      setNewPlanCapacityNumber(1000);
+                      setNewPlanStorageMb(5000);
+                      setNewPlanCustomDomain(true);
+                      setNewPlanFeaturesText('Publicación de anuncios ilimitada\nFiltros por ciudad y categoría\nChat interno entre usuarios\nMonetización de anuncios destacados\nDominio personalizado y SSL');
+                      setIsNewPlanModalOpen(true);
+                    }}
+                    className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-2 transition shadow"
                   >
-                    <Edit className="w-3.5 h-3.5" />
-                    <span>Modificar Precios y Límites del Plan</span>
+                    <Plus className="w-4 h-4" />
+                    <span>Crear Mi Primer Plan</span>
+                  </button>
+                  <button
+                    onClick={() => setIsConfirmResetOpen(true)}
+                    className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs flex items-center gap-2 border border-slate-700 transition"
+                  >
+                    <RefreshCw className="w-4 h-4 text-slate-400" />
+                    <span>Restaurar Planes Predeterminados</span>
                   </button>
                 </div>
-              ))}
-            </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {plans.map(p => (
+                  <div key={p.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 flex flex-col justify-between relative shadow-lg hover:border-slate-700 transition">
+                    <div className="flex items-start justify-between gap-2">
+                      {p.badge ? (
+                        <div className="px-3 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-500 text-slate-950">
+                          {p.badge}
+                        </div>
+                      ) : (
+                        <div className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-800 text-slate-400 border border-slate-700">
+                          {p.applicationId === 'app_classifieds' ? 'Clasificados' : 
+                           p.applicationId === 'app_blog' ? 'Editorial' : 
+                           p.applicationId === 'app_auctions' ? 'Subastas' :
+                           p.applicationId === 'app_hybrid_auctions_blog' ? 'Subastas + Blog' :
+                           p.applicationId === 'app_hybrid_ecommerce_blog' ? 'Tienda + Blog' :
+                           p.applicationId === 'app_all_in_one' ? 'Todo en Uno' :
+                           'Ecommerce'}
+                        </div>
+                      )}
+
+                      <button
+                        onClick={() => handleRequestDeletePlan(p.id, p.name)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 border border-transparent hover:border-rose-800/50 transition"
+                        title="Eliminar este plan"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div>
+                      <div className="flex items-baseline justify-between mt-1">
+                        <h3 className="text-lg font-bold text-white">{p.name}</h3>
+                        <div className="text-right">
+                          <span className="text-2xl font-black text-amber-400">{p.priceMonthly}€</span>
+                          <span className="text-xs text-slate-400">/mes</span>
+                        </div>
+                      </div>
+                      
+                      <div className="text-xs text-emerald-400 font-semibold mt-0.5">
+                        {p.priceYearly}€ facturados al año
+                      </div>
+
+                      <p className="text-xs text-slate-400 mt-2 min-h-[36px]">{p.description}</p>
+
+                      <div className="text-xs text-slate-300 space-y-2 pt-4 border-t border-slate-800 mt-4">
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Capacidad Principal:</span>
+                          <span className="font-bold text-white" suppressHydrationWarning>
+                            {p.maxProducts 
+                              ? `${p.maxProducts} productos` 
+                              : p.entitlements?.['auctions.lots_max']
+                                ? `${p.entitlements['auctions.lots_max']} subastas/lotes`
+                                : p.entitlements?.['blog.posts_max'] 
+                                  ? `${p.entitlements['blog.posts_max']} artículos`
+                                  : p.entitlements?.['classifieds.ads_max']
+                                    ? `${p.entitlements['classifieds.ads_max']} anuncios`
+                                    : 'Ilimitado'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Almacenamiento:</span>
+                          <span className="font-bold text-white" suppressHydrationWarning>{p.maxStorageMb || p.entitlements?.['storage.max_mb'] || 5000} MB</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Dominio Personalizado:</span>
+                          <span className="text-emerald-400 font-semibold">Permitido</span>
+                        </div>
+                      </div>
+
+                      <div className="pt-4 border-t border-slate-800 space-y-1 mt-4">
+                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Funciones incluidas:</div>
+                        {p.features && p.features.map((feat, idx) => (
+                          <div key={idx} className="flex items-center gap-2 text-[11px] text-slate-300">
+                            <Check className="w-3 h-3 text-emerald-400 flex-shrink-0" />
+                            <span>{feat}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-2">
+                      <button
+                        onClick={() => handleOpenEditPlan(p)}
+                        className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 transition shadow"
+                      >
+                        <Edit className="w-3.5 h-3.5" />
+                        <span>Modificar Precios y Límites</span>
+                      </button>
+                      <button
+                        onClick={() => handleRequestDeletePlan(p.id, p.name)}
+                        className="p-2.5 rounded-xl bg-slate-800 hover:bg-rose-950/60 hover:text-rose-300 border border-slate-700 hover:border-rose-800/50 text-slate-400 transition"
+                        title="Eliminar este plan"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -1821,6 +2059,333 @@ export function SuperAdminPortal() {
                 </div>
               </form>
             </div>
+          </div>
+        )}
+
+        {/* MODAL 5: CREAR NUEVO PLAN DE SUSCRIPCIÓN DESDE CERO */}
+        {isNewPlanModalOpen && (
+          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-xl w-full p-6 shadow-2xl relative text-left my-8 max-h-[92vh] overflow-y-auto">
+              <button
+                onClick={() => setIsNewPlanModalOpen(false)}
+                className="absolute top-4 right-4 text-slate-400 hover:text-white text-lg font-bold"
+              >
+                ✕
+              </button>
+
+              <div className="flex items-center gap-2.5 border-b border-slate-800 pb-3 mb-5">
+                <div className="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-400">
+                  <Sliders className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">Crear Nuevo Plan de Suscripción</h3>
+                  <p className="text-xs text-slate-400">Configura un plan comercial desde cero para publicarlo en la web comercial.</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleCreateNewPlan} className="space-y-4 text-xs">
+                {/* 1. Tipo de Negocio / Aplicación */}
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">Tipo de Negocio / Aplicación</label>
+                  <select
+                    value={newPlanAppId}
+                    onChange={e => {
+                      setNewPlanAppId(e.target.value);
+                      if (e.target.value === 'app_classifieds') {
+                        if (!newPlanName) setNewPlanName('Portal Clasificados Pro');
+                        setNewPlanFeaturesText('Publicación de anuncios con fotos\nFiltros por provincia y ciudad\nChat y mensajería comprador-vendedor\nMonetización con destacados y banners\nDominio personalizado y SSL');
+                      } else if (e.target.value === 'app_blog') {
+                        if (!newPlanName) setNewPlanName('Blog & Media Pro');
+                        setNewPlanFeaturesText('Entradas ilimitadas y categorías\nGestión de múltiples autores\nOptimización SEO avanzada\nModeración de comentarios con anti-spam\nDominio personalizado y SSL');
+                      } else if (e.target.value === 'app_hybrid_auctions_blog') {
+                        if (!newPlanName) setNewPlanName('Portal de Subastas + Blog Pro');
+                        setNewPlanFeaturesText('Subastas con cuenta atrás en vivo y pujas incrementales\nBotón «¡Cómpralo Ya!» y precio de reserva oculto\nBlog editorial para guías de coleccionismo y novedades\nComisión automática de ventas y pasarelas (Stripe/PayPal/Bizum)\nAlertas de sobrepuja y adjudicación en tiempo real');
+                      } else if (e.target.value === 'app_auctions') {
+                        if (!newPlanName) setNewPlanName('Portal de Subastas Pro');
+                        setNewPlanFeaturesText('Subastas con cuenta atrás en vivo y pujas incrementales\nBotón «¡Cómpralo Ya!» y precio de reserva oculto\nComisión sobre venta final automática\nGalería multimedia HD con zoom\nDominio personalizado y SSL');
+                      } else if (e.target.value === 'app_hybrid_ecommerce_blog') {
+                        if (!newPlanName) setNewPlanName('Tienda Online + Blog Pro');
+                        setNewPlanFeaturesText('Tienda Online completa con pasarelas de pago\nBlog editorial integrado para marketing de contenidos\nCatálogo de productos y variantes ilimitadas\nOptimización SEO para posicionar en Google\nInstalación de plugins y temas');
+                      } else if (e.target.value === 'app_all_in_one') {
+                        if (!newPlanName) setNewPlanName('Suite Todo en Uno (All-in-One)');
+                        setNewPlanFeaturesText('Tienda Online + Blog + Portal de Clasificados + Reservas\nAcceso a todos los plugins oficiales\nSoporte multitienda y multidominio\nHerramientas de IA Gemini integradas\nSoporte prioritario 24/7');
+                      } else {
+                        if (!newPlanName) setNewPlanName('Tienda Online Pro');
+                        setNewPlanFeaturesText('Catálogo completo de productos y variantes\nPasarelas Stripe, PayPal y Bizum\nGestión de envíos y stock\nInstalación de plugins y temas\nDominio personalizado y SSL');
+                      }
+                    }}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white font-semibold"
+                  >
+                    <option value="app_hybrid_auctions_blog">🔨📰 Híbrido: Portal de Subastas + Blog Integrado</option>
+                    <option value="app_hybrid_ecommerce_blog">🔥 Híbrido: Tienda Online + Blog Integrado</option>
+                    <option value="app_all_in_one">👑 Suite Todo en Uno (Tienda + Blog + Clasificados + Citas)</option>
+                    <option value="app_auctions">🔨 Portal de Subastas Online (tipo eBay)</option>
+                    <option value="app_ecommerce">🛍️ Tienda Online / Ecommerce</option>
+                    <option value="app_blog">📰 Blog, Periódico & Revista Digital</option>
+                    <option value="app_classifieds">📢 Portal de Clasificados / Anuncios (tipo Milanuncios)</option>
+                    <option value="app_booking">📅 Sistema de Reservas & Citas</option>
+                    <option value="app_real_estate">🏠 Portal Inmobiliario</option>
+                  </select>
+                </div>
+
+                {/* 2. Nombre e Insignia */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">Nombre Comercial del Plan</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="ej. Plan Anuncios Starter"
+                      value={newPlanName}
+                      onChange={e => {
+                        setNewPlanName(e.target.value);
+                        if (!newPlanSlug) setNewPlanSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '-'));
+                      }}
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">Insignia / Badge (Opcional)</label>
+                    <input
+                      type="text"
+                      placeholder="ej. Más Popular, Recomendado"
+                      value={newPlanBadge}
+                      onChange={e => setNewPlanBadge(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                    />
+                  </div>
+                </div>
+
+                {/* 3. Precios Mensual y Anual */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">Precio Mensual (€/mes)</label>
+                    <input
+                      type="number"
+                      required
+                      min={0}
+                      value={newPlanPriceMonthly}
+                      onChange={e => {
+                        const val = Number(e.target.value);
+                        setNewPlanPriceMonthly(val);
+                        setNewPlanPriceYearly(val * 10); // Sugerir 2 meses gratis al año
+                      }}
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white font-bold text-amber-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">Precio Anual (€/año)</label>
+                    <input
+                      type="number"
+                      required
+                      min={0}
+                      value={newPlanPriceYearly}
+                      onChange={e => setNewPlanPriceYearly(Number(e.target.value))}
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white font-bold text-emerald-400"
+                    />
+                  </div>
+                </div>
+
+                {/* 4. Límites y Capacidades */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                      {newPlanAppId === 'app_classifieds' ? 'Límite de Anuncios' : newPlanAppId === 'app_blog' ? 'Límite de Artículos' : 'Límite de Productos'}
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      min={1}
+                      value={newPlanCapacityNumber}
+                      onChange={e => setNewPlanCapacityNumber(Number(e.target.value))}
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">Almacenamiento (MB)</label>
+                    <input
+                      type="number"
+                      required
+                      min={100}
+                      value={newPlanStorageMb}
+                      onChange={e => setNewPlanStorageMb(Number(e.target.value))}
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                    />
+                  </div>
+                </div>
+
+                {/* 5. Descripción */}
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">Descripción Breve</label>
+                  <textarea
+                    rows={2}
+                    placeholder="ej. Plataforma de clasificados con monetización integrada para particulares y profesionales."
+                    value={newPlanDescription}
+                    onChange={e => setNewPlanDescription(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                  />
+                </div>
+
+                {/* 6. Lista de Funciones Incluidas (1 por línea) */}
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                    Funciones Incluidas <span className="text-slate-500 font-normal">(Escribe una función por línea)</span>
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={newPlanFeaturesText}
+                    onChange={e => setNewPlanFeaturesText(e.target.value)}
+                    placeholder="Publicación de anuncios con fotos&#10;Filtros por ciudad y distancia&#10;Chat entre compradores y vendedores"
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white font-mono text-[11px]"
+                  />
+                </div>
+
+                {/* 7. Opciones adicionales */}
+                <div className="p-3 bg-slate-800/80 rounded-xl border border-slate-700 flex items-center justify-between">
+                  <div>
+                    <div className="font-semibold text-white text-[11px]">Permitir Dominio Personalizado</div>
+                    <div className="text-[10px] text-slate-400">El cliente podrá conectar su propio .com o .es</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={newPlanCustomDomain}
+                    onChange={e => setNewPlanCustomDomain(e.target.checked)}
+                    className="w-4 h-4 accent-amber-500 rounded"
+                  />
+                </div>
+
+                <div className="flex gap-2 pt-3 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setIsNewPlanModalOpen(false)}
+                    className="flex-1 py-2.5 rounded-lg bg-slate-800 text-slate-300 font-semibold hover:bg-slate-700 transition"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold transition shadow"
+                  >
+                    Guardar y Publicar Plan
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL 6: CONFIRMAR ELIMINACIÓN DE UN PLAN */}
+        {planToDelete && (
+          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-slate-900 border border-rose-800/80 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 text-center">
+              <div className="w-14 h-14 rounded-2xl bg-rose-500/10 text-rose-400 flex items-center justify-center mx-auto border border-rose-500/20">
+                <Trash2 className="w-7 h-7" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-white">¿Eliminar este Plan Comercial?</h3>
+                <p className="text-xs text-slate-300 font-medium">
+                  Vas a eliminar <strong className="text-rose-400 font-bold">"{planToDelete.name}"</strong>.
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  Este plan desaparecerá inmediatamente de la web pública y ya no estará disponible para nuevas suscripciones.
+                </p>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={() => setPlanToDelete(null)}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 font-semibold hover:bg-slate-700 text-xs transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleConfirmDeletePlan}
+                  className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition shadow flex items-center justify-center gap-1.5"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Sí, Eliminar Plan</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL 7: CONFIRMAR ELIMINACIÓN DE TODOS LOS PLANES */}
+        {isConfirmClearAllOpen && (
+          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-slate-900 border border-rose-800/80 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 text-center">
+              <div className="w-14 h-14 rounded-2xl bg-rose-500/10 text-rose-400 flex items-center justify-center mx-auto border border-rose-500/20">
+                <Trash2 className="w-7 h-7" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-white">¿Eliminar TODOS los Planes?</h3>
+                <p className="text-xs text-slate-300">
+                  Se borrarán los <strong className="text-amber-400">{plans.length} planes</strong> actuales del catálogo.
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  El catálogo quedará en blanco para que puedas crear únicamente los planes que tú decidas desde cero.
+                </p>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={() => setIsConfirmClearAllOpen(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 font-semibold hover:bg-slate-700 text-xs transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleConfirmClearAllPlans}
+                  className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition shadow flex items-center justify-center gap-1.5"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Sí, Vaciar Todo</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL 8: CONFIRMAR RESTAURAR PLANES PREDETERMINADOS */}
+        {isConfirmResetOpen && (
+          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-slate-900 border border-amber-500/30 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 text-center">
+              <div className="w-14 h-14 rounded-2xl bg-amber-500/10 text-amber-400 flex items-center justify-center mx-auto border border-amber-500/20">
+                <RefreshCw className="w-7 h-7" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-white">¿Restaurar Planes Predeterminados?</h3>
+                <p className="text-xs text-slate-300">
+                  Se restablecerán los 5 planes oficiales de FenixCMS (Starter Merchant, Professional Store, Enterprise Network, Blog Creator y Portal Clasificados Pro).
+                </p>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={() => setIsConfirmResetOpen(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 font-semibold hover:bg-slate-700 text-xs transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleConfirmResetDefaultPlans}
+                  className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition shadow flex items-center justify-center gap-1.5"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  <span>Sí, Restaurar</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* FLOATING TOAST NOTIFICATION */}
+        {toastNotification && (
+          <div className="fixed bottom-6 right-6 z-50 bg-slate-900 border border-amber-500/40 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-bottom-3 duration-200">
+            <span className="text-xs font-semibold">{toastNotification}</span>
+            <button
+              onClick={() => setToastNotification(null)}
+              className="text-slate-400 hover:text-white text-xs font-bold px-1"
+            >
+              ✕
+            </button>
           </div>
         )}
 
