@@ -245,6 +245,7 @@ export const INITIAL_TENANT: TenantStore = {
     'plugin_correos',
     'plugin_fenix_import',
     'plugin_ai_gemini',
+    'plugin_seo_rank_optimizer',
     'plugin_abandoned_cart'
   ],
   createdAt: '2026-09-01T10:30:00Z'
@@ -753,6 +754,39 @@ export const INITIAL_PLUGINS: PluginDefinition[] = [
     ]
   },
   {
+    id: 'plugin_seo_rank_optimizer',
+    key: 'fenix_seo_rank_optimizer',
+    name: 'Fenix SEO & Rank Optimizer AI',
+    category: 'seo',
+    description: 'Suite integral de posicionamiento web: autogenerador de Sitemap XML, Schema.org Rich Snippets JSON-LD, OpenGraph, Breadcrumbs y análisis de palabras clave para Google.',
+    version: '3.2.0',
+    author: 'Fenix SEO Engineering',
+    iconName: 'Search',
+    isEnabled: true,
+    isCore: true,
+    config: {
+      siteTitleTemplate: '%title% | %sitename%',
+      metaDescriptionTemplate: '%excerpt% - Compra online con envío rápido.',
+      enableSitemap: true,
+      enableSchemaJsonLd: true,
+      enableOpenGraph: true,
+      enableTwitterCards: true,
+      googleSiteVerification: 'google-site-verification=FENIX_SEO_882910',
+      enableCanonicalUrls: true,
+      aiKeywordOptimizer: true,
+      robotsIndexing: 'index, follow'
+    },
+    settingsFields: [
+      { key: 'siteTitleTemplate', label: 'Plantilla de Título SEO (%title% | %sitename%)', type: 'text', defaultValue: '%title% | %sitename%' },
+      { key: 'metaDescriptionTemplate', label: 'Plantilla de Meta Descripción', type: 'textarea', defaultValue: '%excerpt% - Compra online con envío rápido.' },
+      { key: 'googleSiteVerification', label: 'Código de Verificación Google Search Console', type: 'text', placeholder: 'google-site-verification=...' },
+      { key: 'enableSitemap', label: 'Generar automáticamente Sitemap XML (/sitemap.xml)', type: 'boolean', defaultValue: true },
+      { key: 'enableSchemaJsonLd', label: 'Inyectar Schema.org JSON-LD (Rich Snippets Google)', type: 'boolean', defaultValue: true },
+      { key: 'enableOpenGraph', label: 'Habilitar OpenGraph para Redes Sociales (Facebook/WhatsApp)', type: 'boolean', defaultValue: true },
+      { key: 'enableCanonicalUrls', label: 'Forzar URLs canónicas anti-contenido duplicado', type: 'boolean', defaultValue: true }
+    ]
+  },
+  {
     id: 'plugin_abandoned_cart',
     key: 'cart_recovery',
     name: 'Recuperación de Carritos & Notificaciones',
@@ -906,6 +940,27 @@ export const INITIAL_MARKETPLACE_ITEMS: MarketplaceItem[] = [
     isFeatured: false,
     downloadFileName: 'plugin-correos-seur-v3.1.0.zip',
     createdAt: '2026-08-25T09:15:00Z'
+  },
+  {
+    id: 'mkt_fenix_seo_pro',
+    name: 'Fenix SEO & Rank Optimizer AI Pro',
+    slug: 'fenix-seo-rank-optimizer-pro',
+    type: 'plugin',
+    category: 'seo',
+    applicationScope: 'ALL',
+    shortDescription: 'Suite de posicionamiento SEO integral tipo RankMath / Yoast con Google Rich Snippets e IA.',
+    description: 'Generación de Sitemap.xml, Schema.org JSON-LD para productos y artículos, metaetiquetas automáticas y verificador de Google Search Console.',
+    price: 29,
+    billingType: 'one_time',
+    badge: 'Imprescindible',
+    author: 'Fenix SEO Team',
+    version: '3.2.0',
+    rating: 5.0,
+    salesCount: 198,
+    isPublished: true,
+    isFeatured: true,
+    downloadFileName: 'plugin-fenix-seo-rank-v3.2.0.zip',
+    createdAt: '2026-09-01T10:00:00Z'
   },
   {
     id: 'mkt_chatgpt_seo',

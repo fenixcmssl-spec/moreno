@@ -3,7 +3,6 @@
 
 let PrismaClientClass: any;
 try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   PrismaClientClass = require('@prisma/client').PrismaClient;
 } catch {
   PrismaClientClass = class MockPrismaClient {

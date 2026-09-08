@@ -114,6 +114,7 @@ export interface SaaSPlan {
   name: string;
   slug: string;
   badge?: string;
+  imageUrl?: string;
   priceMonthly: number;
   priceYearly: number;
   description: string;
@@ -143,6 +144,8 @@ export interface SaaSLicense {
   customerEmail: string;
   tenantSlug: string;
   tenantName: string;
+  imageUrl?: string;
+  logoUrl?: string;
   price: number;
   billingPeriod: 'monthly' | 'yearly';
   paymentProvider: 'paypal' | 'stripe' | 'manual';

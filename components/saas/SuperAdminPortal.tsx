@@ -98,6 +98,9 @@ export function SuperAdminPortal() {
   const [newPlanSlug, setNewPlanSlug] = useState('');
   const [newPlanAppId, setNewPlanAppId] = useState('app_classifieds');
   const [newPlanBadge, setNewPlanBadge] = useState('Nuevo');
+  const [newPlanImageUrl, setNewPlanImageUrl] = useState('');
+  const [newPlanImageMode, setNewPlanImageMode] = useState<'file' | 'url'>('file');
+  const [isDraggingPlanImage, setIsDraggingPlanImage] = useState(false);
   const [newPlanPriceMonthly, setNewPlanPriceMonthly] = useState<number>(29);
   const [newPlanPriceYearly, setNewPlanPriceYearly] = useState<number>(290);
   const [newPlanDescription, setNewPlanDescription] = useState('');
@@ -112,6 +115,9 @@ export function SuperAdminPortal() {
   const [newLicCustomerEmail, setNewLicCustomerEmail] = useState('');
   const [newLicStoreName, setNewLicStoreName] = useState('');
   const [newLicStoreSlug, setNewLicStoreSlug] = useState('');
+  const [newLicLogoUrl, setNewLicLogoUrl] = useState('');
+  const [newLicImageMode, setNewLicImageMode] = useState<'file' | 'url'>('file');
+  const [isDraggingLicImage, setIsDraggingLicImage] = useState(false);
   const [newLicPlanId, setNewLicPlanId] = useState('plan_pro');
   const [newLicDuration, setNewLicDuration] = useState<'1_month' | '3_months' | '6_months' | '1_year' | 'lifetime'>('1_year');
   const [newLicCustomPrice, setNewLicCustomPrice] = useState<number>(790);
@@ -127,6 +133,9 @@ export function SuperAdminPortal() {
   // Edit Plan Form State
   const [editPlanName, setEditPlanName] = useState('');
   const [editPlanBadge, setEditPlanBadge] = useState('');
+  const [editPlanImageUrl, setEditPlanImageUrl] = useState('');
+  const [editPlanImageMode, setEditPlanImageMode] = useState<'file' | 'url'>('file');
+  const [isDraggingEditPlanImage, setIsDraggingEditPlanImage] = useState(false);
   const [editPlanPriceMonthly, setEditPlanPriceMonthly] = useState(0);
   const [editPlanPriceYearly, setEditPlanPriceYearly] = useState(0);
   const [editPlanDescription, setEditPlanDescription] = useState('');
@@ -137,6 +146,7 @@ export function SuperAdminPortal() {
   const [mktType, setMktType] = useState<'plugin' | 'theme'>('plugin');
   const [mktName, setMktName] = useState('');
   const [mktCategory, setMktCategory] = useState('payment');
+  const [mktApplicationScope, setMktApplicationScope] = useState<string>('ALL');
   const [mktPrice, setMktPrice] = useState(29);
   const [mktBillingType, setMktBillingType] = useState<'one_time' | 'subscription_monthly' | 'subscription_yearly' | 'free'>('one_time');
   const [mktBadge, setMktBadge] = useState('Nuevo');
@@ -190,6 +200,54 @@ export function SuperAdminPortal() {
       const dataUrl = e.target?.result as string;
       if (dataUrl) {
         setMktPreviewImage(dataUrl);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handlePlanImageFileSelected = (file: File) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert('Por favor selecciona un archivo de imagen válido (PNG, JPG, WEBP, SVG).');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      if (dataUrl) {
+        setNewPlanImageUrl(dataUrl);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleEditPlanImageFileSelected = (file: File) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert('Por favor selecciona un archivo de imagen válido (PNG, JPG, WEBP, SVG).');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      if (dataUrl) {
+        setEditPlanImageUrl(dataUrl);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleLicLogoFileSelected = (file: File) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert('Por favor selecciona un archivo de imagen válido (PNG, JPG, WEBP, SVG).');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      if (dataUrl) {
+        setNewLicLogoUrl(dataUrl);
       }
     };
     reader.readAsDataURL(file);
@@ -271,6 +329,7 @@ export function SuperAdminPortal() {
     setEditingPlan(plan);
     setEditPlanName(plan.name);
     setEditPlanBadge(plan.badge || '');
+    setEditPlanImageUrl(plan.imageUrl || '');
     setEditPlanPriceMonthly(plan.priceMonthly);
     setEditPlanPriceYearly(plan.priceYearly);
     setEditPlanDescription(plan.description);
@@ -285,6 +344,7 @@ export function SuperAdminPortal() {
     await updatePlan(editingPlan.id, {
       name: editPlanName,
       badge: editPlanBadge,
+      imageUrl: editPlanImageUrl || undefined,
       priceMonthly: Number(editPlanPriceMonthly),
       priceYearly: Number(editPlanPriceYearly),
       description: editPlanDescription,
@@ -314,6 +374,7 @@ export function SuperAdminPortal() {
       name: newPlanName,
       slug: slug,
       badge: newPlanBadge.trim() || undefined,
+      imageUrl: newPlanImageUrl || undefined,
       priceMonthly: Number(newPlanPriceMonthly),
       priceYearly: Number(newPlanPriceYearly),
       description: newPlanDescription,
@@ -348,6 +409,7 @@ export function SuperAdminPortal() {
     setNewPlanName('');
     setNewPlanSlug('');
     setNewPlanBadge('Nuevo');
+    setNewPlanImageUrl('');
     setNewPlanPriceMonthly(29);
     setNewPlanPriceYearly(290);
     setNewPlanDescription('');
@@ -385,6 +447,7 @@ export function SuperAdminPortal() {
     setMktType('plugin');
     setMktName('');
     setMktCategory('payment');
+    setMktApplicationScope('ALL');
     setMktPrice(29);
     setMktBillingType('one_time');
     setMktBadge('Nuevo');
@@ -406,6 +469,7 @@ export function SuperAdminPortal() {
     setMktType(item.type);
     setMktName(item.name);
     setMktCategory(item.category);
+    setMktApplicationScope((item.applicationScope as string) || 'ALL');
     setMktPrice(item.price);
     setMktBillingType((item.billingType as any) || 'one_time');
     setMktBadge(item.badge || '');
@@ -431,6 +495,7 @@ export function SuperAdminPortal() {
         name: mktName,
         type: mktType,
         category: mktCategory,
+        applicationScope: mktApplicationScope as any,
         price: Number(mktPrice),
         billingType: mktBillingType,
         badge: mktBadge,
@@ -449,6 +514,7 @@ export function SuperAdminPortal() {
         slug,
         type: mktType,
         category: mktCategory,
+        applicationScope: mktApplicationScope as any,
         price: Number(mktPrice),
         billingType: mktBillingType,
         badge: mktBadge,
@@ -466,6 +532,7 @@ export function SuperAdminPortal() {
     }
 
     setIsMarketplaceModalOpen(false);
+    showToast(`✅ Add-on "${mktName}" guardado en el Marketplace con compatibilidad: ${mktApplicationScope}`);
   };
 
   const handleCreateNewLicenseSubmit = async (e: React.FormEvent) => {
@@ -499,6 +566,8 @@ export function SuperAdminPortal() {
       customerEmail: newLicCustomerEmail,
       tenantName: newLicStoreName,
       tenantSlug: newLicStoreSlug || newLicStoreName.toLowerCase().replace(/[^a-z0-9]/g, ''),
+      logoUrl: newLicLogoUrl || undefined,
+      imageUrl: newLicLogoUrl || undefined,
       price: Number(newLicCustomPrice),
       billingPeriod: newLicDuration === '1_month' || newLicDuration === '3_months' || newLicDuration === '6_months' ? 'monthly' : 'yearly',
       paymentProvider: newLicPaymentProvider,
@@ -514,6 +583,8 @@ export function SuperAdminPortal() {
     setNewLicCustomerName('');
     setNewLicCustomerEmail('');
     setNewLicStoreName('');
+    setNewLicStoreSlug('');
+    setNewLicLogoUrl('');
   };
 
   return (
@@ -750,8 +821,23 @@ export function SuperAdminPortal() {
                           <div className="text-[11px] text-slate-400">{lic.customerEmail}</div>
                         </td>
                         <td className="px-4 py-3">
-                          <div className="font-semibold text-slate-200">{lic.tenantName}</div>
-                          <div className="text-[10px] text-slate-400 font-mono">{lic.tenantSlug}.com</div>
+                          <div className="flex items-center gap-2.5">
+                            {(lic.logoUrl || lic.imageUrl) ? (
+                              <img
+                                src={lic.logoUrl || lic.imageUrl}
+                                alt={lic.tenantName}
+                                className="w-8 h-8 rounded-lg object-cover bg-slate-800 border border-slate-700 shrink-0 shadow-sm"
+                              />
+                            ) : (
+                              <div className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400 font-bold text-xs shrink-0">
+                                {lic.tenantName ? lic.tenantName.charAt(0).toUpperCase() : 'T'}
+                              </div>
+                            )}
+                            <div>
+                              <div className="font-semibold text-slate-200">{lic.tenantName}</div>
+                              <div className="text-[10px] text-slate-400 font-mono">{lic.tenantSlug}.com</div>
+                            </div>
+                          </div>
                         </td>
                         <td className="px-4 py-3">
                           <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 font-medium text-slate-300">
@@ -932,7 +1018,17 @@ export function SuperAdminPortal() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {plans.map(p => (
-                  <div key={p.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 flex flex-col justify-between relative shadow-lg hover:border-slate-700 transition">
+                  <div key={p.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 flex flex-col justify-between relative shadow-lg hover:border-slate-700 transition overflow-hidden">
+                    {p.imageUrl && (
+                      <div className="-mx-6 -mt-6 mb-2 h-32 w-[calc(100%+3rem)] overflow-hidden bg-slate-950 relative border-b border-slate-800">
+                        <img
+                          src={p.imageUrl}
+                          alt={p.name}
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-transparent opacity-60" />
+                      </div>
+                    )}
                     <div className="flex items-start justify-between gap-2">
                       {p.badge ? (
                         <div className="px-3 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-500 text-slate-950">
@@ -1102,14 +1198,25 @@ export function SuperAdminPortal() {
                           <Package className="w-4 h-4" />
                         </div>
                         <div>
-                          <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-bold text-[10px] uppercase border border-slate-700">
-                            {item.category}
-                          </span>
-                          {item.badge && (
-                            <span className="ml-1 px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/40 font-bold text-[10px] uppercase">
-                              {item.badge}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-bold text-[10px] uppercase border border-slate-700">
+                              {item.category}
                             </span>
-                          )}
+                            {item.badge && (
+                              <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/40 font-bold text-[10px] uppercase">
+                                {item.badge}
+                              </span>
+                            )}
+                            <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 font-semibold text-[10px]">
+                              {item.applicationScope === 'app_ecommerce' ? '🛍️ Tienda' :
+                               item.applicationScope === 'app_auctions' ? '🔨 Subastas' :
+                               item.applicationScope === 'app_hybrid_auctions_blog' ? '🔨 Subastas+Blog' :
+                               item.applicationScope === 'app_hybrid_ecommerce_blog' ? '🔥 Tienda+Blog' :
+                               item.applicationScope === 'app_blog' ? '📰 Blog' :
+                               item.applicationScope === 'app_classifieds' ? '📢 Anuncios' :
+                               '🌐 Universal'}
+                            </span>
+                          </div>
                         </div>
                       </div>
                       <div className="text-right">
@@ -1156,7 +1263,10 @@ export function SuperAdminPortal() {
                     </button>
                     
                     <button
-                      onClick={() => updateMarketplaceItem(item.id, { isPublished: !item.isPublished })}
+                      onClick={() => {
+                        updateMarketplaceItem(item.id, { isPublished: !item.isPublished });
+                        showToast(`Estado de "${item.name}" actualizado.`);
+                      }}
                       className={`p-1.5 rounded-lg border text-xs transition ${
                         item.isPublished 
                           ? 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700' 
@@ -1169,9 +1279,8 @@ export function SuperAdminPortal() {
 
                     <button
                       onClick={() => {
-                        if (confirm(`¿Eliminar ${item.name} del marketplace?`)) {
-                          deleteMarketplaceItem(item.id);
-                        }
+                        deleteMarketplaceItem(item.id);
+                        showToast(`🗑️ "${item.name}" eliminado del catálogo.`);
                       }}
                       className="p-1.5 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 text-rose-400 border border-rose-800/60 text-xs transition"
                       title="Eliminar de catálogo"
@@ -1422,6 +1531,124 @@ export function SuperAdminPortal() {
                       className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
                     />
                   </div>
+                </div>
+
+                {/* IMAGEN DE PORTADA / ICONO DEL PLAN */}
+                <div className="p-3.5 bg-slate-800/60 rounded-xl border border-slate-700/80 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-slate-200 flex items-center gap-1.5">
+                      <ImageIcon className="w-4 h-4 text-amber-400" />
+                      <span>Imagen de Portada / Banner / Logotipo</span>
+                    </label>
+                    
+                    <div className="flex bg-slate-900 p-0.5 rounded-lg border border-slate-700 text-[10px]">
+                      <button
+                        type="button"
+                        onClick={() => setEditPlanImageMode('file')}
+                        className={`px-2 py-1 rounded font-semibold transition ${
+                          editPlanImageMode === 'file' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        Subir desde PC
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditPlanImageMode('url')}
+                        className={`px-2 py-1 rounded font-semibold transition ${
+                          editPlanImageMode === 'url' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        Enlace URL
+                      </button>
+                    </div>
+                  </div>
+
+                  {editPlanImageMode === 'file' ? (
+                    <div>
+                      {editPlanImageUrl ? (
+                        <div className="p-3 bg-slate-900 border border-slate-700 rounded-xl flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <img
+                              src={editPlanImageUrl}
+                              alt="Vista previa"
+                              className="w-16 h-12 object-cover rounded-lg bg-slate-800 border border-slate-700 shadow-sm shrink-0"
+                            />
+                            <div>
+                              <div className="font-bold text-white text-xs">Imagen seleccionada</div>
+                              <div className="text-[10px] text-emerald-400">Vista previa lista</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <label
+                              htmlFor="edit-plan-img-input"
+                              className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold cursor-pointer border border-slate-700 transition"
+                            >
+                              Cambiar Foto
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => setEditPlanImageUrl('')}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition"
+                              title="Eliminar imagen"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            setIsDraggingEditPlanImage(true);
+                          }}
+                          onDragLeave={() => setIsDraggingEditPlanImage(false)}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            setIsDraggingEditPlanImage(false);
+                            const file = e.dataTransfer.files?.[0];
+                            if (file) handleEditPlanImageFileSelected(file);
+                          }}
+                          className={`border-2 border-dashed rounded-xl p-4 text-center transition cursor-pointer ${
+                            isDraggingEditPlanImage
+                              ? 'border-amber-400 bg-amber-500/10'
+                              : 'border-slate-700 hover:border-amber-500/70 bg-slate-900/60'
+                          }`}
+                        >
+                          <input
+                            type="file"
+                            id="edit-plan-img-input"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleEditPlanImageFileSelected(file);
+                            }}
+                            className="hidden"
+                          />
+                          <label htmlFor="edit-plan-img-input" className="cursor-pointer block space-y-1">
+                            <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center mx-auto border border-amber-500/20">
+                              <Upload className="w-4 h-4" />
+                            </div>
+                            <div className="text-xs font-bold text-white">
+                              Arrastra una imagen o haz clic para subir desde tu PC
+                            </div>
+                            <p className="text-[10px] text-slate-400">
+                              PNG, JPG, WEBP, SVG
+                            </p>
+                          </label>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      <input
+                        type="url"
+                        placeholder="https://ejemplo.com/banner-plan.jpg"
+                        value={editPlanImageUrl}
+                        onChange={(e) => setEditPlanImageUrl(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono text-[11px]"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -1808,8 +2035,31 @@ export function SuperAdminPortal() {
                       <option value="ai">Inteligencia Artificial</option>
                       <option value="seo">SEO & Tráfico</option>
                       <option value="theme">Tema Visual</option>
+                      <option value="tools">Herramientas Avanzadas</option>
                     </select>
                   </div>
+                </div>
+
+                {/* 4.1 Target License / Application Scope */}
+                <div className="p-3 bg-slate-800/60 rounded-xl border border-slate-700">
+                  <label className="block text-[11px] font-semibold text-amber-400 mb-1 flex items-center justify-between">
+                    <span>🎯 Exclusividad por Tipo de Licencia / Negocio</span>
+                    <span className="text-[10px] text-slate-400 font-normal">Define qué clientes pueden instalar este plugin</span>
+                  </label>
+                  <select
+                    value={mktApplicationScope}
+                    onChange={e => setMktApplicationScope(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white font-semibold text-xs"
+                  >
+                    <option value="ALL">🌐 Universal: Disponible para Todas las Licencias</option>
+                    <option value="app_ecommerce">🛍️ Exclusivo para Licencias de Tienda Online (Ecommerce)</option>
+                    <option value="app_auctions">🔨 Exclusivo para Licencias de Subastas Online (eBay)</option>
+                    <option value="app_hybrid_auctions_blog">🔨📰 Exclusivo para Licencias Subastas + Blog</option>
+                    <option value="app_hybrid_ecommerce_blog">🔥 Exclusivo para Licencias Tienda + Blog</option>
+                    <option value="app_blog">📰 Exclusivo para Licencias de Blog & Revistas</option>
+                    <option value="app_classifieds">📢 Exclusivo para Licencias de Portal de Anuncios</option>
+                    <option value="app_all_in_one">👑 Exclusivo para Licencias Todo en Uno (Enterprise)</option>
+                  </select>
                 </div>
 
                 {/* 5. Price and Billing Model */}
@@ -1985,6 +2235,124 @@ export function SuperAdminPortal() {
                   </div>
                 </div>
 
+                {/* IMAGEN / LOGOTIPO DE LA LICENCIA (SUBIR DESDE PC O ENLACE) */}
+                <div className="p-3 bg-slate-800/60 rounded-xl border border-slate-700/80 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-slate-200 flex items-center gap-1.5">
+                      <ImageIcon className="w-4 h-4 text-amber-400" />
+                      <span>Logotipo / Imagen de la Tienda o Negocio (Opcional)</span>
+                    </label>
+                    
+                    <div className="flex bg-slate-900 p-0.5 rounded-lg border border-slate-700 text-[10px]">
+                      <button
+                        type="button"
+                        onClick={() => setNewLicImageMode('file')}
+                        className={`px-2 py-0.5 rounded font-semibold transition ${
+                          newLicImageMode === 'file' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        Subir desde PC
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNewLicImageMode('url')}
+                        className={`px-2 py-0.5 rounded font-semibold transition ${
+                          newLicImageMode === 'url' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        Enlace URL
+                      </button>
+                    </div>
+                  </div>
+
+                  {newLicImageMode === 'file' ? (
+                    <div>
+                      {newLicLogoUrl ? (
+                        <div className="p-2.5 bg-slate-900 border border-slate-700 rounded-xl flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-2.5">
+                            <img
+                              src={newLicLogoUrl}
+                              alt="Logo tienda"
+                              className="w-12 h-10 object-cover rounded-lg bg-slate-800 border border-slate-700 shadow-sm shrink-0"
+                            />
+                            <div>
+                              <div className="font-bold text-white text-xs">Imagen adjuntada</div>
+                              <div className="text-[10px] text-emerald-400">Listo para vincular al tenant</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <label
+                              htmlFor="new-lic-logo-input"
+                              className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-semibold cursor-pointer border border-slate-700 transition"
+                            >
+                              Cambiar
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => setNewLicLogoUrl('')}
+                              className="p-1 rounded text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition"
+                              title="Eliminar"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            setIsDraggingLicImage(true);
+                          }}
+                          onDragLeave={() => setIsDraggingLicImage(false)}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            setIsDraggingLicImage(false);
+                            const file = e.dataTransfer.files?.[0];
+                            if (file) handleLicLogoFileSelected(file);
+                          }}
+                          className={`border-2 border-dashed rounded-xl p-3 text-center transition cursor-pointer ${
+                            isDraggingLicImage
+                              ? 'border-amber-400 bg-amber-500/10'
+                              : 'border-slate-700 hover:border-amber-500/70 bg-slate-900/60'
+                          }`}
+                        >
+                          <input
+                            type="file"
+                            id="new-lic-logo-input"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleLicLogoFileSelected(file);
+                            }}
+                            className="hidden"
+                          />
+                          <label htmlFor="new-lic-logo-input" className="cursor-pointer block space-y-1">
+                            <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center mx-auto border border-amber-500/20">
+                              <Upload className="w-3.5 h-3.5" />
+                            </div>
+                            <div className="text-[11px] font-bold text-white">
+                              Arrastra el logo o haz clic para subir desde tu PC
+                            </div>
+                            <p className="text-[10px] text-slate-400">
+                              PNG, JPG, SVG
+                            </p>
+                          </label>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      <input
+                        type="url"
+                        placeholder="https://ejemplo.com/logo-tienda.png"
+                        value={newLicLogoUrl}
+                        onChange={(e) => setNewLicLogoUrl(e.target.value)}
+                        className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono text-[11px]"
+                      />
+                    </div>
+                  )}
+                </div>
+
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-300 mb-1">Plan de Suscripción</label>
@@ -2156,6 +2524,125 @@ export function SuperAdminPortal() {
                   </div>
                 </div>
 
+                {/* 2.1 IMAGEN DE PORTADA / ICONO DEL PLAN (SUBIR DESDE PC O ENLACE) */}
+                <div className="p-3.5 bg-slate-800/60 rounded-xl border border-slate-700/80 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-slate-200 flex items-center gap-1.5">
+                      <ImageIcon className="w-4 h-4 text-amber-400" />
+                      <span>Imagen de Portada / Banner / Logotipo del Plan (Opcional)</span>
+                    </label>
+                    
+                    {/* Switch File / URL */}
+                    <div className="flex bg-slate-900 p-0.5 rounded-lg border border-slate-700 text-[10px]">
+                      <button
+                        type="button"
+                        onClick={() => setNewPlanImageMode('file')}
+                        className={`px-2 py-1 rounded font-semibold transition ${
+                          newPlanImageMode === 'file' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        Subir desde PC
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNewPlanImageMode('url')}
+                        className={`px-2 py-1 rounded font-semibold transition ${
+                          newPlanImageMode === 'url' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        Enlace URL
+                      </button>
+                    </div>
+                  </div>
+
+                  {newPlanImageMode === 'file' ? (
+                    <div>
+                      {newPlanImageUrl ? (
+                        <div className="p-3 bg-slate-900 border border-slate-700 rounded-xl flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <img
+                              src={newPlanImageUrl}
+                              alt="Vista previa"
+                              className="w-16 h-12 object-cover rounded-lg bg-slate-800 border border-slate-700 shadow-sm shrink-0"
+                            />
+                            <div>
+                              <div className="font-bold text-white text-xs">Imagen seleccionada desde tu ordenador</div>
+                              <div className="text-[10px] text-emerald-400">Vista previa cargada con éxito</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <label
+                              htmlFor="new-plan-img-input"
+                              className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold cursor-pointer border border-slate-700 transition"
+                            >
+                              Cambiar Foto
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => setNewPlanImageUrl('')}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition"
+                              title="Eliminar imagen"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            setIsDraggingPlanImage(true);
+                          }}
+                          onDragLeave={() => setIsDraggingPlanImage(false)}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            setIsDraggingPlanImage(false);
+                            const file = e.dataTransfer.files?.[0];
+                            if (file) handlePlanImageFileSelected(file);
+                          }}
+                          className={`border-2 border-dashed rounded-xl p-4 text-center transition cursor-pointer ${
+                            isDraggingPlanImage
+                              ? 'border-amber-400 bg-amber-500/10'
+                              : 'border-slate-700 hover:border-amber-500/70 bg-slate-900/60'
+                          }`}
+                        >
+                          <input
+                            type="file"
+                            id="new-plan-img-input"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handlePlanImageFileSelected(file);
+                            }}
+                            className="hidden"
+                          />
+                          <label htmlFor="new-plan-img-input" className="cursor-pointer block space-y-1">
+                            <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center mx-auto border border-amber-500/20">
+                              <Upload className="w-4 h-4" />
+                            </div>
+                            <div className="text-xs font-bold text-white">
+                              Arrastra una imagen o haz clic para subir desde tu PC
+                            </div>
+                            <p className="text-[10px] text-slate-400">
+                              Formatos admitidos: PNG, JPG, WEBP, SVG
+                            </p>
+                          </label>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      <input
+                        type="url"
+                        placeholder="https://ejemplo.com/banner-plan.jpg"
+                        value={newPlanImageUrl}
+                        onChange={(e) => setNewPlanImageUrl(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono text-[11px]"
+                      />
+                    </div>
+                  )}
+                </div>
+
                 {/* 3. Precios Mensual y Anual */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -2284,7 +2771,7 @@ export function SuperAdminPortal() {
               <div className="space-y-1">
                 <h3 className="text-base font-bold text-white">¿Eliminar este Plan Comercial?</h3>
                 <p className="text-xs text-slate-300 font-medium">
-                  Vas a eliminar <strong className="text-rose-400 font-bold">"{planToDelete.name}"</strong>.
+                  Vas a eliminar <strong className="text-rose-400 font-bold">&quot;{planToDelete.name}&quot;</strong>.
                 </p>
                 <p className="text-[11px] text-slate-400">
                   Este plan desaparecerá inmediatamente de la web pública y ya no estará disponible para nuevas suscripciones.

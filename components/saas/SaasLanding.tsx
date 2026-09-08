@@ -402,14 +402,25 @@ export function SaasLanding() {
             return (
               <div
                 key={plan.id}
-                className={`relative rounded-2xl p-7 flex flex-col justify-between transition-all ${
+                className={`relative rounded-2xl p-7 flex flex-col justify-between transition-all overflow-hidden ${
                   plan.popular
                     ? 'bg-slate-800/90 border-2 border-amber-500 shadow-2xl shadow-amber-500/10'
                     : 'bg-slate-800/50 border border-slate-700/80 hover:border-slate-600'
                 }`}
               >
+                {plan.imageUrl && (
+                  <div className="-mx-7 -mt-7 mb-5 h-36 w-[calc(100%+3.5rem)] overflow-hidden bg-slate-950 relative border-b border-slate-700/80">
+                    <img
+                      src={plan.imageUrl}
+                      alt={plan.name}
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-transparent opacity-70" />
+                  </div>
+                )}
+
                 {plan.popular && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-amber-500 text-slate-950 shadow">
+                  <div className="absolute top-3 right-3 px-3 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-amber-500 text-slate-950 shadow z-10">
                     {plan.badge || 'Más Recomendado'}
                   </div>
                 )}
