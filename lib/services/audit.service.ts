@@ -47,6 +47,20 @@ export class AuditService {
     return this.logs.filter(l => l.tenantId === tenantId);
   }
 
+  static getLogs(filter?: { tenantId?: string; action?: string; limit?: number }): AuditLogItem[] {
+    let result = this.logs;
+    if (filter?.tenantId) {
+      result = result.filter(l => l.tenantId === filter.tenantId);
+    }
+    if (filter?.action) {
+      result = result.filter(l => l.action.toLowerCase() === filter.action?.toLowerCase());
+    }
+    if (filter?.limit) {
+      result = result.slice(0, filter.limit);
+    }
+    return result;
+  }
+
   static log(
     actionOrOptions: string | {
       action: string;

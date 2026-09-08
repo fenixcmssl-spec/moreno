@@ -16,12 +16,14 @@ export type EntityStatus =
   | 'SUSPENDED' 
   | 'EXPIRED' 
   | 'ARCHIVED'
+  | 'DRAFT'
   | 'active'
   | 'inactive'
   | 'pending'
   | 'suspended'
   | 'expired'
-  | 'archived';
+  | 'archived'
+  | 'draft';
 
 // -------------------------------------------------------------
 // 1. USUARIOS, SESIONES & SEGURIDAD
@@ -62,9 +64,16 @@ export type ApplicationTypeKey =
   | 'BOOKING' 
   | 'DIRECTORY' 
   | 'LMS' 
-  | 'FORUM'
-  | 'PORTFOLIO'
-  | 'CUSTOM';
+  | 'FORUM' 
+  | 'PORTFOLIO' 
+  | 'CUSTOM'
+  | 'app_ecommerce'
+  | 'app_auctions'
+  | 'app_hybrid_auctions_blog'
+  | 'app_hybrid_ecommerce_blog'
+  | 'app_blog'
+  | 'app_classifieds'
+  | (string & {});
 
 export interface ApplicationModuleDef {
   id: string;
@@ -171,6 +180,33 @@ export interface SubscriptionItem {
   currentPeriodStart: string;
   currentPeriodEnd: string;
 }
+
+export interface InvoiceItem {
+  id: string;
+  invoiceNumber: string;
+  tenantId: string;
+  amount: number;
+  currency: string;
+  status: 'DRAFT' | 'ISSUED' | 'PAID' | 'VOID' | string;
+  issuedAt: string;
+  paidAt?: string;
+  items: {
+    description: string;
+    quantity: number;
+    unitPrice: number;
+    total: number;
+  }[];
+  billingDetails?: {
+    name: string;
+    email: string;
+    address?: string;
+    taxId?: string;
+    [key: string]: any;
+  };
+}
+
+export type Product = ProductItem;
+export type Order = StoreOrder;
 
 // -------------------------------------------------------------
 // 5. TENANT, DOMINIOS & BRANDING
@@ -307,6 +343,7 @@ export interface ProductItem {
   categoryId?: string;
   price: number;
   compareAtPrice?: number;
+  comparePrice?: number;
   costPrice?: number;
   sku: string;
   barcode?: string;
@@ -325,6 +362,7 @@ export interface ProductItem {
     weight?: string;
     dimensions?: string;
     warranty?: string;
+    [key: string]: any;
   };
   variants?: ProductVariant[];
   translations?: Record<string, { title?: string; description?: string; }>;
@@ -372,6 +410,7 @@ export interface StoreOrder {
   total: number;
   paymentMethod: 'paypal' | 'stripe' | 'bizum' | 'redsys' | 'cod' | 'cash_on_delivery' | 'bank_transfer' | string;
   paymentStatus: 'paid' | 'pending' | 'failed' | 'refunded';
+  status?: string;
   orderStatus?: 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
   fulfillmentStatus?: 'unfulfilled' | 'processing' | 'fulfilled' | 'shipped' | 'delivered' | string;
   trackingNumber?: string;

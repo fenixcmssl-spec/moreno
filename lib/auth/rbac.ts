@@ -39,26 +39,29 @@ export class RbacService {
 
   /**
    * Evaluates feature access based on license entitlements
+   * STRICT DENY BY DEFAULT: if missing or not strictly boolean true => false
    */
   static isFeatureAllowed(
     entitlements: Record<string, any> = {},
     featureKey: string
   ): boolean {
-    if (entitlements[featureKey] !== undefined) {
-      return Boolean(entitlements[featureKey]);
+    if (!entitlements || typeof entitlements !== 'object') {
+      return false;
     }
-    return true; // Default fallback
+    return Boolean(entitlements[featureKey] === true);
   }
 
   /**
    * Checks numerical limit against tenant current usage
+   * STRICT DENY BY DEFAULT: if missing or undefined limit => 0 limit
    */
   static checkLimit(
     entitlements: Record<string, any> = {},
     limitKey: string,
     currentCount: number
   ): { allowed: boolean; limit: number; current: number } {
-    const limit = typeof entitlements[limitKey] === 'number' ? entitlements[limitKey] : 999999;
+    const raw = entitlements?.[limitKey];
+    const limit = typeof raw === 'number' ? raw : 0;
     return {
       allowed: currentCount < limit,
       limit,

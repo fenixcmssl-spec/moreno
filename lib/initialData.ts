@@ -251,6 +251,50 @@ export const INITIAL_TENANT: TenantStore = {
   createdAt: '2026-09-01T10:30:00Z'
 };
 
+export const INITIAL_TENANTS: TenantStore[] = [
+  INITIAL_TENANT,
+  {
+    id: 'tenant_milano',
+    name: 'Milano Style Store',
+    slug: 'milanostyle',
+    domain: 'milano.fenixcms.es',
+    customDomain: 'milanostyle.it',
+    status: 'active',
+    applicationId: 'app_ecommerce',
+    enabledApplications: ['ECOMMERCE'],
+    planId: 'plan_starter',
+    licenseKey: 'FNX-STA-4412-K872-BOUTIQUE',
+    ownerEmail: 'elena@milano-style.it',
+    ownerName: 'Elena Rossi',
+    themeId: 'theme_modern_luxe',
+    currency: 'EUR',
+    defaultLocale: 'it',
+    supportedLocales: ['it', 'en', 'es'],
+    branding: {
+      primaryColor: '#0f172a',
+      accentColor: '#d97706',
+      fontFamily: 'Inter, sans-serif'
+    },
+    settings: {
+      storeName: 'Milano Style Store',
+      tagline: 'Moda e accessori di lusso',
+      supportEmail: 'elena@milano-style.it',
+      phone: '+39 02 1234567',
+      address: 'Via Montenapoleone 8, Milano, Italia',
+      taxRate: 22,
+      shippingBaseCost: 5.90,
+      freeShippingThreshold: 60.00
+    },
+    activePlugins: [
+      'plugin_paypal',
+      'plugin_stripe',
+      'plugin_correos',
+      'plugin_seo_pro'
+    ],
+    createdAt: '2026-08-15T09:00:00Z'
+  }
+];
+
 export const INITIAL_PRODUCTS: ProductItem[] = [
   {
     id: 'prod_1',
