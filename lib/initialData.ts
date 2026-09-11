@@ -1,4 +1,5 @@
 import { 
+  ApplicationDefinition,
   SaaSPlan, 
   SaaSLicense, 
   TenantStore, 
@@ -14,6 +15,190 @@ import {
   MediaItem,
   CMSPage
 } from '@/types';
+
+export const INITIAL_APPLICATIONS: ApplicationDefinition[] = [
+  {
+    id: 'app_ecommerce',
+    key: 'ECOMMERCE',
+    name: 'Fenix E-commerce Pro',
+    slug: 'ecommerce',
+    description: 'Plataforma completa de venta online con catálogo, variantes, carrito, pasarelas de pago, envíos y facturación integrada.',
+    status: 'ACTIVE',
+    version: '2.5.0',
+    icon: 'ShoppingCart',
+    category: 'E-commerce',
+    createdAt: '2026-09-01T00:00:00Z',
+    modules: [
+      { id: 'mod_eco_1', applicationId: 'app_ecommerce', key: 'products', name: 'Catálogo de Productos', description: 'Gestión de productos, variantes, atributos y stock', isDefault: true },
+      { id: 'mod_eco_2', applicationId: 'app_ecommerce', key: 'orders', name: 'Gestión de Pedidos & Envíos', description: 'Control de estados, albaranes, tracking y reembolsos', isDefault: true },
+      { id: 'mod_eco_3', applicationId: 'app_ecommerce', key: 'coupons', name: 'Cupones & Promociones', description: 'Descuentos porcentuales, fijos y reglas automáticas', isDefault: true },
+      { id: 'mod_eco_4', applicationId: 'app_ecommerce', key: 'gateways', name: 'Pasarelas de Pago Multi-Moneda', description: 'Stripe, PayPal, Redsys, Bizum y transferencia', isDefault: true },
+      { id: 'mod_eco_5', applicationId: 'app_ecommerce', key: 'inventory', name: 'Control de Inventario Avanzado', description: 'Alertas de stock bajo y multi-almacén', isDefault: true },
+      { id: 'mod_eco_6', applicationId: 'app_ecommerce', key: 'import_pro', name: 'Fenix All Import Pro', description: 'Importación y exportación de productos por CSV/XML', isDefault: false }
+    ]
+  },
+  {
+    id: 'app_blog',
+    key: 'BLOG',
+    name: 'Fenix Blog & Magazine',
+    slug: 'blog',
+    description: 'Sistema editorial para publicaciones, revistas digitales y noticias con categorías, autores, SEO avanzado y comentarios.',
+    status: 'ACTIVE',
+    version: '2.0.0',
+    icon: 'Newspaper',
+    category: 'Contenido',
+    createdAt: '2026-09-01T00:00:00Z',
+    modules: [
+      { id: 'mod_blg_1', applicationId: 'app_blog', key: 'posts', name: 'Entradas & Artículos', description: 'Editor enriquecido con bloques visuales y SEO', isDefault: true },
+      { id: 'mod_blg_2', applicationId: 'app_blog', key: 'categories', name: 'Categorías y Etiquetas', description: 'Taxonomías y jerarquías ilimitadas', isDefault: true },
+      { id: 'mod_blg_3', applicationId: 'app_blog', key: 'authors', name: 'Gestión de Autores & Editores', description: 'Perfiles de redactor y firmas personalizadas', isDefault: true },
+      { id: 'mod_blg_4', applicationId: 'app_blog', key: 'comments', name: 'Moderación de Comentarios', description: 'Sistema de debate seguro y anti-spam', isDefault: true },
+      { id: 'mod_blg_5', applicationId: 'app_blog', key: 'newsletter', name: 'Suscripción & Boletines', description: 'Captación de lectores con doble opt-in', isDefault: false }
+    ]
+  },
+  {
+    id: 'app_blog_ads',
+    key: 'BLOG_ADS',
+    name: 'Fenix Content & Monetization Hub',
+    slug: 'blog-ads',
+    description: 'Publicación editorial de alto impacto con red de banners publicitarios (AdSense / Custom), zonas patrocinadas y analítica de clics.',
+    status: 'ACTIVE',
+    version: '1.4.0',
+    icon: 'Megaphone',
+    category: 'Monetización',
+    createdAt: '2026-09-01T00:00:00Z',
+    modules: [
+      { id: 'mod_ba_1', applicationId: 'app_blog_ads', key: 'posts', name: 'Artículos & Noticias', description: 'Publicación periódica y categorización', isDefault: true },
+      { id: 'mod_ba_2', applicationId: 'app_blog_ads', key: 'ad_zones', name: 'Zonas Publicitarias & Banners', description: 'Gestión de espacios Header, In-Article y Sidebar', isDefault: true },
+      { id: 'mod_ba_3', applicationId: 'app_blog_ads', key: 'sponsored', name: 'Contenido Patrocinado', description: 'Artículos con etiquetado transparente y anunciantes', isDefault: true },
+      { id: 'mod_ba_4', applicationId: 'app_blog_ads', key: 'ad_analytics', name: 'Métricas de Impresiones y Clics (CTR)', description: 'Estadísticas de visualizaciones y rendimiento', isDefault: true }
+    ]
+  },
+  {
+    id: 'app_classifieds',
+    key: 'CLASSIFIEDS',
+    name: 'Fenix Clasificados & Anuncios',
+    slug: 'classifieds',
+    description: 'Portal estilo Milanuncios / Wallapop para publicación de anuncios por categorías, geolocalización, chat y pagos seguros.',
+    status: 'ACTIVE',
+    version: '2.1.0',
+    icon: 'Tag',
+    category: 'Marketplace',
+    createdAt: '2026-09-01T00:00:00Z',
+    modules: [
+      { id: 'mod_cla_1', applicationId: 'app_classifieds', key: 'ads_moderation', name: 'Publicación y Moderación de Anuncios', description: 'Aprobación automática o manual con filtros anti-fraude', isDefault: true },
+      { id: 'mod_cla_2', applicationId: 'app_classifieds', key: 'geo_search', name: 'Búsqueda por Radio y Ciudad', description: 'Filtros geográficos por código postal y provincia', isDefault: true },
+      { id: 'mod_cla_3', applicationId: 'app_classifieds', key: 'featured_ads', name: 'Monetización de Anuncios Destacados', description: 'Cobro por destacar en portada y renovaciones', isDefault: true },
+      { id: 'mod_cla_4', applicationId: 'app_classifieds', key: 'seller_profiles', name: 'Perfiles de Vendedores y Valoraciones', description: 'Reputación de usuario y contacto directo', isDefault: true }
+    ]
+  },
+  {
+    id: 'app_booking',
+    key: 'BOOKING',
+    name: 'Fenix Reservas & Citas Online',
+    slug: 'booking',
+    description: 'Gestión de agenda, servicios profesionales, citas médicas, salones de belleza o alquiler de espacios con sincronización y pagos.',
+    status: 'ACTIVE',
+    version: '1.2.0',
+    icon: 'Calendar',
+    category: 'Servicios',
+    createdAt: '2026-09-01T00:00:00Z',
+    modules: [
+      { id: 'mod_bok_1', applicationId: 'app_booking', key: 'services_calendar', name: 'Calendario de Disponibilidad', description: 'Configuración de horarios, descansos y festivos', isDefault: true },
+      { id: 'mod_bok_2', applicationId: 'app_booking', key: 'staff_management', name: 'Gestión de Empleados / Profesionales', description: 'Asignación de citas por profesional', isDefault: true },
+      { id: 'mod_bok_3', applicationId: 'app_booking', key: 'online_deposits', name: 'Fianzas y Pagos Anticipados', description: 'Cobro de depósito previo a la confirmación', isDefault: true },
+      { id: 'mod_bok_4', applicationId: 'app_booking', key: 'sms_reminders', name: 'Recordatorios por Email & WhatsApp', description: 'Notificaciones automáticas antes de la cita', isDefault: true }
+    ]
+  },
+  {
+    id: 'app_lms',
+    key: 'LMS',
+    name: 'Fenix Academia & Cursos LMS',
+    slug: 'lms',
+    description: 'Plataforma educativa para academias, academias online y creadores con lecciones en video, quizzes, certificados y suscripciones.',
+    status: 'ACTIVE',
+    version: '1.1.0',
+    icon: 'GraduationCap',
+    category: 'Educación',
+    createdAt: '2026-09-01T00:00:00Z',
+    modules: [
+      { id: 'mod_lms_1', applicationId: 'app_lms', key: 'course_builder', name: 'Constructor de Cursos & Módulos', description: 'Organización secuencial con videos y recursos', isDefault: true },
+      { id: 'mod_lms_2', applicationId: 'app_lms', key: 'student_progress', name: 'Seguimiento de Alumnos y Progreso', description: 'Panel de completitud de tareas y notas', isDefault: true },
+      { id: 'mod_lms_3', applicationId: 'app_lms', key: 'certificates', name: 'Certificados de Finalización en PDF', description: 'Generación automática con validación QR', isDefault: true },
+      { id: 'mod_lms_4', applicationId: 'app_lms', key: 'recurring_memberships', name: 'Membresías Recurrentes para Alumnos', description: 'Cobros periódicos mensuales/anuales', isDefault: true }
+    ]
+  },
+  {
+    id: 'app_directory',
+    key: 'DIRECTORY',
+    name: 'Fenix Directorio & Guía Comercial',
+    slug: 'directory',
+    description: 'Guía interactiva de empresas, restaurantes, profesionales locales y servicios con mapas interactivos y reseñas verificadas.',
+    status: 'ACTIVE',
+    version: '1.3.0',
+    icon: 'MapPin',
+    category: 'Directorio',
+    createdAt: '2026-09-01T00:00:00Z',
+    modules: [
+      { id: 'mod_dir_1', applicationId: 'app_directory', key: 'business_listings', name: 'Fichas de Negocios y Empresas', description: 'Horarios, teléfono, dirección y galería fotográfica', isDefault: true },
+      { id: 'mod_dir_2', applicationId: 'app_directory', key: 'interactive_map', name: 'Mapa Interactivo OpenStreetMap', description: 'Marcadores agrupados con geolocalización', isDefault: true },
+      { id: 'mod_dir_3', applicationId: 'app_directory', key: 'claim_listing', name: 'Reclamación de Fichas por Propietarios', description: 'Verificación de titularidad de negocios', isDefault: true },
+      { id: 'mod_dir_4', applicationId: 'app_directory', key: 'reviews_ratings', name: 'Reseñas y Valoraciones Verificadas', description: 'Puntuaciones y comentarios moderados', isDefault: true }
+    ]
+  },
+  {
+    id: 'app_landing',
+    key: 'LANDING',
+    name: 'Fenix Landing Page & Lead Funnels',
+    slug: 'landing',
+    description: 'Páginas de aterrizaje de ultra-alta conversión para campañas de marketing, lanzamientos y captación de clientes potenciales.',
+    status: 'ACTIVE',
+    version: '1.5.0',
+    icon: 'Layers',
+    category: 'Marketing',
+    createdAt: '2026-09-01T00:00:00Z',
+    modules: [
+      { id: 'mod_lan_1', applicationId: 'app_landing', key: 'hero_builder', name: 'Hero Blocks & Secciones Modulares', description: 'Call-to-actions, pricing tables y testimonios', isDefault: true },
+      { id: 'mod_lan_2', applicationId: 'app_landing', key: 'lead_capture', name: 'Formularios de Captación & CRM Sync', description: 'Envío de leads directos a email o Webhooks', isDefault: true },
+      { id: 'mod_lan_3', applicationId: 'app_landing', key: 'ab_testing', name: 'Soporte para A/B Testing & Tracking Pixels', description: 'Pixel de Meta, Google Tag y TikTok Ads', isDefault: true }
+    ]
+  },
+  {
+    id: 'app_business',
+    key: 'BUSINESS',
+    name: 'Fenix Web Corporativa & Servicios B2B',
+    slug: 'business',
+    description: 'Presencia digital profesional para consultoras, agencias, despachos y empresas con portafolio, servicios y presupuestos.',
+    status: 'ACTIVE',
+    version: '2.0.0',
+    icon: 'Briefcase',
+    category: 'Corporativo',
+    createdAt: '2026-09-01T00:00:00Z',
+    modules: [
+      { id: 'mod_biz_1', applicationId: 'app_business', key: 'services_catalog', name: 'Catálogo de Servicios y Soluciones', description: 'Exposición estructurada con tarifas', isDefault: true },
+      { id: 'mod_biz_2', applicationId: 'app_business', key: 'case_studies', name: 'Casos de Éxito & Portafolio', description: 'Galería de proyectos con resultados medibles', isDefault: true },
+      { id: 'mod_biz_3', applicationId: 'app_business', key: 'quote_requests', name: 'Cotizaciones y Presupuestos Online', description: 'Calculadora de presupuestos interactiva', isDefault: true },
+      { id: 'mod_biz_4', applicationId: 'app_business', key: 'team_bios', name: 'Equipo Directivo & Carreras', description: 'Perfiles del equipo y ofertas de empleo', isDefault: true }
+    ]
+  },
+  {
+    id: 'app_custom',
+    key: 'CUSTOM',
+    name: 'Fenix Custom App & API Engine',
+    slug: 'custom-app',
+    description: 'Entorno abierto para soluciones a medida con esquemas dinámicos, endpoints REST personalizados y extensiones complejas.',
+    status: 'ACTIVE',
+    version: '1.0.0',
+    icon: 'Sliders',
+    category: 'Desarrollo',
+    createdAt: '2026-09-01T00:00:00Z',
+    modules: [
+      { id: 'mod_cst_1', applicationId: 'app_custom', key: 'custom_fields', name: 'Campos y Colecciones Personalizadas', description: 'Estructuración de datos dinámica', isDefault: true },
+      { id: 'mod_cst_2', applicationId: 'app_custom', key: 'api_webhooks', name: 'Webhooks y Eventos Salientes', description: 'Integraciones en tiempo real vía HTTP POST', isDefault: true },
+      { id: 'mod_cst_3', applicationId: 'app_custom', key: 'custom_code', name: 'Inyección Segura de Scripts / CSS', description: 'Personalización de frontend y backend', isDefault: true }
+    ]
+  }
+];
 
 export const INITIAL_PLANS: SaaSPlan[] = [
   {

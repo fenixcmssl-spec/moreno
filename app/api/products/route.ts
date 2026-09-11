@@ -1,39 +1,57 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { INITIAL_PRODUCTS } from '@/lib/initialData';
-import { LicenseService } from '@/lib/services/license.service';
-import { EntitlementService } from '@/lib/services/entitlement.service';
+import { TenantContextHelper } from '@/lib/auth/tenantContext';
 import { AuditService } from '@/lib/services/audit.service';
 import { Product } from '@/types';
+import prisma from '@/lib/prisma';
 
 let productsDb: Product[] = [...INITIAL_PRODUCTS];
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const tenantId = searchParams.get('tenantId');
     const category = searchParams.get('category');
     const search = searchParams.get('search');
+    const requestedTenantId = searchParams.get('tenantId');
 
-    let filtered = productsDb;
+    const session = await TenantContextHelper.getSessionFromRequest(req);
+    let effectiveTenantId: string;
 
-    if (tenantId) {
-      filtered = filtered.filter(p => p.tenantId === tenantId);
+    if (session) {
+      // Authenticated call - enforce tenant boundaries
+      if (session.role === 'SUPER_ADMIN') {
+        effectiveTenantId = requestedTenantId || session.tenantId || 'tenant_1';
+      } else {
+        if (requestedTenantId && requestedTenantId !== session.tenantId && requestedTenantId !== session.tenantSlug) {
+          return NextResponse.json(
+            { error: 'Acceso denegado a los productos de otro comercio', code: 'TENANT_FORBIDDEN' },
+            { status: 403 }
+          );
+        }
+        effectiveTenantId = session.tenantId || requestedTenantId || 'tenant_1';
+      }
+    } else {
+      // Public Storefront query - derive strictly from domain / slug
+      const publicContext = await TenantContextHelper.resolvePublicTenant(req);
+      effectiveTenantId = publicContext.tenant?.id || requestedTenantId || 'tenant_1';
     }
 
+    let list = productsDb.filter(p => p.tenantId === effectiveTenantId);
+
     if (category && category !== 'all' && category !== 'Todos') {
-      filtered = filtered.filter(p => p.category?.toLowerCase() === category.toLowerCase());
+      list = list.filter(p => p.category?.toLowerCase() === category.toLowerCase());
     }
 
     if (search) {
       const q = search.toLowerCase();
-      filtered = filtered.filter(p => 
+      list = list.filter(p => 
         p.title.toLowerCase().includes(q) || 
         p.description?.toLowerCase().includes(q) ||
         p.category?.toLowerCase().includes(q)
       );
     }
 
-    return NextResponse.json({ products: filtered, total: filtered.length });
+    return NextResponse.json({ products: list, total: list.length, tenantId: effectiveTenantId });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Error cargando productos' }, { status: 500 });
   }
@@ -43,7 +61,6 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const {
-      tenantId,
       title,
       price,
       comparePrice,
@@ -60,36 +77,40 @@ export async function POST(req: NextRequest) {
       translations
     } = body;
 
-    if (!tenantId || !title || price === undefined) {
+    // Strict Tenant Role & Context Verification
+    const auth = await TenantContextHelper.requireTenantRole(req, 'STAFF', {
+      targetTenantId: body.tenantId
+    });
+
+    if (!auth.success) {
+      return auth.response;
+    }
+
+    const { tenant, session } = auth.context;
+
+    if (!title || price === undefined) {
       return NextResponse.json(
-        { error: 'tenantId, title y price son campos requeridos' },
+        { error: 'Título y precio son campos requeridos' },
         { status: 400 }
       );
     }
 
-    // 1. Entitlement check on products.max
-    const license = LicenseService.getByTenantId(tenantId);
-    if (license) {
-      const currentTenantProductsCount = productsDb.filter(p => p.tenantId === tenantId).length;
-      const check = EntitlementService.canCreateResource(
-        license.entitlements,
-        'products',
-        currentTenantProductsCount,
-        1
-      );
+    // Entitlement limit check for products.max
+    const currentCount = productsDb.filter(p => p.tenantId === tenant.id).length;
+    const entitlementCheck = await TenantContextHelper.requireEntitlement(req, 'products.max', {
+      targetTenantId: tenant.id,
+      currentCount,
+      increment: 1
+    });
 
-      if (!check.allowed) {
-        return NextResponse.json(
-          { error: check.message || 'Límite de productos alcanzado para tu plan' },
-          { status: 403 }
-        );
-      }
+    if (!entitlementCheck.success) {
+      return entitlementCheck.response;
     }
 
     const cleanSlug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
     const newProduct: Product = {
       id: `prod_${Date.now()}`,
-      tenantId,
+      tenantId: tenant.id,
       title,
       slug: cleanSlug || `product-${Date.now()}`,
       description: body.description || '',
@@ -114,7 +135,9 @@ export async function POST(req: NextRequest) {
     productsDb.unshift(newProduct);
 
     AuditService.log({
-      tenantId,
+      tenantId: tenant.id,
+      userId: session?.userId,
+      userEmail: session?.email,
       action: 'PRODUCT_CREATED',
       entity: 'Product',
       entityId: newProduct.id,
@@ -127,31 +150,92 @@ export async function POST(req: NextRequest) {
   }
 }
 
+export async function PUT(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { id, ...updates } = body;
+
+    if (!id) {
+      return NextResponse.json({ error: 'ID de producto requerido' }, { status: 400 });
+    }
+
+    const auth = await TenantContextHelper.requireTenantRole(req, 'STAFF', {
+      targetTenantId: body.tenantId
+    });
+
+    if (!auth.success) {
+      return auth.response;
+    }
+
+    const { tenant, session } = auth.context;
+
+    // Verify product belongs to this verified tenant
+    const idx = productsDb.findIndex(p => p.id === id && p.tenantId === tenant.id);
+    if (idx === -1) {
+      return NextResponse.json(
+        { error: 'Producto no encontrado o no pertenece a este comercio', code: 'PRODUCT_NOT_FOUND' },
+        { status: 404 }
+      );
+    }
+
+    productsDb[idx] = {
+      ...productsDb[idx],
+      ...updates,
+      tenantId: tenant.id // Prevent tampering tenantId
+    };
+
+    AuditService.log({
+      tenantId: tenant.id,
+      userId: session?.userId,
+      userEmail: session?.email,
+      action: 'PRODUCT_UPDATED',
+      entity: 'Product',
+      entityId: id,
+      details: { updatedFields: Object.keys(updates) }
+    });
+
+    return NextResponse.json({ success: true, product: productsDb[idx] });
+  } catch (error: any) {
+    return NextResponse.json({ error: error?.message || 'Error actualizando producto' }, { status: 500 });
+  }
+}
+
 export async function DELETE(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
-    const tenantId = searchParams.get('tenantId');
 
-    if (!id || !tenantId) {
-      return NextResponse.json({ error: 'id y tenantId requeridos' }, { status: 400 });
+    if (!id) {
+      return NextResponse.json({ error: 'ID de producto requerido' }, { status: 400 });
     }
 
-    const idx = productsDb.findIndex(p => p.id === id && p.tenantId === tenantId);
+    const auth = await TenantContextHelper.requireTenantRole(req, 'ADMIN');
+    if (!auth.success) {
+      return auth.response;
+    }
+
+    const { tenant, session } = auth.context;
+
+    const idx = productsDb.findIndex(p => p.id === id && p.tenantId === tenant.id);
     if (idx === -1) {
-      return NextResponse.json({ error: 'Producto no encontrado' }, { status: 404 });
+      return NextResponse.json(
+        { error: 'Producto no encontrado en este comercio', code: 'PRODUCT_NOT_FOUND' },
+        { status: 404 }
+      );
     }
 
     productsDb.splice(idx, 1);
 
     AuditService.log({
-      tenantId,
+      tenantId: tenant.id,
+      userId: session?.userId,
+      userEmail: session?.email,
       action: 'PRODUCT_DELETED',
       entity: 'Product',
       entityId: id
     });
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, message: 'Producto eliminado correctamente' });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Error eliminando producto' }, { status: 500 });
   }

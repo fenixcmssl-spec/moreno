@@ -1,32 +1,43 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { LicenseService } from '@/lib/services/license.service';
+import { TenantContextHelper } from '@/lib/auth/tenantContext';
 import { AuditService } from '@/lib/services/audit.service';
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const tenantId = searchParams.get('tenantId');
+    const requestedTenantId = searchParams.get('tenantId');
     const slug = searchParams.get('slug');
 
-    if (tenantId) {
-      const lic = LicenseService.getByTenantId(tenantId);
-      return NextResponse.json({ license: lic || null });
+    const auth = await TenantContextHelper.requireTenant(req, {
+      targetTenantId: requestedTenantId || slug || undefined
+    });
+
+    if (!auth.success) {
+      return auth.response;
     }
 
-    if (slug) {
-      const lic = LicenseService.getByTenantSlug(slug);
-      return NextResponse.json({ license: lic || null });
+    const { tenant, isSuperAdmin } = auth.context;
+
+    if (isSuperAdmin && searchParams.get('all') === 'true') {
+      const all = LicenseService.getAll();
+      return NextResponse.json({ licenses: all });
     }
 
-    const all = LicenseService.getAll();
-    return NextResponse.json({ licenses: all });
+    const lic = LicenseService.getByTenantId(tenant.id);
+    return NextResponse.json({ license: lic || null, tenantId: tenant.id });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Error listando licencias' }, { status: 500 });
+    return NextResponse.json({ error: error?.message || 'Error consultando licencias' }, { status: 500 });
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = await TenantContextHelper.requireTenantRole(req, 'SUPER_ADMIN');
+    if (!auth.success) {
+      return auth.response;
+    }
+
     const body = await req.json();
     const {
       tenantId,

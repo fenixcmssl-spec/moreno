@@ -6,19 +6,22 @@ import { LogIn, Key, Store, ArrowRight, ShieldCheck, Lock, AlertCircle, KeyRound
 
 export function MerchantLoginPortal() {
   const { setCurrentRoute, tenant, licenses, loginBackend } = useStore();
-  const [email, setEmail] = useState('info@fenixcms.es');
-  const [password, setPassword] = useState('Patricia1980@');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [licenseKeyInput, setLicenseKeyInput] = useState('');
   const [loginMode, setLoginMode] = useState<'credentials' | 'license_key'>('credentials');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
+    setIsLoading(true);
 
     if (loginMode === 'credentials') {
-      const res = loginBackend(email, password);
+      const res = await loginBackend(email, password, tenant.slug);
+      setIsLoading(false);
       if (res.success) {
         setCurrentRoute('store_admin');
       } else {
@@ -29,9 +32,10 @@ export function MerchantLoginPortal() {
       const cleanKey = (licenseKeyInput || tenant.licenseKey).trim();
       const lic = licenses.find(l => l.licenseKey.toLowerCase() === cleanKey.toLowerCase());
       if (lic || cleanKey === tenant.licenseKey) {
-        loginBackend('info@fenixcms.es', 'Patricia1980@');
+        setIsLoading(false);
         setCurrentRoute('store_admin');
       } else {
+        setIsLoading(false);
         setErrorMsg('Clave de licencia no encontrada o inactiva.');
       }
     }
@@ -131,35 +135,30 @@ export function MerchantLoginPortal() {
             </div>
           )}
 
-          {/* Helper Card */}
+          {/* RBAC Note */}
           <div className="p-3 bg-slate-800/60 rounded-xl border border-slate-700 text-xs text-slate-400 space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold text-amber-400 flex items-center gap-1">
-                <KeyRound className="w-3 h-3" /> Credenciales asignadas
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setEmail('info@fenixcms.es');
-                  setPassword('Patricia1980@');
-                  setErrorMsg(null);
-                }}
-                className="text-[10px] text-emerald-400 hover:underline font-semibold"
-              >
-                Autocompletar
-              </button>
+            <div className="flex items-center gap-1.5 text-amber-400 font-semibold text-[11px]">
+              <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+              <span>Acceso Seguro a la Tienda</span>
             </div>
-            <div className="text-[11px] text-slate-300 font-mono">
-              info@fenixcms.es / Patricia1980@
-            </div>
+            <p className="text-[11px] text-slate-400">
+              Accede con la cuenta de Administrador o con tu Clave de Licencia activa del comercio.
+            </p>
           </div>
 
           <button
             type="submit"
-            className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs uppercase tracking-wider shadow-md transition flex items-center justify-center gap-2 cursor-pointer"
+            disabled={isLoading}
+            className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs uppercase tracking-wider shadow-md transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
           >
-            <LogIn className="w-4 h-4" />
-            <span>Entrar al Panel de Control ({tenant.customDomain || 'tutienda.com'}/admin)</span>
+            {isLoading ? (
+              <span>Validando credenciales...</span>
+            ) : (
+              <>
+                <LogIn className="w-4 h-4" />
+                <span>Entrar al Panel de Control ({tenant.customDomain || 'tutienda.com'}/admin)</span>
+              </>
+            )}
           </button>
         </form>
 

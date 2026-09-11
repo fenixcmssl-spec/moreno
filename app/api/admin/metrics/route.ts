@@ -1,37 +1,27 @@
-import { NextResponse } from 'next/server';
-import { LicenseService } from '@/lib/services/license.service';
-import { INITIAL_TENANTS } from '@/lib/initialData';
+import { NextRequest, NextResponse } from 'next/server';
+import { SuperAdminService } from '@/lib/services/super-admin.service';
+import { requireSuperAdmin, adminUnauthorizedResponse } from '@/lib/auth/admin-guard';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const licenses = LicenseService.getAll();
-    const tenants = INITIAL_TENANTS;
+    // 1. Verify SUPER_ADMIN role strictly
+    const authResult = await requireSuperAdmin(req);
+    if (!authResult.authorized) {
+      return adminUnauthorizedResponse(authResult);
+    }
 
-    const activeLicenses = licenses.filter(l => l.status === 'active');
-    const suspendedLicenses = licenses.filter(l => l.status === 'suspended');
-    const expiredLicenses = licenses.filter(l => l.status === 'expired');
-
-    // Calculate MRR
-    const mrr = activeLicenses.reduce((acc, l) => {
-      const monthlyVal = l.billingPeriod === 'yearly' ? (l.price / 12) : l.price;
-      return acc + (monthlyVal || 0);
-    }, 0);
-
-    const arr = mrr * 12;
+    // 2. Fetch calculated metrics directly from PostgreSQL
+    const metrics = await SuperAdminService.getDashboardMetrics();
 
     return NextResponse.json({
-      metrics: {
-        mrr: Math.round(mrr * 100) / 100,
-        arr: Math.round(arr * 100) / 100,
-        totalCustomers: licenses.length,
-        activeTenants: tenants.filter(t => t.status === 'active').length,
-        activeLicenses: activeLicenses.length,
-        suspendedLicenses: suspendedLicenses.length,
-        expiredLicenses: expiredLicenses.length,
-        currency: 'EUR'
-      }
+      success: true,
+      metrics
     });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Error calculando métricas' }, { status: 500 });
+    console.error('Error in GET /api/admin/metrics:', error);
+    return NextResponse.json(
+      { success: false, error: error?.message || 'Error calculando métricas desde PostgreSQL' },
+      { status: 500 }
+    );
   }
 }

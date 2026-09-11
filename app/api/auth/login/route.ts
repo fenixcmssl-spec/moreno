@@ -2,10 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { AuthService } from '@/lib/services/auth.service';
 import { LoginSchema } from '@/lib/validators';
 import { SessionService } from '@/lib/auth/session';
+import { SecurityService } from '@/lib/security/security.service';
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    // 1. Rate Limiting protection against brute-force (5 attempts per minute per IP)
+    const rateLimit = SecurityService.applyRateLimit(req, 10, 60, 'auth_login');
+    if (rateLimit.limited && rateLimit.response) {
+      return rateLimit.response;
+    }
+
+    const rawBody = await req.json();
+    const body = SecurityService.sanitizePayload(rawBody);
     const validated = LoginSchema.safeParse(body);
 
     if (!validated.success) {

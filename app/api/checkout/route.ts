@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { CheckoutSchema } from '@/lib/validators';
-import { PaymentService } from '@/lib/services/payment.service';
+import { StorefrontCheckoutService } from '@/lib/services/storefront-checkout.service';
 import { AuditService } from '@/lib/services/audit.service';
+import { SecurityService } from '@/lib/security/security.service';
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    // 1. Rate limiting protection against card testing and automated abuse
+    const rateLimit = SecurityService.applyRateLimit(req, 15, 60, 'checkout_orders');
+    if (rateLimit.limited && rateLimit.response) {
+      return rateLimit.response;
+    }
+
+    const rawBody = await req.json();
+    const body = SecurityService.sanitizePayload(rawBody);
     const validated = CheckoutSchema.safeParse(body);
 
     if (!validated.success) {
@@ -16,49 +24,38 @@ export async function POST(req: NextRequest) {
       }, { status: 400 });
     }
 
-    const { tenantId, items, paymentMethod, shippingMethod, couponCode, customerName, customerEmail, shippingAddress, notes } = validated.data;
+    const { tenantId, items, paymentMethod, shippingMethod, couponCode, customerName, customerEmail, customerPhone, shippingAddress, notes } = validated.data;
 
-    // Server-side calculation of financial figures (Point 2, 18 & 24)
-    const calculation = PaymentService.calculateTotals({
-      items,
-      couponDiscountPct: couponCode === 'FENIX10' ? 10 : 0,
-      shippingMethod,
-      taxRate: 0.21
-    });
-
-    const orderNumber = `FNX-${Date.now().toString().slice(-6)}`;
-    const isInstantPayment = paymentMethod === 'stripe' || paymentMethod === 'paypal';
-
-    AuditService.log({
+    // Process order with StorefrontCheckoutService
+    const result = await StorefrontCheckoutService.createStorefrontOrder({
       tenantId,
-      userEmail: customerEmail,
-      action: 'ORDER_CREATED',
-      entity: 'Order',
-      entityId: orderNumber,
-      details: {
-        total: calculation.total,
-        paymentMethod,
-        itemsCount: items.length
-      }
+      customerName,
+      customerEmail,
+      customerPhone,
+      shippingAddress: {
+        address: shippingAddress.address,
+        city: shippingAddress.city,
+        state: shippingAddress.state || shippingAddress.city,
+        postalCode: shippingAddress.postalCode,
+        country: shippingAddress.country
+      },
+      items,
+      paymentMethod,
+      shippingMethod,
+      couponCode,
+      notes
     });
+
+    if (!result.success) {
+      return NextResponse.json({
+        success: false,
+        error: result.error || 'Error creando pedido en tienda'
+      }, { status: 400 });
+    }
 
     return NextResponse.json({
       success: true,
-      order: {
-        orderNumber,
-        tenantId,
-        customerName,
-        customerEmail,
-        shippingAddress,
-        items,
-        calculation,
-        paymentMethod,
-        paymentStatus: isInstantPayment ? 'PAID' : 'PENDING',
-        orderStatus: isInstantPayment ? 'PROCESSING' : 'PENDING',
-        carrier: shippingMethod === 'correos_express' ? 'Correos Express 24h' : 'Correos Paq Estándar',
-        trackingNumber: `CE${Math.floor(100000000 + Math.random() * 900000000)}ES`,
-        createdAt: new Date().toISOString()
-      }
+      order: result.order
     });
   } catch (error: any) {
     return NextResponse.json({

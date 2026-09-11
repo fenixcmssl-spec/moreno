@@ -17,8 +17,8 @@ export function BackendLoginGate({
 }: BackendLoginGateProps) {
   const { loginBackend, setCurrentRoute, tenant } = useStore();
   
-  const [email, setEmail] = useState('info@fenixcms.es');
-  const [password, setPassword] = useState('Patricia1980@');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -28,9 +28,7 @@ export function BackendLoginGate({
     setIsLoading(true);
     setErrorMessage(null);
 
-    await new Promise(r => setTimeout(r, 400));
-
-    const result = loginBackend(email, password);
+    const result = await loginBackend(email, password);
     setIsLoading(false);
 
     if (result.success) {
@@ -40,14 +38,8 @@ export function BackendLoginGate({
         setCurrentRoute('store_admin');
       }
     } else {
-      setErrorMessage(result.error || 'Credenciales incorrectas');
+      setErrorMessage(result.error || 'Credenciales incorrectas o usuario no autorizado');
     }
-  };
-
-  const handleQuickFill = () => {
-    setEmail('info@fenixcms.es');
-    setPassword('Patricia1980@');
-    setErrorMessage(null);
   };
 
   return (
@@ -130,24 +122,15 @@ export function BackendLoginGate({
             </div>
           </div>
 
-          {/* Credentials Helper Card */}
-          <div className="p-3 bg-slate-800/50 border border-slate-700/60 rounded-xl text-xs text-slate-300 space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1">
-                <KeyRound className="w-3 h-3" /> Credenciales de Acceso
-              </span>
-              <button
-                type="button"
-                onClick={handleQuickFill}
-                className="text-[10px] text-emerald-400 hover:underline font-semibold"
-              >
-                Autocompletar
-              </button>
+          {/* RBAC Security Note */}
+          <div className="p-3 bg-slate-800/50 border border-slate-700/60 rounded-xl text-xs text-slate-300 space-y-1">
+            <div className="flex items-center gap-1.5 text-amber-400 font-semibold text-[11px]">
+              <Shield className="w-3.5 h-3.5 text-amber-400" />
+              <span>Autenticación RBAC Segura</span>
             </div>
-            <div className="text-[11px] text-slate-400 space-y-0.5">
-              <div>Usuario: <code className="text-white font-mono bg-slate-800 px-1 py-0.5 rounded">info@fenixcms.es</code></div>
-              <div>Contraseña: <code className="text-amber-400 font-mono bg-slate-800 px-1 py-0.5 rounded">Patricia1980@</code></div>
-            </div>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Introduce las credenciales autorizadas para tu rol (Super Admin, Propietario o Administrador de Tienda).
+            </p>
           </div>
 
           <button

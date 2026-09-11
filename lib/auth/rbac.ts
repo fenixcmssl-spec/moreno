@@ -1,9 +1,13 @@
 export type UserRole = 
   | 'SUPER_ADMIN' 
-  | 'TENANT_OWNER' 
-  | 'TENANT_ADMIN' 
+  | 'OWNER'
+  | 'ADMIN'
+  | 'MANAGER'
   | 'EDITOR' 
-  | 'CUSTOMER';
+  | 'STAFF'
+  | 'CUSTOMER'
+  | 'TENANT_OWNER' 
+  | 'TENANT_ADMIN';
 
 export interface PermissionCheckParams {
   userRole: UserRole;
@@ -14,9 +18,13 @@ export interface PermissionCheckParams {
 
 const ROLE_HIERARCHY: Record<UserRole, number> = {
   SUPER_ADMIN: 100,
+  OWNER: 80,
   TENANT_OWNER: 80,
+  ADMIN: 70,
   TENANT_ADMIN: 60,
+  MANAGER: 50,
   EDITOR: 40,
+  STAFF: 30,
   CUSTOMER: 10
 };
 
@@ -26,6 +34,10 @@ export class RbacService {
    */
   static hasMinimumRole(userRole: UserRole, requiredRole: UserRole): boolean {
     return (ROLE_HIERARCHY[userRole] || 0) >= (ROLE_HIERARCHY[requiredRole] || 0);
+  }
+
+  static hasMinRole(userRole: UserRole, requiredRole: UserRole): boolean {
+    return this.hasMinimumRole(userRole, requiredRole);
   }
 
   /**

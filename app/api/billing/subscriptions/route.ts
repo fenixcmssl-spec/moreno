@@ -1,45 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { SubscriptionItem } from '@/types';
+import { TenantContextHelper } from '@/lib/auth/tenantContext';
 import { AuditService } from '@/lib/services/audit.service';
-
-let subscriptionsDb: SubscriptionItem[] = [
-  {
-    id: 'sub_1',
-    tenantId: 'tenant_1',
-    applicationId: 'ECOMMERCE',
-    planId: 'plan_pro',
-    provider: 'paypal',
-    providerSubscriptionId: 'I-BW4529668470',
-    status: 'ACTIVE',
-    billingPeriod: 'monthly',
-    currentPeriodStart: '2026-01-01T00:00:00Z',
-    currentPeriodEnd: '2026-12-31T23:59:59Z'
-  },
-  {
-    id: 'sub_2',
-    tenantId: 'tenant_2',
-    applicationId: 'ECOMMERCE',
-    planId: 'plan_enterprise',
-    provider: 'stripe',
-    providerSubscriptionId: 'sub_1N80J2LkdIwHu7ix',
-    status: 'ACTIVE',
-    billingPeriod: 'yearly',
-    currentPeriodStart: '2026-01-01T00:00:00Z',
-    currentPeriodEnd: '2026-12-31T23:59:59Z'
-  }
-];
+import { SubscriptionService } from '@/lib/services/subscription.service';
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const tenantId = searchParams.get('tenantId');
+    const requestedTenantId = searchParams.get('tenantId');
 
-    if (tenantId) {
-      const sub = subscriptionsDb.find(s => s.tenantId === tenantId);
-      return NextResponse.json({ subscription: sub || null });
+    const auth = await TenantContextHelper.requireTenantRole(req, 'ADMIN', {
+      targetTenantId: requestedTenantId || undefined
+    });
+
+    if (!auth.success) {
+      return auth.response;
     }
 
-    return NextResponse.json({ subscriptions: subscriptionsDb });
+    const { tenant, isSuperAdmin } = auth.context;
+
+    if (isSuperAdmin && searchParams.get('all') === 'true') {
+      const allSubs = await SubscriptionService.getAll();
+      return NextResponse.json({ subscriptions: allSubs });
+    }
+
+    const sub = await SubscriptionService.getByTenantId(tenant.id);
+    return NextResponse.json({ subscription: sub || null, tenantId: tenant.id });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Error cargando suscripciones' }, { status: 500 });
   }
@@ -48,33 +33,36 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { tenantId, planId, applicationId = 'ECOMMERCE', provider = 'paypal', billingPeriod = 'monthly' } = body;
+    const { planId, provider = 'stripe', billingPeriod = 'monthly', amount, currency = 'EUR', trialDays } = body;
 
-    if (!tenantId || !planId) {
-      return NextResponse.json({ error: 'tenantId y planId requeridos' }, { status: 400 });
+    const auth = await TenantContextHelper.requireTenantRole(req, 'ADMIN', {
+      targetTenantId: body.tenantId
+    });
+
+    if (!auth.success) {
+      return auth.response;
     }
 
-    const now = new Date();
-    const end = new Date(now);
-    end.setMonth(end.getMonth() + (billingPeriod === 'yearly' ? 12 : 1));
+    const { tenant, session } = auth.context;
 
-    const newSub: SubscriptionItem = {
-      id: `sub_${Date.now()}`,
-      tenantId,
-      applicationId,
+    if (!planId) {
+      return NextResponse.json({ error: 'planId es requerido' }, { status: 400 });
+    }
+
+    const newSub = await SubscriptionService.createSubscription({
+      tenantId: tenant.id,
       planId,
       provider,
-      providerSubscriptionId: `${provider}_sub_${Date.now()}`,
-      status: 'ACTIVE',
       billingPeriod,
-      currentPeriodStart: now.toISOString(),
-      currentPeriodEnd: end.toISOString()
-    };
-
-    subscriptionsDb.unshift(newSub);
+      amount,
+      currency,
+      trialDays
+    });
 
     AuditService.log({
-      tenantId,
+      tenantId: tenant.id,
+      userId: session?.userId,
+      userEmail: session?.email,
       action: 'SUBSCRIPTION_CREATED',
       entity: 'Subscription',
       entityId: newSub.id,

@@ -28,6 +28,7 @@ import {
 
 export function SaasLanding() {
   const { 
+    applications,
     plans, 
     marketplaceItems,
     currentLocale, 
@@ -229,6 +230,66 @@ export function SaasLanding() {
         </div>
       </section>
 
+      {/* APPLICATIONS SHOWCASE SECTION */}
+      <section id="apps" className="py-16 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto border-t border-slate-800">
+        <div className="text-center max-w-3xl mx-auto mb-10">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-400 text-xs font-semibold uppercase mb-3">
+            <Layers className="w-3.5 h-3.5" />
+            <span>Catálogo de Aplicaciones FenixCMS</span>
+          </div>
+          <h2 className="text-3xl font-extrabold text-white">
+            Soluciones Verticales Especializadas
+          </h2>
+          <p className="text-slate-400 text-sm mt-2">
+            Elige el motor que mejor se adapte a tu modelo de negocio. Cada aplicación cuenta con sus propios módulos, esquemas de datos y planes de suscripción.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {(applications || []).map(app => (
+            <div 
+              key={app.id} 
+              className="bg-slate-800/70 border border-slate-700/80 hover:border-blue-500/50 rounded-2xl p-6 flex flex-col justify-between transition group shadow-md"
+            >
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <span className="px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/30 font-bold text-[10px] uppercase">
+                    {app.category || 'SaaS'}
+                  </span>
+                  <span className="text-slate-400 font-mono text-[11px]">v{app.version}</span>
+                </div>
+                <h3 className="text-lg font-bold text-white group-hover:text-blue-400 transition mb-2">
+                  {app.name}
+                </h3>
+                <p className="text-xs text-slate-300 leading-relaxed mb-4">
+                  {app.description}
+                </p>
+
+                <div className="space-y-1.5 border-t border-slate-700/60 pt-3">
+                  <div className="text-[11px] font-semibold text-slate-400 mb-1">Módulos Incluidos:</div>
+                  {(app.modules || []).slice(0, 4).map(mod => (
+                    <div key={mod.id} className="flex items-center gap-1.5 text-[11px] text-slate-300">
+                      <Check className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                      <span>{mod.name}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="pt-5 mt-4 border-t border-slate-700 flex gap-2">
+                <a
+                  href="#pricing"
+                  className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs text-center transition flex items-center justify-center gap-1.5 shadow"
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                  <span>Ver Planes & Licencia</span>
+                </a>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {/* MARKETPLACE SECTION (PLUGINS & THEMES ON SALE) */}
       <section id="marketplace" className="py-16 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto border-t border-slate-800">
         <div className="text-center max-w-3xl mx-auto mb-10">
@@ -398,7 +459,9 @@ export function SaasLanding() {
         {/* Pricing Cards */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {plans.map((plan) => {
-            const price = billingPeriod === 'monthly' ? plan.priceMonthly : Math.round(plan.priceYearly / 12);
+            const monthlyP = (plan as any).monthlyPrice ?? (plan as any).priceMonthly ?? 0;
+            const yearlyP = (plan as any).yearlyPrice ?? (plan as any).priceYearly ?? (monthlyP * 10);
+            const price = billingPeriod === 'monthly' ? monthlyP : Math.round(yearlyP / 12);
             return (
               <div
                 key={plan.id}

@@ -67,6 +67,13 @@ import { ClassifiedsManager } from '@/components/admin/ClassifiedsManager';
 import { TenantBrandingSettings } from '@/components/admin/TenantBrandingSettings';
 import { ThemeBuilderModal } from '@/components/admin/ThemeBuilderModal';
 import { MediaLibraryModal } from '@/components/admin/MediaLibraryModal';
+import { CategoriesManager } from '@/components/admin/CategoriesManager';
+import { InventoryManager } from '@/components/admin/InventoryManager';
+import { CustomersManager } from '@/components/admin/CustomersManager';
+import { CouponsManager } from '@/components/admin/CouponsManager';
+import { BillingCustomerManager } from '@/components/admin/BillingCustomerManager';
+import { TenantUsersManager } from '@/components/admin/TenantUsersManager';
+import { TenantDomainsManager } from '@/components/admin/TenantDomainsManager';
 import { ThemeService, ThemeRecord } from '@/lib/services/theme.service';
 
 export function MerchantAdmin() {
@@ -76,6 +83,7 @@ export function MerchantAdmin() {
     orders, 
     plugins, 
     themes, 
+    plans,
     activeTheme, 
     setActiveThemeId, 
     addProduct, 
@@ -95,8 +103,60 @@ export function MerchantAdmin() {
   } = useStore();
 
   const [activeTab, setActiveTab] = useState<
-    'dashboard' | 'products' | 'orders' | 'blog' | 'classifieds' | 'plugins' | 'themes' | 'media' | 'wp_import' | 'languages' | 'settings'
+    | 'dashboard'
+    | 'products'
+    | 'categories'
+    | 'orders'
+    | 'customers'
+    | 'inventory'
+    | 'coupons'
+    | 'content'
+    | 'blog'
+    | 'ads'
+    | 'themes'
+    | 'plugins'
+    | 'domains'
+    | 'languages'
+    | 'branding'
+    | 'settings'
+    | 'users'
+    | 'billing'
+    | 'media'
+    | 'wp_import'
   >('dashboard');
+
+  const [effectiveEntitlements, setEffectiveEntitlements] = useState<Record<string, any>>({});
+
+  React.useEffect(() => {
+    async function fetchEntitlements() {
+      try {
+        const res = await fetch('/api/billing/entitlements');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.entitlements) {
+            setEffectiveEntitlements(data.entitlements);
+          }
+        }
+      } catch {}
+    }
+    fetchEntitlements();
+  }, [tenant.id, tenant.planId]);
+
+  // Combined entitlements from active plan + server verified
+  const activePlan = plans.find(p => p.id === tenant.planId) || plans[0];
+  const entitlements = {
+    ...(activePlan?.entitlements || {}),
+    ...effectiveEntitlements
+  };
+
+  // Entitlement Gates
+  const hasAds = Boolean(entitlements['ads.enabled'] === true || (entitlements['classifieds.ads_max'] && Number(entitlements['classifieds.ads_max']) > 0));
+  const hasPlugins = Boolean(entitlements['plugins.enabled'] === true);
+  const hasCustomDomain = Boolean(entitlements['customDomain.enabled'] === true || (entitlements['domains.max'] && Number(entitlements['domains.max']) > 0));
+  const hasBlog = Boolean(entitlements['blog.enabled'] === true);
+  const hasCoupons = entitlements['coupons.enabled'] !== false;
+  const hasLanguages = (Number(entitlements['i18n.locales_max']) || 1) > 1 || (tenant.supportedLocales?.length || 1) > 1;
+  const hasUsers = (Number(entitlements['users.max']) || 1) > 1;
 
   const [isThemeBuilderOpen, setIsThemeBuilderOpen] = useState(false);
   const [selectedBuilderTheme, setSelectedBuilderTheme] = useState<ThemeRecord | null>(null);
@@ -629,6 +689,7 @@ export function MerchantAdmin() {
 
           {/* Navigation Links */}
           <nav className="space-y-1 text-xs font-semibold text-slate-400">
+            {/* 1. Dashboard */}
             <button
               onClick={() => setActiveTab('dashboard')}
               className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition ${
@@ -636,9 +697,16 @@ export function MerchantAdmin() {
               }`}
             >
               <LayoutDashboard className="w-4 h-4" />
-              <span>{getTranslation(currentLocale, 'merchant.dashboard')}</span>
+              <span>Dashboard</span>
             </button>
 
+            <div className="pt-2 pb-0.5">
+              <span className="text-[10px] font-extrabold uppercase text-slate-500 tracking-wider px-3">
+                Comercio & Catálogo
+              </span>
+            </div>
+
+            {/* 2. Products */}
             <button
               onClick={() => setActiveTab('products')}
               className={`w-full flex items-center justify-between px-3 py-2 rounded-lg transition ${
@@ -647,13 +715,25 @@ export function MerchantAdmin() {
             >
               <div className="flex items-center gap-2.5">
                 <Package className="w-4 h-4 text-blue-400" />
-                <span>{getTranslation(currentLocale, 'merchant.products')}</span>
+                <span>Productos</span>
               </div>
               <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${activeTab === 'products' ? 'bg-slate-950/20 text-slate-900' : 'bg-slate-800 text-slate-300'}`}>
                 {products.length}
               </span>
             </button>
 
+            {/* 3. Categories */}
+            <button
+              onClick={() => setActiveTab('categories')}
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition ${
+                activeTab === 'categories' ? 'bg-amber-500 text-slate-950 font-bold shadow' : 'hover:bg-slate-800 hover:text-white'
+              }`}
+            >
+              <Layers className="w-4 h-4 text-amber-400" />
+              <span>Categorías</span>
+            </button>
+
+            {/* 4. Orders */}
             <button
               onClick={() => setActiveTab('orders')}
               className={`w-full flex items-center justify-between px-3 py-2 rounded-lg transition ${
@@ -662,39 +742,98 @@ export function MerchantAdmin() {
             >
               <div className="flex items-center gap-2.5">
                 <ShoppingBag className="w-4 h-4 text-emerald-400" />
-                <span>{getTranslation(currentLocale, 'merchant.orders')}</span>
+                <span>Pedidos</span>
               </div>
               <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${activeTab === 'orders' ? 'bg-slate-950/20 text-slate-900' : 'bg-slate-800 text-slate-300'}`}>
                 {orders.length}
               </span>
             </button>
 
+            {/* 5. Customers */}
             <button
-              onClick={() => setActiveTab('blog')}
+              onClick={() => setActiveTab('customers')}
               className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition ${
-                activeTab === 'blog' ? 'bg-amber-500 text-slate-950 font-bold shadow' : 'hover:bg-slate-800 hover:text-white'
+                activeTab === 'customers' ? 'bg-amber-500 text-slate-950 font-bold shadow' : 'hover:bg-slate-800 hover:text-white'
               }`}
             >
-              <FileText className="w-4 h-4 text-emerald-400" />
-              <span>Blog & Artículos</span>
+              <Users className="w-4 h-4 text-indigo-400" />
+              <span>Clientes</span>
             </button>
 
+            {/* 6. Inventory */}
             <button
-              onClick={() => setActiveTab('classifieds')}
+              onClick={() => setActiveTab('inventory')}
               className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition ${
-                activeTab === 'classifieds' ? 'bg-amber-500 text-slate-950 font-bold shadow' : 'hover:bg-slate-800 hover:text-white'
+                activeTab === 'inventory' ? 'bg-amber-500 text-slate-950 font-bold shadow' : 'hover:bg-slate-800 hover:text-white'
               }`}
             >
-              <Tag className="w-4 h-4 text-purple-400" />
-              <span>Clasificados & Anuncios</span>
+              <Sliders className="w-4 h-4 text-cyan-400" />
+              <span>Inventario</span>
             </button>
 
-            <div className="pt-3 pb-1">
+            {/* 7. Coupons */}
+            {hasCoupons && (
+              <button
+                onClick={() => setActiveTab('coupons')}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition ${
+                  activeTab === 'coupons' ? 'bg-amber-500 text-slate-950 font-bold shadow' : 'hover:bg-slate-800 hover:text-white'
+                }`}
+              >
+                <Percent className="w-4 h-4 text-rose-400" />
+                <span>Cupones</span>
+              </button>
+            )}
+
+            <div className="pt-2 pb-0.5">
+              <span className="text-[10px] font-extrabold uppercase text-slate-500 tracking-wider px-3">
+                Contenido & Marketing
+              </span>
+            </div>
+
+            {/* 8. Content */}
+            <button
+              onClick={() => setActiveTab('content')}
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition ${
+                activeTab === 'content' ? 'bg-amber-500 text-slate-950 font-bold shadow' : 'hover:bg-slate-800 hover:text-white'
+              }`}
+            >
+              <FileCode className="w-4 h-4 text-blue-400" />
+              <span>Contenido & Medios</span>
+            </button>
+
+            {/* 9. Blog (Gated by blog.enabled) */}
+            {hasBlog && (
+              <button
+                onClick={() => setActiveTab('blog')}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition ${
+                  activeTab === 'blog' ? 'bg-amber-500 text-slate-950 font-bold shadow' : 'hover:bg-slate-800 hover:text-white'
+                }`}
+              >
+                <FileText className="w-4 h-4 text-emerald-400" />
+                <span>Blog</span>
+              </button>
+            )}
+
+            {/* 10. Ads / Classifieds (Gated by ads.enabled) */}
+            {hasAds && (
+              <button
+                onClick={() => setActiveTab('ads')}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition ${
+                  activeTab === 'ads' ? 'bg-amber-500 text-slate-950 font-bold shadow' : 'hover:bg-slate-800 hover:text-white'
+                }`}
+              >
+                <Tag className="w-4 h-4 text-purple-400" />
+                <span>Anuncios (Ads)</span>
+              </button>
+            )}
+
+            <div className="pt-2 pb-0.5">
               <span className="text-[10px] font-extrabold uppercase text-slate-500 tracking-wider px-3">
                 Diseño & Ecosistema
               </span>
             </div>
 
+            {/* 11. Themes */}
             <button
               onClick={() => setActiveTab('themes')}
               className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition ${
@@ -702,42 +841,71 @@ export function MerchantAdmin() {
               }`}
             >
               <Palette className="w-4 h-4 text-purple-400" />
-              <span>{getTranslation(currentLocale, 'merchant.themes')} & Builder</span>
+              <span>Temas (Themes)</span>
             </button>
 
-            <button
-              onClick={() => setActiveTab('plugins')}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg transition ${
-                activeTab === 'plugins' ? 'bg-amber-500 text-slate-950 font-bold shadow' : 'hover:bg-slate-800 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <Puzzle className="w-4 h-4 text-amber-400" />
-                <span>{getTranslation(currentLocale, 'merchant.plugins')}</span>
-              </div>
-              <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${activeTab === 'plugins' ? 'bg-slate-950/20 text-slate-900' : 'bg-slate-800 text-slate-300'}`}>
-                {plugins.length}
-              </span>
-            </button>
+            {/* 12. Plugins (Gated by plugins.enabled) */}
+            {hasPlugins && (
+              <button
+                onClick={() => setActiveTab('plugins')}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg transition ${
+                  activeTab === 'plugins' ? 'bg-amber-500 text-slate-950 font-bold shadow' : 'hover:bg-slate-800 hover:text-white'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Puzzle className="w-4 h-4 text-amber-400" />
+                  <span>Plugins</span>
+                </div>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${activeTab === 'plugins' ? 'bg-slate-950/20 text-slate-900' : 'bg-slate-800 text-slate-300'}`}>
+                  {plugins.length}
+                </span>
+              </button>
+            )}
 
-            <button
-              onClick={() => setIsMediaLibraryOpen(true)}
-              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition hover:bg-slate-800 hover:text-white text-slate-400"
-            >
-              <ImageIcon className="w-4 h-4 text-blue-400" />
-              <span>Biblioteca de Medios</span>
-            </button>
+            {/* 13. Domains (Gated by customDomain.enabled) */}
+            {hasCustomDomain && (
+              <button
+                onClick={() => setActiveTab('domains')}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition ${
+                  activeTab === 'domains' ? 'bg-amber-500 text-slate-950 font-bold shadow' : 'hover:bg-slate-800 hover:text-white'
+                }`}
+              >
+                <Globe className="w-4 h-4 text-indigo-400" />
+                <span>Dominios</span>
+              </button>
+            )}
 
+            {/* 14. Languages */}
+            {hasLanguages && (
+              <button
+                onClick={() => setActiveTab('languages')}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition ${
+                  activeTab === 'languages' ? 'bg-amber-500 text-slate-950 font-bold shadow' : 'hover:bg-slate-800 hover:text-white'
+                }`}
+              >
+                <Globe className="w-4 h-4 text-blue-400" />
+                <span>Idiomas</span>
+              </button>
+            )}
+
+            {/* 15. Branding */}
             <button
-              onClick={() => setActiveTab('wp_import')}
+              onClick={() => setActiveTab('branding')}
               className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition ${
-                activeTab === 'wp_import' ? 'bg-amber-500 text-slate-950 font-bold shadow' : 'hover:bg-slate-800 hover:text-white'
+                activeTab === 'branding' ? 'bg-amber-500 text-slate-950 font-bold shadow' : 'hover:bg-slate-800 hover:text-white'
               }`}
             >
-              <FileSpreadsheet className="w-4 h-4 text-blue-400" />
-              <span>{getTranslation(currentLocale, 'merchant.wp_import')}</span>
+              <Sparkles className="w-4 h-4 text-amber-400" />
+              <span>Branding</span>
             </button>
 
+            <div className="pt-2 pb-0.5">
+              <span className="text-[10px] font-extrabold uppercase text-slate-500 tracking-wider px-3">
+                Ajustes & Cuenta
+              </span>
+            </div>
+
+            {/* 16. Settings */}
             <button
               onClick={() => setActiveTab('settings')}
               className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition ${
@@ -745,7 +913,31 @@ export function MerchantAdmin() {
               }`}
             >
               <Settings className="w-4 h-4 text-slate-300" />
-              <span>Identidad & Branding</span>
+              <span>Ajustes</span>
+            </button>
+
+            {/* 17. Users (Gated by users.max) */}
+            {hasUsers && (
+              <button
+                onClick={() => setActiveTab('users')}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition ${
+                  activeTab === 'users' ? 'bg-amber-500 text-slate-950 font-bold shadow' : 'hover:bg-slate-800 hover:text-white'
+                }`}
+              >
+                <UserCheck className="w-4 h-4 text-cyan-400" />
+                <span>Usuarios</span>
+              </button>
+            )}
+
+            {/* 18. Billing */}
+            <button
+              onClick={() => setActiveTab('billing')}
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition ${
+                activeTab === 'billing' ? 'bg-amber-500 text-slate-950 font-bold shadow' : 'hover:bg-slate-800 hover:text-white'
+              }`}
+            >
+              <CreditCard className="w-4 h-4 text-emerald-400" />
+              <span>Facturación & Plan</span>
             </button>
           </nav>
         </div>
@@ -2070,17 +2262,157 @@ export function MerchantAdmin() {
             </div>
           )}
 
-          {/* TAB: BLOG & MAGAZINE */}
+          {/* TAB: CATEGORIES */}
+          {activeTab === 'categories' && (
+            <CategoriesManager />
+          )}
+
+          {/* TAB: CUSTOMERS */}
+          {activeTab === 'customers' && (
+            <CustomersManager />
+          )}
+
+          {/* TAB: INVENTORY */}
+          {activeTab === 'inventory' && (
+            <InventoryManager />
+          )}
+
+          {/* TAB: COUPONS */}
+          {activeTab === 'coupons' && (
+            <CouponsManager />
+          )}
+
+          {/* TAB: CONTENT & MEDIA HUB */}
+          {activeTab === 'content' && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+                <div>
+                  <h1 className="text-xl font-extrabold text-white">Contenido, Medios & Páginas CMS</h1>
+                  <p className="text-xs text-slate-400">Administra páginas estáticas, biblioteca de imágenes y migraciones desde WordPress</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setIsMediaLibraryOpen(true)}
+                    className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-1.5 shadow transition"
+                  >
+                    <ImageIcon className="w-4 h-4" />
+                    <span>Biblioteca de Medios</span>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('wp_import')}
+                    className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs flex items-center gap-1.5 transition"
+                  >
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+                    <span>Importar de WordPress</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Pages Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {[
+                  { title: 'Página de Inicio (Home)', slug: '/', status: 'Publicada', updated: 'Hoy' },
+                  { title: 'Sobre Nosotros (About)', slug: '/sobre-nosotros', status: 'Publicada', updated: 'Hace 2 días' },
+                  { title: 'Contacto & Ubicación', slug: '/contacto', status: 'Publicada', updated: 'Hace 1 semana' },
+                  { title: 'Política de Privacidad & Cookies', slug: '/privacidad', status: 'Publicada', updated: '01/01/2026' },
+                  { title: 'Términos y Condiciones de Compra', slug: '/terminos', status: 'Publicada', updated: '01/01/2026' },
+                  { title: 'Envíos y Devoluciones Correos', slug: '/envios', status: 'Publicada', updated: '05/01/2026' }
+                ].map((p, idx) => (
+                  <div key={idx} className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between space-y-3">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono text-[10px] text-amber-400">{p.slug}</span>
+                        <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full text-[10px] font-bold">
+                          {p.status}
+                        </span>
+                      </div>
+                      <h4 className="font-bold text-white text-sm mt-1">{p.title}</h4>
+                    </div>
+                    <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
+                      <span>Actualizado: {p.updated}</span>
+                      <button 
+                        onClick={() => alert(`Editando página: ${p.title}`)}
+                        className="text-amber-400 hover:underline font-bold text-xs"
+                      >
+                        Editar →
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* TAB: BLOG & MAGAZINE (Entitlement Gated) */}
           {activeTab === 'blog' && (
-            <BlogManager tenantId={tenant.id} />
+            hasBlog ? (
+              <BlogManager tenantId={tenant.id} />
+            ) : (
+              <div className="p-8 bg-slate-900 border border-slate-800 rounded-2xl text-center space-y-3">
+                <AlertCircle className="w-8 h-8 text-amber-400 mx-auto" />
+                <h3 className="font-bold text-white text-base">Función Bloqueada por Plan</h3>
+                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                  El módulo de Blog & Artículos no está incluido en tu plan actual. Mejora tu suscripción en la sección de Facturación.
+                </p>
+                <button onClick={() => setActiveTab('billing')} className="px-4 py-2 bg-amber-500 text-slate-950 font-bold rounded-xl text-xs">
+                  Ver Planes de Facturación
+                </button>
+              </div>
+            )
           )}
 
-          {/* TAB: CLASSIFIEDS */}
-          {activeTab === 'classifieds' && (
-            <ClassifiedsManager tenantId={tenant.id} />
+          {/* TAB: CLASSIFIEDS / ADS (Entitlement Gated) */}
+          {activeTab === 'ads' && (
+            hasAds ? (
+              <ClassifiedsManager tenantId={tenant.id} />
+            ) : (
+              <div className="p-8 bg-slate-900 border border-slate-800 rounded-2xl text-center space-y-3">
+                <AlertCircle className="w-8 h-8 text-amber-400 mx-auto" />
+                <h3 className="font-bold text-white text-base">Módulo de Anuncios Bloqueado</h3>
+                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                  Tu plan no tiene habilitado el módulo de Clasificados & Anuncios. Mejora tu plan para activarlo.
+                </p>
+                <button onClick={() => setActiveTab('billing')} className="px-4 py-2 bg-amber-500 text-slate-950 font-bold rounded-xl text-xs">
+                  Ver Planes de Facturación
+                </button>
+              </div>
+            )
           )}
 
-          {/* TAB: STORE SETTINGS & BRANDING */}
+          {/* TAB: DOMAINS (Entitlement Gated) */}
+          {activeTab === 'domains' && (
+            hasCustomDomain ? (
+              <TenantDomainsManager />
+            ) : (
+              <div className="p-8 bg-slate-900 border border-slate-800 rounded-2xl text-center space-y-3">
+                <AlertCircle className="w-8 h-8 text-amber-400 mx-auto" />
+                <h3 className="font-bold text-white text-base">Dominio Personalizado No Disponible</h3>
+                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                  Tu plan actual incluye únicamente subdominios gratuitos. Para conectar un dominio personalizado propio, mejora tu plan.
+                </p>
+                <button onClick={() => setActiveTab('billing')} className="px-4 py-2 bg-amber-500 text-slate-950 font-bold rounded-xl text-xs">
+                  Mejorar Plan
+                </button>
+              </div>
+            )
+          )}
+
+          {/* TAB: BRANDING */}
+          {activeTab === 'branding' && (
+            <TenantBrandingSettings />
+          )}
+
+          {/* TAB: USERS (Entitlement Gated) */}
+          {activeTab === 'users' && (
+            <TenantUsersManager />
+          )}
+
+          {/* TAB: BILLING */}
+          {activeTab === 'billing' && (
+            <BillingCustomerManager />
+          )}
+
+          {/* TAB: STORE SETTINGS */}
           {activeTab === 'settings' && (
             <TenantBrandingSettings />
           )}

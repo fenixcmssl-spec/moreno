@@ -1,141 +1,398 @@
-import { ApplicationDefinition, ApplicationTypeKey } from '@/types';
-
-export const INITIAL_APPLICATIONS: ApplicationDefinition[] = [
-  {
-    id: 'app_ecommerce',
-    key: 'ECOMMERCE',
-    name: 'Fenix E-commerce Pro',
-    slug: 'ecommerce',
-    description: 'Plataforma completa de venta online con catálogo, variantes, carrito, pasarelas de pago, envíos y facturación.',
-    status: 'ACTIVE',
-    icon: 'ShoppingCart',
-    version: '2.4.0',
-    modules: [
-      { id: 'mod_ec_1', applicationId: 'app_ecommerce', key: 'products', name: 'Catálogo de Productos', isDefault: true },
-      { id: 'mod_ec_2', applicationId: 'app_ecommerce', key: 'orders', name: 'Gestión de Pedidos & Envíos', isDefault: true },
-      { id: 'mod_ec_3', applicationId: 'app_ecommerce', key: 'coupons', name: 'Cupones & Promociones', isDefault: true },
-      { id: 'mod_ec_4', applicationId: 'app_ecommerce', key: 'gateways', name: 'Pasarelas de Pago Multi-Moneda', isDefault: true },
-      { id: 'mod_ec_5', applicationId: 'app_ecommerce', key: 'import_pro', name: 'Fenix All Import Pro (WooCommerce/CSV)', isDefault: true }
-    ],
-    createdAt: '2026-01-01T00:00:00Z'
-  },
-  {
-    id: 'app_blog',
-    key: 'BLOG',
-    name: 'Fenix Blog & Magazine',
-    slug: 'blog',
-    description: 'Sistema editorial para publicaciones, revistas digitales, noticias con categorías, autores, SEO avanzado y comentarios.',
-    status: 'ACTIVE',
-    icon: 'Newspaper',
-    version: '1.8.0',
-    modules: [
-      { id: 'mod_bl_1', applicationId: 'app_blog', key: 'posts', name: 'Entradas & Artículos', isDefault: true },
-      { id: 'mod_bl_2', applicationId: 'app_blog', key: 'categories', name: 'Categorías y Etiquetas', isDefault: true },
-      { id: 'mod_bl_3', applicationId: 'app_blog', key: 'authors', name: 'Gestión de Autores & Editores', isDefault: true },
-      { id: 'mod_bl_4', applicationId: 'app_blog', key: 'comments', name: 'Moderación de Comentarios', isDefault: true }
-    ],
-    createdAt: '2026-01-10T00:00:00Z'
-  },
-  {
-    id: 'app_classifieds',
-    key: 'CLASSIFIEDS',
-    name: 'Fenix Classifieds Portal',
-    slug: 'clasificados',
-    description: 'Portal de anuncios clasificados estilo Wallapop/Milanuncios con filtros por ubicación, chat, vendedores y anuncios destacados.',
-    status: 'ACTIVE',
-    icon: 'Tag',
-    version: '1.5.0',
-    modules: [
-      { id: 'mod_cl_1', applicationId: 'app_classifieds', key: 'ads', name: 'Gestión de Anuncios', isDefault: true },
-      { id: 'mod_cl_2', applicationId: 'app_classifieds', key: 'locations', name: 'Filtros por Ciudad & Geografía', isDefault: true },
-      { id: 'mod_cl_3', applicationId: 'app_classifieds', key: 'moderation', name: 'Panel de Moderación', isDefault: true },
-      { id: 'mod_cl_4', applicationId: 'app_classifieds', key: 'sellers', name: 'Perfiles de Vendedores', isDefault: true }
-    ],
-    createdAt: '2026-02-01T00:00:00Z'
-  },
-  {
-    id: 'app_booking',
-    key: 'BOOKING',
-    name: 'Fenix Booking & Citas',
-    slug: 'reservas',
-    description: 'Sistema de reservas online y gestión de citas con sincronización de calendario, depósitos y recordatorios.',
-    status: 'ACTIVE',
-    icon: 'Calendar',
-    version: '1.2.0',
-    modules: [
-      { id: 'mod_bk_1', applicationId: 'app_booking', key: 'calendars', name: 'Calendarios de Disponibilidad', isDefault: true },
-      { id: 'mod_bk_2', applicationId: 'app_booking', key: 'services', name: 'Servicios & Tarifas', isDefault: true }
-    ],
-    createdAt: '2026-03-01T00:00:00Z'
-  },
-  {
-    id: 'app_landing',
-    key: 'LANDING',
-    name: 'Fenix Landing & Corporate',
-    slug: 'landing',
-    description: 'Sitios corporativos y páginas de aterrizaje de alta conversión con bloques visuales y formularios de captación.',
-    status: 'ACTIVE',
-    icon: 'Layers',
-    version: '2.0.0',
-    modules: [
-      { id: 'mod_ld_1', applicationId: 'app_landing', key: 'sections', name: 'Constructor de Bloques', isDefault: true },
-      { id: 'mod_ld_2', applicationId: 'app_landing', key: 'leads', name: 'Captación de Leads', isDefault: true }
-    ],
-    createdAt: '2026-01-15T00:00:00Z'
-  },
-  {
-    id: 'app_lms',
-    key: 'LMS',
-    name: 'Fenix Academy & Cursos',
-    slug: 'cursos',
-    description: 'Plataforma educativa para academias con cursos en vídeo, lecciones, cuestionarios y certificados.',
-    status: 'ACTIVE',
-    icon: 'GraduationCap',
-    version: '1.0.0',
-    modules: [
-      { id: 'mod_lm_1', applicationId: 'app_lms', key: 'courses', name: 'Cursos & Módulos', isDefault: true },
-      { id: 'mod_lm_2', applicationId: 'app_lms', key: 'students', name: 'Gestión de Alumnos', isDefault: true }
-    ],
-    createdAt: '2026-04-01T00:00:00Z'
-  }
-];
+import { prisma } from '@/lib/prisma';
+import { ApplicationDefinition, ApplicationModuleDef, ApplicationTypeKey } from '@/types';
+import { INITIAL_APPLICATIONS } from '@/lib/initialData';
 
 export class ApplicationService {
-  private static apps: ApplicationDefinition[] = [...INITIAL_APPLICATIONS];
+  /**
+   * Retrieves all applications from PostgreSQL with their available modules included
+   */
+  static async getAll(options?: { status?: string; search?: string }): Promise<ApplicationDefinition[]> {
+    try {
+      if (!process.env.DATABASE_URL || !prisma?.application?.findMany) {
+        let result = [...INITIAL_APPLICATIONS];
+        if (options?.status) {
+          result = result.filter(a => a.status.toLowerCase() === options.status?.toLowerCase());
+        }
+        if (options?.search) {
+          const q = options.search.toLowerCase();
+          result = result.filter(a => 
+            a.name.toLowerCase().includes(q) || 
+            a.key.toLowerCase().includes(q) || 
+            (a.description && a.description.toLowerCase().includes(q))
+          );
+        }
+        return result;
+      }
 
-  static getAll(): ApplicationDefinition[] {
-    return this.apps;
+      const where: any = {};
+      if (options?.status) {
+        where.status = options.status;
+      }
+      if (options?.search) {
+        where.OR = [
+          { name: { contains: options.search, mode: 'insensitive' } },
+          { key: { contains: options.search, mode: 'insensitive' } },
+          { description: { contains: options.search, mode: 'insensitive' } },
+          { category: { contains: options.search, mode: 'insensitive' } }
+        ];
+      }
+
+      const dbApps = await prisma.application.findMany({
+        where,
+        include: {
+          modules: {
+            orderBy: { createdAt: 'asc' }
+          }
+        },
+        orderBy: { createdAt: 'asc' }
+      });
+
+      if (dbApps && dbApps.length > 0) {
+        return dbApps.map(this.mapPrismaToAppDefinition);
+      }
+
+      // Fallback to initial applications if DB table is empty
+      let result = [...INITIAL_APPLICATIONS];
+      if (options?.status) {
+        result = result.filter(a => a.status.toLowerCase() === options.status?.toLowerCase());
+      }
+      if (options?.search) {
+        const q = options.search.toLowerCase();
+        result = result.filter(a => 
+          a.name.toLowerCase().includes(q) || 
+          a.key.toLowerCase().includes(q) || 
+          (a.description && a.description.toLowerCase().includes(q))
+        );
+      }
+      return result;
+    } catch {
+      return INITIAL_APPLICATIONS;
+    }
   }
 
-  static getById(id: string): ApplicationDefinition | undefined {
-    return this.apps.find(a => a.id === id);
+  /**
+   * Retrieves an application by its unique ID
+   */
+  static async getById(id: string): Promise<ApplicationDefinition | null> {
+    try {
+      if (!process.env.DATABASE_URL || !prisma?.application?.findUnique) {
+        return INITIAL_APPLICATIONS.find(a => a.id === id) || null;
+      }
+
+      const dbApp = await prisma.application.findUnique({
+        where: { id },
+        include: {
+          modules: {
+            orderBy: { createdAt: 'asc' }
+          }
+        }
+      });
+
+      if (dbApp) return this.mapPrismaToAppDefinition(dbApp);
+
+      return INITIAL_APPLICATIONS.find(a => a.id === id) || null;
+    } catch {
+      return INITIAL_APPLICATIONS.find(a => a.id === id) || null;
+    }
   }
 
-  static getByKey(key: ApplicationTypeKey): ApplicationDefinition | undefined {
-    return this.apps.find(a => a.key === key);
+  /**
+   * Retrieves an application by its unique key (e.g. 'ECOMMERCE', 'BLOG', 'BLOG_ADS', 'CLASSIFIEDS', etc.)
+   */
+  static async getByKey(key: string): Promise<ApplicationDefinition | null> {
+    try {
+      if (!process.env.DATABASE_URL || !prisma?.application?.findUnique) {
+        return INITIAL_APPLICATIONS.find(a => a.key.toUpperCase() === key.toUpperCase()) || null;
+      }
+
+      const dbApp = await prisma.application.findUnique({
+        where: { key: key.toUpperCase() },
+        include: {
+          modules: {
+            orderBy: { createdAt: 'asc' }
+          }
+        }
+      });
+
+      if (dbApp) return this.mapPrismaToAppDefinition(dbApp);
+
+      return INITIAL_APPLICATIONS.find(a => a.key.toUpperCase() === key.toUpperCase()) || null;
+    } catch {
+      return INITIAL_APPLICATIONS.find(a => a.key.toUpperCase() === key.toUpperCase()) || null;
+    }
   }
 
-  static create(app: Omit<ApplicationDefinition, 'id' | 'createdAt'>): ApplicationDefinition {
-    const newApp: ApplicationDefinition = {
-      ...app,
-      id: `app_${Date.now()}`,
-      createdAt: new Date().toISOString()
+  /**
+   * Retrieves an application by its URL slug
+   */
+  static async getBySlug(slug: string): Promise<ApplicationDefinition | null> {
+    try {
+      if (!process.env.DATABASE_URL || !prisma?.application?.findUnique) {
+        return INITIAL_APPLICATIONS.find(a => a.slug.toLowerCase() === slug.toLowerCase()) || null;
+      }
+
+      const dbApp = await prisma.application.findUnique({
+        where: { slug: slug.toLowerCase() },
+        include: {
+          modules: {
+            orderBy: { createdAt: 'asc' }
+          }
+        }
+      });
+
+      if (dbApp) return this.mapPrismaToAppDefinition(dbApp);
+
+      return INITIAL_APPLICATIONS.find(a => a.slug.toLowerCase() === slug.toLowerCase()) || null;
+    } catch {
+      return INITIAL_APPLICATIONS.find(a => a.slug.toLowerCase() === slug.toLowerCase()) || null;
+    }
+  }
+
+  /**
+   * Creates a new application in PostgreSQL with defined modules
+   */
+  static async create(data: {
+    key: string;
+    name: string;
+    slug?: string;
+    description?: string;
+    category?: string;
+    icon?: string;
+    version?: string;
+    status?: string;
+    modules?: Array<{
+      key: string;
+      name: string;
+      description?: string;
+      isDefault?: boolean;
+    }>;
+  }): Promise<ApplicationDefinition> {
+    const key = data.key.trim().toUpperCase();
+    const slug = (data.slug || key.toLowerCase()).replace(/[^a-z0-9-]/g, '');
+
+    const created = await prisma.application.create({
+      data: {
+        key,
+        name: data.name.trim(),
+        slug,
+        description: data.description || '',
+        category: data.category || 'General',
+        icon: data.icon || 'Box',
+        version: data.version || '1.0.0',
+        status: data.status || 'ACTIVE',
+        modules: {
+          create: (data.modules || []).map(m => ({
+            key: m.key.trim().toLowerCase(),
+            name: m.name.trim(),
+            description: m.description || '',
+            isDefault: m.isDefault ?? true
+          }))
+        }
+      },
+      include: {
+        modules: true
+      }
+    });
+
+    return this.mapPrismaToAppDefinition(created);
+  }
+
+  /**
+   * Updates an existing application and its module configurations in PostgreSQL
+   */
+  static async update(
+    id: string,
+    data: {
+      name?: string;
+      key?: string;
+      slug?: string;
+      description?: string;
+      category?: string;
+      icon?: string;
+      version?: string;
+      status?: string;
+      modules?: Array<{
+        id?: string;
+        key: string;
+        name: string;
+        description?: string;
+        isDefault?: boolean;
+      }>;
+    }
+  ): Promise<ApplicationDefinition | null> {
+    const existing = await prisma.application.findUnique({
+      where: { id },
+      include: { modules: true }
+    });
+
+    if (!existing) return null;
+
+    const updateData: any = {};
+    if (data.name !== undefined) updateData.name = data.name.trim();
+    if (data.key !== undefined) updateData.key = data.key.trim().toUpperCase();
+    if (data.slug !== undefined) updateData.slug = data.slug.trim().toLowerCase();
+    if (data.description !== undefined) updateData.description = data.description;
+    if (data.category !== undefined) updateData.category = data.category;
+    if (data.icon !== undefined) updateData.icon = data.icon;
+    if (data.version !== undefined) updateData.version = data.version;
+    if (data.status !== undefined) updateData.status = data.status;
+
+    // Execute update in transaction to cleanly synchronize modules
+    const updated = await prisma.$transaction(async (tx: any) => {
+      await tx.application.update({
+        where: { id },
+        data: updateData
+      });
+
+      if (data.modules && Array.isArray(data.modules)) {
+        await tx.applicationModule.deleteMany({
+          where: { applicationId: id }
+        });
+
+        if (data.modules.length > 0) {
+          await tx.applicationModule.createMany({
+            data: data.modules.map(m => ({
+              applicationId: id,
+              key: m.key.trim().toLowerCase(),
+              name: m.name.trim(),
+              description: m.description || '',
+              isDefault: m.isDefault ?? true
+            }))
+          });
+        }
+      }
+
+      return tx.application.findUnique({
+        where: { id },
+        include: { modules: true }
+      });
+    });
+
+    if (!updated) return null;
+    return this.mapPrismaToAppDefinition(updated);
+  }
+
+  /**
+   * Toggles or sets the active/inactive status of an application in PostgreSQL
+   */
+  static async toggleStatus(id: string, newStatus?: 'ACTIVE' | 'INACTIVE'): Promise<ApplicationDefinition | null> {
+    const existing = await prisma.application.findUnique({
+      where: { id },
+      include: { modules: true }
+    });
+
+    if (!existing) return null;
+
+    const targetStatus = newStatus || (existing.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE');
+
+    const updated = await prisma.application.update({
+      where: { id },
+      data: { status: targetStatus },
+      include: { modules: true }
+    });
+
+    return this.mapPrismaToAppDefinition(updated);
+  }
+
+  /**
+   * Deletes an application from PostgreSQL (cascades to modules)
+   */
+  static async delete(id: string): Promise<boolean> {
+    try {
+      await prisma.application.delete({
+        where: { id }
+      });
+      return true;
+    } catch (error) {
+      console.error(`Error deleting application ${id}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Adds or updates a single module within an application in PostgreSQL
+   */
+  static async addModule(
+    applicationId: string,
+    moduleData: { key: string; name: string; description?: string; isDefault?: boolean }
+  ): Promise<ApplicationModuleDef | null> {
+    try {
+      const mod = await prisma.applicationModule.upsert({
+        where: {
+          applicationId_key: {
+            applicationId,
+            key: moduleData.key.trim().toLowerCase()
+          }
+        },
+        update: {
+          name: moduleData.name.trim(),
+          description: moduleData.description,
+          isDefault: moduleData.isDefault ?? true
+        },
+        create: {
+          applicationId,
+          key: moduleData.key.trim().toLowerCase(),
+          name: moduleData.name.trim(),
+          description: moduleData.description,
+          isDefault: moduleData.isDefault ?? true
+        }
+      });
+
+      return {
+        id: mod.id,
+        applicationId: mod.applicationId,
+        key: mod.key,
+        name: mod.name,
+        description: mod.description || undefined,
+        isDefault: mod.isDefault
+      };
+    } catch (error) {
+      console.error('Error adding module:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Deletes a module from an application in PostgreSQL
+   */
+  static async deleteModule(applicationId: string, key: string): Promise<boolean> {
+    try {
+      await prisma.applicationModule.delete({
+        where: {
+          applicationId_key: {
+            applicationId,
+            key: key.toLowerCase()
+          }
+        }
+      });
+      return true;
+    } catch (error) {
+      console.error(`Error deleting module ${key} from app ${applicationId}:`, error);
+      return false;
+    }
+  }
+
+  private static mapPrismaToAppDefinition(dbApp: any): ApplicationDefinition {
+    return {
+      id: dbApp.id,
+      key: dbApp.key as ApplicationTypeKey,
+      name: dbApp.name,
+      slug: dbApp.slug,
+      description: dbApp.description || '',
+      category: dbApp.category || 'General',
+      status: (dbApp.status || 'ACTIVE') as any,
+      icon: dbApp.icon || 'Box',
+      version: dbApp.version || '1.0.0',
+      modules: (dbApp.modules || []).map((m: any) => ({
+        id: m.id,
+        applicationId: m.applicationId,
+        key: m.key,
+        name: m.name,
+        description: m.description || undefined,
+        isDefault: m.isDefault
+      })),
+      createdAt: dbApp.createdAt instanceof Date ? dbApp.createdAt.toISOString() : (dbApp.createdAt || new Date().toISOString()),
+      updatedAt: dbApp.updatedAt instanceof Date ? dbApp.updatedAt.toISOString() : undefined
     };
-    this.apps.push(newApp);
-    return newApp;
-  }
-
-  static update(id: string, updates: Partial<ApplicationDefinition>): ApplicationDefinition | null {
-    const index = this.apps.findIndex(a => a.id === id);
-    if (index === -1) return null;
-    this.apps[index] = { ...this.apps[index], ...updates };
-    return this.apps[index];
-  }
-
-  static toggleStatus(id: string): ApplicationDefinition | null {
-    const app = this.apps.find(a => a.id === id);
-    if (!app) return null;
-    app.status = app.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
-    return app;
   }
 }

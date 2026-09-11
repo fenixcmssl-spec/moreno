@@ -25,6 +25,8 @@ export function DomainNavbar() {
     currentLocale, 
     setCurrentLocale, 
     tenant,
+    activeStoreHost,
+    resolveStorefrontFromHost,
     resetToDemoData,
     isAuthenticated,
     currentUser,
@@ -36,12 +38,21 @@ export function DomainNavbar() {
       case 'saas_landing': return 'https://fenixcms.es';
       case 'saas_admin': return 'https://fenixcms.es/admin';
       case 'saas_login': return 'https://fenixcms.es/login';
-      case 'store_front': return `https://${tenant.customDomain || 'tutienda.com'}`;
-      case 'store_admin': return `https://${tenant.customDomain || 'tutienda.com'}/admin`;
-      case 'store_login': return `https://${tenant.customDomain || 'tutienda.com'}/login`;
+      case 'store_front': return `https://${activeStoreHost || tenant.customDomain || 'tienda-demo.es'}`;
+      case 'store_admin': return `https://${activeStoreHost || tenant.customDomain || 'tienda-demo.es'}/admin`;
+      case 'store_login': return `https://${activeStoreHost || tenant.customDomain || 'tienda-demo.es'}/login`;
       default: return 'https://fenixcms.es';
     }
   };
+
+  const domainOptions = [
+    { label: 'tienda-demo.es (Tenant A - Custom)', host: 'tienda-demo.es', tenant: 'Tenant A (Fenix Demo)' },
+    { label: 'cliente.com (Tenant A - Custom 2)', host: 'cliente.com', tenant: 'Tenant A (Cliente)' },
+    { label: 'cliente.fenixcms.es (Tenant A - Sub)', host: 'cliente.fenixcms.es', tenant: 'Tenant A (Subdominio)' },
+    { label: 'demo.fenixcms.es (Tenant A - Sub 2)', host: 'demo.fenixcms.es', tenant: 'Tenant A (Demo Sub)' },
+    { label: 'milanostyle.it (Tenant B - Custom)', host: 'milanostyle.it', tenant: 'Tenant B (Milano Luxury)' },
+    { label: 'milano.fenixcms.es (Tenant B - Sub)', host: 'milano.fenixcms.es', tenant: 'Tenant B (Milano Sub)' }
+  ];
 
   const navItems: { route: DomainRoute; label: string; icon: React.ReactNode; badgeKey: string }[] = [
     { route: 'saas_landing', label: 'fenixcms.es', icon: <Globe className="w-3.5 h-3.5" />, badgeKey: 'nav.badge_saas_home' },
@@ -68,6 +79,29 @@ export function DomainNavbar() {
               {currentRoute.includes('saas') ? getTranslation(currentLocale, 'nav.saas_core') : getTranslation(currentLocale, 'nav.tenant_store')}
             </span>
           </div>
+
+          {/* Storefront Host Switcher for Testing Resolution & Isolation */}
+          {currentRoute.includes('store') && (
+            <div className="relative group flex-shrink-0">
+              <select
+                value={activeStoreHost}
+                onChange={async (e) => {
+                  const targetHost = e.target.value;
+                  await resolveStorefrontFromHost(targetHost);
+                }}
+                className="appearance-none bg-slate-900 hover:bg-slate-850 text-amber-300 border border-amber-500/40 rounded px-2 py-1 pr-6 font-mono text-[10px] cursor-pointer focus:outline-none focus:ring-1 focus:ring-amber-500"
+                aria-label="Probar resolución de Dominio/Tenant"
+                title="Probar resolución real de Dominio -> Tenant -> Theme -> Products"
+              >
+                {domainOptions.map((opt) => (
+                  <option key={opt.host} value={opt.host} className="bg-slate-900 text-white">
+                    🌐 {opt.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="w-3 h-3 text-amber-400 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
+          )}
         </div>
 
         {/* Right Tools: Language Picker, DB status & Reset */}

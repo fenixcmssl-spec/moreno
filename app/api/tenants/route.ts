@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { INITIAL_TENANTS } from '@/lib/initialData';
+import { TenantContextHelper } from '@/lib/auth/tenantContext';
 import { AuditService } from '@/lib/services/audit.service';
 import { TenantStore } from '@/types';
 
@@ -20,7 +21,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (domain) {
-      const cleanHost = domain.toLowerCase();
+      const cleanHost = domain.toLowerCase().split(':')[0];
       const tenant = tenantsDb.find(
         t => t.domain?.toLowerCase() === cleanHost || t.customDomain?.toLowerCase() === cleanHost
       );
@@ -28,6 +29,12 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: 'Dominio no asignado a ningún comercio' }, { status: 404 });
       }
       return NextResponse.json({ tenant });
+    }
+
+    // Listing all tenants requires Super Admin authentication
+    const auth = await TenantContextHelper.requireTenantRole(req, 'SUPER_ADMIN');
+    if (!auth.success) {
+      return auth.response;
     }
 
     return NextResponse.json({ tenants: tenantsDb });
@@ -39,13 +46,19 @@ export async function GET(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   try {
     const body = await req.json();
-    const { tenantId, branding, settings, status, themeId, activePlugins, customDomain } = body;
+    const { branding, settings, status, themeId, activePlugins, customDomain } = body;
 
-    if (!tenantId) {
-      return NextResponse.json({ error: 'tenantId requerido' }, { status: 400 });
+    const auth = await TenantContextHelper.requireTenantRole(req, 'ADMIN', {
+      targetTenantId: body.tenantId
+    });
+
+    if (!auth.success) {
+      return auth.response;
     }
 
-    const idx = tenantsDb.findIndex(t => t.id === tenantId);
+    const { tenant, session, isSuperAdmin } = auth.context;
+
+    const idx = tenantsDb.findIndex(t => t.id === tenant.id);
     if (idx === -1) {
       return NextResponse.json({ error: 'Tenant no encontrado' }, { status: 404 });
     }
@@ -55,17 +68,19 @@ export async function PUT(req: NextRequest) {
       ...current,
       ...(branding ? { branding: { ...current.branding, ...branding } } : {}),
       ...(settings ? { settings: { ...current.settings, ...settings } } : {}),
-      ...(status ? { status } : {}),
+      ...(status && isSuperAdmin ? { status } : {}), // Only super admin can alter active/suspended status
       ...(themeId ? { themeId } : {}),
       ...(activePlugins ? { activePlugins } : {}),
       ...(customDomain !== undefined ? { customDomain } : {})
     };
 
     AuditService.log({
-      tenantId,
+      tenantId: tenant.id,
+      userId: session?.userId,
+      userEmail: session?.email,
       action: 'TENANT_UPDATED',
       entity: 'Tenant',
-      entityId: tenantId,
+      entityId: tenant.id,
       details: { updatedFields: Object.keys(body) }
     });
 

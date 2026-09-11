@@ -1,69 +1,84 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { LicenseService } from '@/lib/services/license.service';
-import { AuditService } from '@/lib/services/audit.service';
-
-const processedEvents = new Set<string>();
+import { WebhookService } from '@/lib/services/webhook.service';
 
 export async function POST(req: NextRequest) {
   try {
     const rawBody = await req.text();
-    const event = JSON.parse(rawBody);
 
-    const eventId = event.id || `evt_${Date.now()}`;
-    const eventType = event.event_type || 'PAYMENT.SALE.COMPLETED';
+    const headers = {
+      transmissionId: req.headers.get('paypal-transmission-id'),
+      transmissionTime: req.headers.get('paypal-transmission-time'),
+      transmissionSig: req.headers.get('paypal-transmission-sig'),
+      certUrl: req.headers.get('paypal-cert-url'),
+      authAlgo: req.headers.get('paypal-auth-algo')
+    };
 
-    // 1. Idempotency Check
-    if (processedEvents.has(eventId)) {
-      return NextResponse.json({ received: true, idempotent: true, message: 'Event already processed' });
+    // 1. Official PayPal Webhook Transmission Verification
+    const verification = WebhookService.verifyPayPalSignature(rawBody, headers);
+    if (!verification.valid) {
+      return NextResponse.json({
+        error: 'Firma de webhook PayPal inválida',
+        reason: verification.reason
+      }, { status: 401 });
     }
 
-    processedEvents.add(eventId);
-
-    // 2. Process PayPal Event Type
-    const resource = event.resource || {};
-    const customId = resource.custom_id || resource.custom;
-    const licenseKey = resource.invoice_number || resource.note_to_seller;
-
-    switch (eventType) {
-      case 'PAYMENT.SALE.COMPLETED':
-      case 'BILLING.SUBSCRIPTION.PAYMENT.SUCCEEDED': {
-        // Find license and renew or mark paid
-        if (licenseKey) {
-          const lic = LicenseService.getByLicenseKey(licenseKey);
-          if (lic) {
-            LicenseService.renew(lic.id, 1);
-            AuditService.log({
-              tenantId: lic.tenantId,
-              action: 'PAYMENT_RECEIVED_PAYPAL',
-              entity: 'License',
-              entityId: lic.id,
-              details: { eventId, amount: resource.amount?.total }
-            });
-          }
-        }
-        break;
-      }
-      case 'BILLING.SUBSCRIPTION.SUSPENDED':
-      case 'BILLING.SUBSCRIPTION.CANCELLED': {
-        if (licenseKey) {
-          const lic = LicenseService.getByLicenseKey(licenseKey);
-          if (lic) {
-            LicenseService.toggleStatus(lic.id, 'suspended');
-            AuditService.log({
-              tenantId: lic.tenantId,
-              action: 'SUBSCRIPTION_SUSPENDED_PAYPAL',
-              entity: 'License',
-              entityId: lic.id,
-              details: { eventId, eventType }
-            });
-          }
-        }
-        break;
-      }
+    let event: any;
+    try {
+      event = JSON.parse(rawBody);
+    } catch {
+      return NextResponse.json({ error: 'Cuerpo de webhook PayPal malformado (no es JSON)' }, { status: 400 });
     }
 
-    return NextResponse.json({ received: true, eventId, eventType }, { status: 200 });
+    const eventId = event.id || headers.transmissionId;
+    if (!eventId) {
+      return NextResponse.json({ error: 'Evento de PayPal carece de ID o transmission-id' }, { status: 400 });
+    }
+
+    const eventType = event.event_type || 'unknown';
+
+    // 2. Idempotency Check in Database / Cache
+    const idempotency = await WebhookService.checkIdempotency('paypal', eventId);
+    if (idempotency.isDuplicate) {
+      return NextResponse.json({
+        received: true,
+        idempotent: true,
+        message: 'Evento de PayPal ya registrado y procesado previamente'
+      }, { status: 200 });
+    }
+
+    // 3. Record Webhook Event as verified
+    await WebhookService.recordWebhookEvent({
+      provider: 'paypal',
+      eventId,
+      eventType,
+      payload: event,
+      signatureVerified: true
+    });
+
+    // 4. Securely process event actions on Payment, Subscription, License, Invoice
+    let processError: string | undefined;
+    try {
+      await WebhookService.processPayPalEvent(event);
+    } catch (err: any) {
+      processError = err?.message || 'Error procesando evento';
+    }
+
+    // 5. Mark as processed
+    await WebhookService.markProcessed(eventId, processError);
+
+    if (processError) {
+      return NextResponse.json({ error: processError }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      received: true,
+      eventId,
+      eventType,
+      signatureVerified: true
+    }, { status: 200 });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Error procesando webhook PayPal' }, { status: 400 });
+    return NextResponse.json({
+      error: error?.message || 'Error interno procesando webhook PayPal'
+    }, { status: 500 });
   }
 }

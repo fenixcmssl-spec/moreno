@@ -31,8 +31,8 @@ export async function POST(req: NextRequest) {
     }
 
     const cleanSlug = storeSlug.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
-    const plan = PlanService.getById(planId) || PlanService.getAll()[0];
-    const app = ApplicationService.getByKey(applicationId as any) || ApplicationService.getAll()[0];
+    const plan = (await PlanService.getById(planId)) || (await PlanService.getAll())[0] || { slug: 'pro', priceMonthly: 29, priceYearly: 290, price: 29, entitlements: {} };
+    const app = (await ApplicationService.getByKey(applicationId as any)) || (await ApplicationService.getAll())[0] || { key: 'ECOMMERCE', id: 'app_ecommerce' };
 
     // 1. Generate secure license
     const { displayKey } = LicenseService.generateSecureLicenseKey(
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
     );
 
     const tenantId = `tenant_${Date.now()}`;
-    const price = billingPeriod === 'yearly' ? plan.priceYearly : plan.priceMonthly;
+    const price = Number((billingPeriod === 'yearly' ? ((plan as any).yearlyPrice ?? (plan as any).priceYearly) : ((plan as any).monthlyPrice ?? (plan as any).priceMonthly)) || 0);
     const now = new Date();
     const expiry = new Date(now);
     expiry.setMonth(expiry.getMonth() + (billingPeriod === 'yearly' ? 12 : 1));
@@ -77,9 +77,9 @@ export async function POST(req: NextRequest) {
       transactionId: transactionId || `tx_${Date.now()}`,
       validFrom: now.toISOString(),
       validTo: expiry.toISOString(),
-      entitlements: plan.entitlements,
-      maxProducts: plan.maxProducts || plan.entitlements['products.max'],
-      maxStorageMb: plan.maxStorageMb || plan.entitlements['storage.max_mb']
+      entitlements: (plan as any).entitlements || {},
+      maxProducts: (plan as any).maxProducts || (plan as any).entitlements?.['products.max'] || 100,
+      maxStorageMb: (plan as any).maxStorageMb || (plan as any).entitlements?.['storage.max_mb'] || 1000
     });
 
     // 4. Activate License for default subdomain

@@ -1,48 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { DomainItem } from '@/types';
+import { TenantContextHelper } from '@/lib/auth/tenantContext';
 import { AuditService } from '@/lib/services/audit.service';
-
-let domainsDb: DomainItem[] = [
-  {
-    id: 'dom_1',
-    tenantId: 'tenant_1',
-    hostname: 'mitienda.fenixcms.es',
-    type: 'subdomain',
-    verified: true,
-    primary: true,
-    sslStatus: 'active',
-    createdAt: '2026-01-01T00:00:00Z'
-  },
-  {
-    id: 'dom_2',
-    tenantId: 'tenant_2',
-    hostname: 'techtrends.com',
-    type: 'custom',
-    verified: true,
-    primary: true,
-    sslStatus: 'active',
-    createdAt: '2026-01-02T00:00:00Z'
-  }
-];
+import { DomainService } from '@/lib/services/domain.service';
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const tenantId = searchParams.get('tenantId');
     const hostname = searchParams.get('hostname');
 
+    // Public domain check for DNS routing
     if (hostname) {
-      const clean = hostname.toLowerCase();
-      const domain = domainsDb.find(d => d.hostname.toLowerCase() === clean);
-      return NextResponse.json({ domain: domain || null, found: Boolean(domain) });
+      const resolution = await DomainService.resolveHostname(hostname);
+      return NextResponse.json({
+        domain: resolution.domain || null,
+        tenant: resolution.tenant || null,
+        found: resolution.found,
+        resolutionType: resolution.resolutionType
+      });
     }
 
-    if (tenantId) {
-      const tenantDomains = domainsDb.filter(d => d.tenantId === tenantId);
-      return NextResponse.json({ domains: tenantDomains });
+    const auth = await TenantContextHelper.requireTenant(req);
+    if (!auth.success) {
+      return auth.response;
     }
 
-    return NextResponse.json({ domains: domainsDb });
+    const { tenant } = auth.context;
+    const tenantDomains = await DomainService.getDomainsByTenant(tenant.id);
+    return NextResponse.json({ domains: tenantDomains, tenantId: tenant.id });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Error listando dominios' }, { status: 500 });
   }
@@ -51,43 +35,97 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { tenantId, hostname, type = 'custom', primary = false } = body;
+    const { hostname, type = 'custom', primary = false } = body;
 
-    if (!tenantId || !hostname) {
-      return NextResponse.json({ error: 'tenantId y hostname requeridos' }, { status: 400 });
-    }
-
-    const cleanHost = hostname.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-    
-    // Check if domain is already taken
-    const existing = domainsDb.find(d => d.hostname.toLowerCase() === cleanHost);
-    if (existing) {
-      return NextResponse.json({ error: 'Este dominio ya está registrado en la plataforma' }, { status: 409 });
-    }
-
-    const newDomain: DomainItem = {
-      id: `dom_${Date.now()}`,
-      tenantId,
-      hostname: cleanHost,
-      type,
-      verified: type === 'subdomain', // Subdomains are instant verified
-      primary,
-      sslStatus: 'active',
-      createdAt: new Date().toISOString()
-    };
-
-    domainsDb.push(newDomain);
-
-    AuditService.log({
-      tenantId,
-      action: 'DOMAIN_ADDED',
-      entity: 'Domain',
-      entityId: newDomain.id,
-      details: { hostname: cleanHost, type }
+    const auth = await TenantContextHelper.requireTenantRole(req, 'ADMIN', {
+      targetTenantId: body.tenantId
     });
 
-    return NextResponse.json({ success: true, domain: newDomain }, { status: 201 });
+    if (!auth.success) {
+      return auth.response;
+    }
+
+    const { tenant, session } = auth.context;
+
+    if (!hostname) {
+      return NextResponse.json({ error: 'hostname es requerido' }, { status: 400 });
+    }
+
+    // Entitlement Check: customDomain.enabled for custom domains
+    if (type === 'custom') {
+      const customDomainCheck = await TenantContextHelper.requireEntitlement(auth.context, 'customDomain.enabled');
+      if (!customDomainCheck.success) {
+        return customDomainCheck.response;
+      }
+    }
+
+    // Entitlement Check: domains.max
+    const domainsLimitCheck = await TenantContextHelper.requireEntitlement(auth.context, 'domains.max', {
+      increment: 1
+    });
+    if (!domainsLimitCheck.success) {
+      return domainsLimitCheck.response;
+    }
+
+    const result = await DomainService.createDomain({
+      tenantId: tenant.id,
+      hostname,
+      type,
+      primary
+    });
+
+    if (!result.success || !result.domain) {
+      return NextResponse.json({ error: result.error || 'Error al registrar dominio' }, { status: 400 });
+    }
+
+    AuditService.log({
+      tenantId: tenant.id,
+      userId: session?.userId,
+      userEmail: session?.email,
+      action: 'DOMAIN_ADDED',
+      entity: 'Domain',
+      entityId: result.domain.id,
+      details: { hostname: result.domain.hostname, type }
+    });
+
+    return NextResponse.json({ success: true, domain: result.domain }, { status: 201 });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Error añadiendo dominio' }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const domainId = searchParams.get('id');
+
+    if (!domainId) {
+      return NextResponse.json({ error: 'id de dominio requerido' }, { status: 400 });
+    }
+
+    const auth = await TenantContextHelper.requireTenantRole(req, 'ADMIN');
+    if (!auth.success) {
+      return auth.response;
+    }
+
+    const { tenant, session } = auth.context;
+
+    const deleteRes = await DomainService.deleteDomain(domainId, tenant.id);
+    if (!deleteRes.success) {
+      return NextResponse.json({ error: deleteRes.error || 'Error al eliminar dominio' }, { status: 400 });
+    }
+
+    AuditService.log({
+      tenantId: tenant.id,
+      userId: session?.userId,
+      userEmail: session?.email,
+      action: 'DOMAIN_DELETED',
+      entity: 'Domain',
+      entityId: domainId
+    });
+
+    return NextResponse.json({ success: true, message: 'Dominio eliminado correctamente' });
+  } catch (error: any) {
+    return NextResponse.json({ error: error?.message || 'Error eliminando dominio' }, { status: 500 });
   }
 }

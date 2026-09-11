@@ -1,30 +1,39 @@
 // Prisma Client Singleton for Next.js App Router (Fast Refresh / Hot-Reload safe)
-// Prevents connection pool saturation in development
+// Prevents connection pool saturation and avoids runtime crashes when DATABASE_URL is not configured
 
-let PrismaClientClass: any;
+let PrismaClientClass: any = null;
 try {
-  PrismaClientClass = require('@prisma/client').PrismaClient;
+  if (process.env.DATABASE_URL) {
+    PrismaClientClass = require('@prisma/client').PrismaClient;
+  }
 } catch {
-  PrismaClientClass = class MockPrismaClient {
-    constructor(public options?: any) {}
-  };
+  PrismaClientClass = null;
 }
 
 const prismaClientSingleton = () => {
-  return new PrismaClientClass({
-    log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
-  });
+  if (!process.env.DATABASE_URL || !PrismaClientClass) {
+    return null;
+  }
+  try {
+    return new PrismaClientClass({
+      log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
+    });
+  } catch {
+    return null;
+  }
 };
 
-type PrismaClientSingleton = ReturnType<typeof prismaClientSingleton>;
+type PrismaClientSingleton = any;
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClientSingleton | undefined;
 };
 
-export const prisma = globalForPrisma.prisma ?? prismaClientSingleton();
+export const prisma: any = globalForPrisma.prisma !== undefined
+  ? globalForPrisma.prisma
+  : (globalForPrisma.prisma = prismaClientSingleton());
 
-if (process.env.NODE_ENV !== 'production') {
+if (process.env.NODE_ENV !== 'production' && prisma) {
   globalForPrisma.prisma = prisma;
 }
 

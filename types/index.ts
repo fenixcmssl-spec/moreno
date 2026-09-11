@@ -59,14 +59,16 @@ export interface AuditLogItem {
 export type ApplicationTypeKey = 
   | 'ECOMMERCE' 
   | 'BLOG' 
+  | 'BLOG_ADS'
   | 'CLASSIFIEDS' 
-  | 'LANDING' 
   | 'BOOKING' 
-  | 'DIRECTORY' 
   | 'LMS' 
+  | 'DIRECTORY' 
+  | 'LANDING' 
+  | 'BUSINESS' 
+  | 'CUSTOM'
   | 'FORUM' 
   | 'PORTFOLIO' 
-  | 'CUSTOM'
   | 'app_ecommerce'
   | 'app_auctions'
   | 'app_hybrid_auctions_blog'
@@ -78,7 +80,7 @@ export type ApplicationTypeKey =
 export interface ApplicationModuleDef {
   id: string;
   applicationId: string;
-  key: string; // 'products' | 'orders' | 'posts' | 'ads' | 'bookings'
+  key: string; // 'products' | 'orders' | 'posts' | 'ads' | 'bookings' | etc.
   name: string;
   description?: string;
   isDefault: boolean;
@@ -97,6 +99,7 @@ export interface ApplicationDefinition {
   modules: ApplicationModuleDef[];
   settingsSchema?: Record<string, any>;
   createdAt: string;
+  updatedAt?: string;
 }
 
 // -------------------------------------------------------------
@@ -122,19 +125,30 @@ export interface SaaSPlan {
   applicationId: string; // Ligado a Application (ECOMMERCE, BLOG, CLASSIFIEDS...)
   name: string;
   slug: string;
+  description: string;
+  monthlyPrice?: number;
+  yearlyPrice?: number;
+  currency?: string;
+  trialDays?: number;
+  status: EntityStatus | string;
+  createdAt?: string;
+  updatedAt?: string;
+  // Campos auxiliares y de compatibilidad
   badge?: string;
   imageUrl?: string;
-  priceMonthly: number;
-  priceYearly: number;
-  description: string;
-  entitlements: PlanEntitlements;
-  // Campos auxiliares de compatibilidad
+  priceMonthly?: number;
+  priceYearly?: number;
+  entitlements?: PlanEntitlements;
   maxProducts?: number;
   maxStorageMb?: number;
   customDomainAllowed?: boolean;
   features: string[];
   popular?: boolean;
-  status: EntityStatus;
+  _count?: {
+    licenses?: number;
+    subscriptions?: number;
+    activeLicenses?: number;
+  };
 }
 
 // -------------------------------------------------------------
@@ -168,17 +182,53 @@ export interface SaaSLicense {
   createdAt: string;
 }
 
-export interface SubscriptionItem {
+export interface LicenseActivationRecord {
+  id: string;
+  licenseId: string;
+  tenantId: string;
+  domain: string;
+  environment: 'production' | 'staging' | 'local' | string;
+  ipAddress?: string;
+  status: 'ACTIVE' | 'REVOKED' | string;
+  activatedAt: string;
+  deactivatedAt?: string;
+}
+
+export type SubscriptionStatusType = 'TRIALING' | 'ACTIVE' | 'PAST_DUE' | 'PAUSED' | 'CANCELLED' | 'EXPIRED';
+
+export interface SubscriptionRecord {
   id: string;
   tenantId: string;
-  applicationId: string;
   planId: string;
-  provider: 'paypal' | 'stripe' | 'manual';
+  provider: 'paypal' | 'stripe' | 'manual' | string;
   providerSubscriptionId?: string;
-  status: EntityStatus;
+  status: SubscriptionStatusType;
   billingPeriod: 'monthly' | 'yearly';
   currentPeriodStart: string;
   currentPeriodEnd: string;
+  cancelAtPeriodEnd: boolean;
+  cancelledAt?: string;
+  amount?: number;
+  currency?: string;
+  createdAt: string;
+  updatedAt?: string;
+  plan?: SaaSPlan;
+  tenant?: any;
+}
+
+export interface SubscriptionItem {
+  id: string;
+  tenantId: string;
+  applicationId?: string;
+  planId: string;
+  provider: 'paypal' | 'stripe' | 'manual' | string;
+  providerSubscriptionId?: string;
+  status: SubscriptionStatusType | EntityStatus;
+  billingPeriod: 'monthly' | 'yearly';
+  currentPeriodStart: string;
+  currentPeriodEnd: string;
+  cancelAtPeriodEnd?: boolean;
+  cancelledAt?: string;
 }
 
 export interface InvoiceItem {
@@ -607,6 +657,32 @@ export interface ThemeDefinition {
   active?: boolean;
 }
 
+export interface Customer {
+  id: string;
+  tenantId: string;
+  name: string;
+  email: string;
+  phone?: string;
+  address?: any;
+  ordersCount: number;
+  totalSpent: number;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface CustomPage {
+  id: string;
+  tenantId: string;
+  title: string;
+  slug: string;
+  content: string;
+  status: 'published' | 'draft' | 'archived';
+  seoTitle?: string;
+  seoDescription?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface MarketplaceItem {
   id: string;
   slug?: string;
@@ -630,3 +706,5 @@ export interface MarketplaceItem {
   downloadFileName?: string;
   createdAt?: string;
 }
+
+

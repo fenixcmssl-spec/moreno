@@ -32,9 +32,10 @@ import {
   INITIAL_MARKETPLACE_ITEMS,
   INITIAL_BLOG_POSTS,
   INITIAL_CLASSIFIED_ADS,
-  INITIAL_MEDIA_ITEMS
+  INITIAL_MEDIA_ITEMS,
+  INITIAL_APPLICATIONS
 } from './initialData';
-import { INITIAL_APPLICATIONS, ApplicationService } from './services/application.service';
+import { ApplicationService } from './services/application.service';
 import { AuditService } from './services/audit.service';
 import { db } from './firebase';
 import { doc, getDoc } from 'firebase/firestore';
@@ -70,15 +71,16 @@ interface StoreContextType {
   
   // Auth state
   isAuthenticated: boolean;
-  currentUser: { email: string; name: string; role: 'super_admin' | 'merchant_admin' } | null;
-  loginBackend: (email: string, pass: string) => { success: boolean; error?: string };
-  logoutBackend: () => void;
+  currentUser: { email: string; name: string; role: 'super_admin' | 'merchant_admin' | 'staff' | 'customer' } | null;
+  loginBackend: (email: string, pass: string, tenantSlug?: string) => Promise<{ success: boolean; error?: string }>;
+  logoutBackend: () => Promise<void>;
   
   // Applications & Plans Catalog (Fase 1 y 2)
   applications: ApplicationDefinition[];
   createApplication: (app: Omit<ApplicationDefinition, 'id' | 'createdAt'>) => Promise<ApplicationDefinition>;
   updateApplication: (id: string, updates: Partial<ApplicationDefinition>) => Promise<void>;
   toggleApplicationStatus: (id: string) => Promise<void>;
+  deleteApplication: (id: string) => Promise<void>;
   
   plans: SaaSPlan[];
   updatePlan: (planId: string, updates: Partial<SaaSPlan>) => Promise<void>;
@@ -91,6 +93,9 @@ interface StoreContextType {
   // Licencias & Tenants
   licenses: SaaSLicense[];
   tenant: TenantStore;
+  activeStoreHost: string;
+  setActiveStoreHost: (host: string) => void;
+  resolveStorefrontFromHost: (host: string) => Promise<boolean>;
   updateTenant: (updates: Partial<TenantStore>) => Promise<void>;
   updateTenantBranding: (branding: Partial<TenantBranding>) => Promise<void>;
   createLicense: (licenseData: Omit<SaaSLicense, 'id' | 'createdAt'>) => Promise<SaaSLicense>;
@@ -207,13 +212,49 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [themes, setThemes] = useState<ThemeDefinition[]>(INITIAL_THEMES);
   const [marketplaceItems, setMarketplaceItems] = useState<MarketplaceItem[]>(INITIAL_MARKETPLACE_ITEMS);
   const [activeThemeId, setActiveThemeIdState] = useState<string>('theme_fenix_market');
+  const [activeStoreHost, setActiveStoreHost] = useState<string>('tienda-demo.es');
   
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
   const [selectedProductForModal, setSelectedProductForModal] = useState<ProductItem | null>(null);
   const [isDbConnected] = useState<boolean>(true);
 
-  // Sync initial setup with Firestore if possible
+  // Dynamic Storefront Resolver from Backend / PostgreSQL
+  const resolveStorefrontFromHost = useCallback(async (host: string): Promise<boolean> => {
+    try {
+      const cleanHost = host.trim().toLowerCase().split(':')[0];
+      const res = await fetch(`/api/storefront/resolve?host=${encodeURIComponent(cleanHost)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.tenant) {
+          setTenant(data.tenant);
+          setActiveStoreHost(cleanHost);
+          if (Array.isArray(data.products)) {
+            setProducts(data.products);
+          }
+          if (data.content?.blogPosts) {
+            setBlogPosts(data.content.blogPosts);
+          }
+          if (data.content?.classifiedAds) {
+            setClassifiedAds(data.content.classifiedAds);
+          }
+          if (data.theme?.id) {
+            setActiveThemeIdState(data.theme.id);
+          }
+          if (data.language?.defaultLocale) {
+            setCurrentLocale(data.language.defaultLocale);
+          }
+          return true;
+        }
+      }
+      return false;
+    } catch (err) {
+      console.warn('Error resolving storefront for host:', host, err);
+      return false;
+    }
+  }, [setCurrentLocale]);
+
+  // Sync initial setup with Firestore & PostgreSQL
   useEffect(() => {
     async function syncFromCloud() {
       try {
@@ -226,7 +267,35 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         console.warn('Firestore initial read notice:', err);
       }
     }
+    async function syncApplications() {
+      try {
+        const res = await fetch('/api/admin/applications?public=true');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.applications && Array.isArray(data.applications) && data.applications.length > 0) {
+            setApplications(data.applications);
+          }
+        }
+      } catch (err) {
+        console.warn('PostgreSQL applications read notice:', err);
+      }
+    }
+    async function syncPlans() {
+      try {
+        const res = await fetch('/api/admin/plans');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.plans && Array.isArray(data.plans) && data.plans.length > 0) {
+            setPlans(data.plans);
+          }
+        }
+      } catch (err) {
+        console.warn('PostgreSQL plans read notice:', err);
+      }
+    }
     syncFromCloud();
+    syncApplications();
+    syncPlans();
   }, []);
 
   const activeTheme = themes.find(t => t.id === activeThemeId) || themes[0];
@@ -241,52 +310,57 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setAuditLogs(prev => [entry, ...prev]);
   }, [tenant?.id, currentUser?.email]);
 
-  const loginBackend = (inputEmail: string, inputPass: string) => {
+  const loginBackend = async (inputEmail: string, inputPass: string, tenantSlug?: string) => {
     const cleanEmail = inputEmail.trim().toLowerCase();
     const cleanPass = inputPass.trim();
 
-    // Required Super Admin credentials
-    if (cleanEmail === 'info@fenixcms.es' && cleanPass === 'Patricia1980@') {
-      const user = {
-        email: 'info@fenixcms.es',
-        name: 'Super Administrador FenixCMS',
-        role: 'super_admin' as const
-      };
-      try {
-        localStorage.setItem('fenix_backend_auth', JSON.stringify(user));
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new Event('fenix_auth_update'));
-        }
-      } catch {}
-      logAction('SUPER_ADMIN_LOGIN', 'Auth', { email: cleanEmail });
-      return { success: true };
-    }
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: cleanEmail,
+          password: cleanPass,
+          tenantSlug: tenantSlug || tenant?.slug
+        })
+      });
 
-    // Merchant Store Admin access
-    if (cleanEmail === tenant.ownerEmail.toLowerCase() && (cleanPass === 'Patricia1980@' || cleanPass === tenant.licenseKey || cleanPass === 'admin123')) {
-      const user = {
-        email: tenant.ownerEmail,
-        name: tenant.ownerName || 'Administrador Tienda',
-        role: 'merchant_admin' as const
-      };
-      try {
-        localStorage.setItem('fenix_backend_auth', JSON.stringify(user));
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new Event('fenix_auth_update'));
-        }
-      } catch {}
-      logAction('MERCHANT_LOGIN', 'Auth', { email: cleanEmail, tenant: tenant.name });
-      return { success: true };
-    }
+      const data = await res.json();
 
-    return { 
-      success: false, 
-      error: 'Credenciales no válidas. El usuario debe ser info@fenixcms.es con su contraseña de acceso asignada.' 
-    };
+      if (res.ok && data.success && data.user) {
+        const role = data.user.role === 'SUPER_ADMIN' ? 'super_admin' : 'merchant_admin';
+        const userObj = {
+          email: data.user.email,
+          name: data.user.name,
+          role
+        };
+        try {
+          localStorage.setItem('fenix_backend_auth', JSON.stringify(userObj));
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new Event('fenix_auth_update'));
+          }
+        } catch {}
+
+        logAction('USER_LOGIN', 'Auth', { email: cleanEmail, role });
+        return { success: true };
+      }
+
+      return {
+        success: false,
+        error: data.error || 'Credenciales de acceso no válidas'
+      };
+    } catch (err: any) {
+      console.warn('Login request error, using secure validation fallback:', err);
+      return {
+        success: false,
+        error: 'No se pudo verificar la sesión con el servidor de autenticación'
+      };
+    }
   };
 
-  const logoutBackend = () => {
+  const logoutBackend = async () => {
     try {
+      await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
       localStorage.removeItem('fenix_backend_auth');
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('fenix_auth_update'));
@@ -329,26 +403,65 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // Applications CRUD
   const createApplication = async (appData: Omit<ApplicationDefinition, 'id' | 'createdAt'>) => {
-    const newApp = ApplicationService.create(appData);
+    try {
+      const res = await fetch('/api/admin/applications', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(appData)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const created = data.application;
+        setApplications(prev => [...prev.filter(a => a.id !== created.id), created]);
+        logAction('APPLICATION_CREATED', 'Application', { key: created.key, name: created.name });
+        return created;
+      }
+    } catch {}
+    const newApp = await ApplicationService.create(appData);
     setApplications(prev => [...prev, newApp]);
     logAction('APPLICATION_CREATED', 'Application', { key: newApp.key, name: newApp.name });
     return newApp;
   };
 
   const updateApplication = async (id: string, updates: Partial<ApplicationDefinition>) => {
+    try {
+      await fetch(`/api/admin/applications/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+      });
+    } catch {}
     setApplications(prev => prev.map(a => a.id === id ? { ...a, ...updates } : a));
     logAction('APPLICATION_UPDATED', 'Application', { id, updates });
   };
 
   const toggleApplicationStatus = async (id: string) => {
+    const current = applications.find(a => a.id === id);
+    const nextStatus = current?.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+    try {
+      await fetch(`/api/admin/applications/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: nextStatus })
+      });
+    } catch {}
     setApplications(prev => prev.map(a => {
       if (a.id === id) {
-        const nextStatus = a.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
         logAction('APPLICATION_STATUS_TOGGLED', 'Application', { id, status: nextStatus });
         return { ...a, status: nextStatus };
       }
       return a;
     }));
+  };
+
+  const deleteApplication = async (id: string) => {
+    try {
+      await fetch(`/api/admin/applications/${id}`, {
+        method: 'DELETE'
+      });
+    } catch {}
+    setApplications(prev => prev.filter(a => a.id !== id));
+    logAction('APPLICATION_DELETED', 'Application', { id });
   };
 
   // Plans & Entitlements CRUD
@@ -418,7 +531,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       customerEmail,
       tenantSlug: storeSlug,
       tenantName: storeName,
-      price: billingPeriod === 'yearly' ? selectedPlan.priceYearly : selectedPlan.priceMonthly,
+      price: Number((billingPeriod === 'yearly' ? ((selectedPlan as any).yearlyPrice ?? selectedPlan.priceYearly) : ((selectedPlan as any).monthlyPrice ?? selectedPlan.priceMonthly)) || 0),
       billingPeriod,
       paymentProvider: 'paypal',
       transactionId: `PP-TX-${Date.now()}`,
@@ -716,6 +829,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       createApplication,
       updateApplication,
       toggleApplicationStatus,
+      deleteApplication,
       plans,
       createPlan,
       updatePlan,
@@ -725,6 +839,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       updatePlanEntitlements,
       licenses,
       tenant,
+      activeStoreHost,
+      setActiveStoreHost,
+      resolveStorefrontFromHost,
       updateTenant,
       updateTenantBranding,
       products,
