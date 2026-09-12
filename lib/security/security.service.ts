@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import crypto from 'crypto';
 
 export interface RateLimitResult {
   allowed: boolean;
@@ -18,7 +17,7 @@ const RATE_LIMIT_STORE: Map<string, RateLimitRecord> = new Map();
 
 // Periodic cleanup of expired rate limit entries every 5 minutes
 if (typeof setInterval !== 'undefined') {
-  setInterval(() => {
+  const timer = setInterval(() => {
     const now = Date.now();
     for (const [key, record] of RATE_LIMIT_STORE.entries()) {
       if (record.resetAt <= now) {
@@ -26,6 +25,9 @@ if (typeof setInterval !== 'undefined') {
       }
     }
   }, 5 * 60 * 1000);
+  if (timer && typeof (timer as any).unref === 'function') {
+    (timer as any).unref();
+  }
 }
 
 export class RateLimiter {
@@ -73,7 +75,7 @@ export class RateLimiter {
   /**
    * Helper to extract client IP or identifier
    */
-  static getClientIdentifier(req: NextRequest): string {
+  static getClientIdentifier(req: Request | NextRequest): string {
     const forwarded = req.headers.get('x-forwarded-for');
     if (forwarded) {
       return forwarded.split(',')[0].trim();
@@ -292,7 +294,7 @@ export class SecurityService {
    * Applies rate limiting middleware guard to an API endpoint
    */
   static applyRateLimit(
-    req: NextRequest,
+    req: Request | NextRequest,
     limit: number = 60,
     windowSeconds: number = 60,
     action: string = 'general'

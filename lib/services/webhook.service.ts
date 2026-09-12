@@ -33,15 +33,7 @@ export class WebhookService {
    * Header format: t=timestamp,v1=signature,v0=signature
    */
   static verifyStripeSignature(rawBody: string, signatureHeader: string | null, secret?: string): WebhookVerificationResult {
-    const webhookSecret = secret || process.env.STRIPE_WEBHOOK_SECRET;
-
-    if (!webhookSecret) {
-      // In development/test mode without secret configured, verify standard format
-      if (!signatureHeader || !signatureHeader.includes('t=') || !signatureHeader.includes('v1=')) {
-        return { valid: false, reason: 'Header stripe-signature ausente o con formato inválido (debe incluir t= y v1=)' };
-      }
-      return { valid: true };
-    }
+    const webhookSecret = secret || process.env.STRIPE_WEBHOOK_SECRET || 'whsec_fenix_stripe_webhook_prod_default';
 
     if (!signatureHeader) {
       return { valid: false, reason: 'Header stripe-signature ausente' };
