@@ -15,14 +15,13 @@ export interface AdminAuthResult {
  * Blocks all standard users, customers, store managers, and unauthorized requests.
  */
 export async function requireSuperAdmin(req: NextRequest): Promise<AdminAuthResult> {
-  // 1. Extract session token from cookie, Authorization header or custom header
+  // 1. Extract session token strictly from cookie, Authorization header or x-session-token header (NO query params)
   const cookieToken = req.cookies.get(SessionService.getCookieName())?.value;
   const authHeader = req.headers.get('authorization');
   const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7).trim() : null;
-  const customHeaderToken = req.headers.get('x-session-token') || req.headers.get('x-admin-token');
-  const queryToken = new URL(req.url).searchParams.get('token');
+  const customHeaderToken = req.headers.get('x-session-token');
 
-  const token = cookieToken || bearerToken || customHeaderToken || queryToken;
+  const token = cookieToken || bearerToken || customHeaderToken;
 
   if (!token) {
     return {
@@ -38,7 +37,7 @@ export async function requireSuperAdmin(req: NextRequest): Promise<AdminAuthResu
   if (!session) {
     return {
       authorized: false,
-      error: 'Sesión inválida o expirada. Por favor, inicia sesión nuevamente.',
+      error: 'Sesión inválida, revocada o expirada. Por favor, inicia sesión nuevamente.',
       statusCode: 401
     };
   }
@@ -47,12 +46,12 @@ export async function requireSuperAdmin(req: NextRequest): Promise<AdminAuthResu
   if (session.role !== 'SUPER_ADMIN') {
     return {
       authorized: false,
-      error: 'Acceso denegado: Se requiere privilegios de SUPER_ADMIN para esta operación',
+      error: 'Acceso denegado: Se requieren privilegios de SUPER_ADMIN para esta operación',
       statusCode: 403
     };
   }
 
-  // 4. Double check directly against PostgreSQL User record for security hardening
+  // 4. Double check directly against PostgreSQL User record for security hardening (FAIL CLOSED)
   try {
     if (prisma && typeof (prisma as any).user?.findUnique === 'function') {
       const dbUser = await (prisma as any).user.findUnique({
@@ -63,13 +62,18 @@ export async function requireSuperAdmin(req: NextRequest): Promise<AdminAuthResu
       if (!dbUser || dbUser.role !== 'SUPER_ADMIN' || dbUser.status !== 'ACTIVE') {
         return {
           authorized: false,
-          error: 'Cuenta de SUPER_ADMIN no válida o suspendida en la base de datos',
+          error: 'Cuenta de SUPER_ADMIN no válida, modificada o suspendida en la base de datos',
           statusCode: 403
         };
       }
     }
   } catch (e) {
-    // If DB check fails transiently, session token validation still verified SUPER_ADMIN
+    // Fail-closed policy: Database verification error cannot be bypassed
+    return {
+      authorized: false,
+      error: 'Error de verificación de privilegios en base de datos. Acceso denegado.',
+      statusCode: 500
+    };
   }
 
   return {

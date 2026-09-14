@@ -663,28 +663,72 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     logAction('BLOG_POST_DELETED', 'BlogPost', { id });
   };
 
-  // Classified Ads CRUD
+  // Classified Ads CRUD via REST API
   const addClassifiedAd = async (adData: Omit<ClassifiedAdItem, 'id' | 'viewsCount' | 'favoritesCount' | 'createdAt'>) => {
+    try {
+      const res = await fetch('/api/classifieds', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(adData)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ad) {
+          setClassifiedAds(prev => [data.ad, ...prev]);
+          logAction('CLASSIFIED_AD_CREATED', 'ClassifiedAd', { title: data.ad.title, price: data.ad.price });
+          return data.ad;
+        }
+      }
+    } catch (err) {
+      console.error('Error creating classified ad:', err);
+    }
     const newAd: ClassifiedAdItem = {
       ...adData,
       id: `ad_${Date.now()}`,
       viewsCount: 0,
       favoritesCount: 0,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
     setClassifiedAds(prev => [newAd, ...prev]);
-    logAction('CLASSIFIED_AD_CREATED', 'ClassifiedAd', { title: newAd.title, price: newAd.price });
     return newAd;
   };
 
   const updateClassifiedAd = async (id: string, updates: Partial<ClassifiedAdItem>) => {
+    try {
+      const res = await fetch('/api/classifieds', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, ...updates })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ad) {
+          setClassifiedAds(prev => prev.map(a => a.id === id ? data.ad : a));
+          logAction('CLASSIFIED_AD_UPDATED', 'ClassifiedAd', { id, updates });
+          return;
+        }
+      }
+    } catch (err) {
+      console.error('Error updating classified ad:', err);
+    }
     setClassifiedAds(prev => prev.map(a => a.id === id ? { ...a, ...updates } : a));
-    logAction('CLASSIFIED_AD_UPDATED', 'ClassifiedAd', { id, updates });
   };
 
   const deleteClassifiedAd = async (id: string) => {
+    try {
+      const res = await fetch(`/api/classifieds?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        setClassifiedAds(prev => prev.filter(a => a.id !== id));
+        logAction('CLASSIFIED_AD_DELETED', 'ClassifiedAd', { id });
+        return;
+      }
+    } catch (err) {
+      console.error('Error deleting classified ad:', err);
+    }
     setClassifiedAds(prev => prev.filter(a => a.id !== id));
-    logAction('CLASSIFIED_AD_DELETED', 'ClassifiedAd', { id });
   };
 
   // Media Library CRUD

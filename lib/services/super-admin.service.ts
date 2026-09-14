@@ -85,28 +85,28 @@ export class SuperAdminService {
           prisma.tenant?.count().catch(() => INITIAL_TENANTS.length),
           prisma.tenant?.count({ where: { status: 'active' } }).catch(() => INITIAL_TENANTS.filter(t => t.status === 'active').length),
           // Licenses
-          prisma.license?.count({ where: { status: { in: ['ACTIVE', 'active'] } } }).catch(() => INITIAL_LICENSES.filter(l => l.status === 'active').length),
-          prisma.license?.count({ where: { status: { in: ['TRIAL', 'trial'] } } }).catch(() => 1),
-          prisma.license?.count({ where: { status: { in: ['EXPIRED', 'expired'] } } }).catch(() => 1),
+          prisma.license?.count({ where: { status: 'ACTIVE' } }).catch(() => INITIAL_LICENSES.filter(l => l.status === 'active').length),
+          prisma.license?.count({ where: { status: 'TRIAL' } }).catch(() => 1),
+          prisma.license?.count({ where: { status: 'EXPIRED' } }).catch(() => 1),
           // Subscriptions
-          prisma.subscription?.count({ where: { status: { in: ['CANCELLED', 'cancelled'] } } }).catch(() => 0),
-          prisma.subscription?.count({ where: { status: { in: ['ACTIVE', 'active'] } } }).catch(() => 3),
+          prisma.subscription?.count({ where: { status: 'CANCELLED' } }).catch(() => 0),
+          prisma.subscription?.count({ where: { status: 'ACTIVE' } }).catch(() => 3),
           // Payments
-          prisma.payment?.count({ where: { status: { in: ['FAILED', 'failed'] } } }).catch(() => 0),
+          prisma.payment?.count({ where: { status: 'FAILED' } }).catch(() => 0),
           // Active items for MRR calculation
           prisma.license?.findMany({
-            where: { status: { in: ['ACTIVE', 'active'] } },
+            where: { status: 'ACTIVE' },
             select: { price: true, billingPeriod: true }
           }).catch(() => INITIAL_LICENSES.filter(l => l.status === 'active')),
           prisma.subscription?.findMany({
-            where: { status: { in: ['ACTIVE', 'active'] } },
+            where: { status: 'ACTIVE' },
             select: { amount: true, billingPeriod: true }
           }).catch(() => []),
           // Users
           prisma.user?.count().catch(() => 4),
           // Revenue
           prisma.payment?.findMany({
-            where: { status: { in: ['COMPLETED', 'completed'] } },
+            where: { status: 'COMPLETED' },
             select: { amount: true }
           }).catch(() => [])
         ]);

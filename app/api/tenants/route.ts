@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { INITIAL_TENANTS } from '@/lib/initialData';
 import { TenantContextHelper } from '@/lib/auth/tenantContext';
+import { TenantService } from '@/lib/services/tenant.service';
 import { AuditService } from '@/lib/services/audit.service';
-import { TenantStore } from '@/types';
-
-let tenantsDb: TenantStore[] = [...INITIAL_TENANTS];
+import { requireSuperAdmin } from '@/lib/auth/admin-guard';
 
 export async function GET(req: NextRequest) {
   try {
@@ -13,7 +11,7 @@ export async function GET(req: NextRequest) {
     const domain = searchParams.get('domain');
 
     if (slug) {
-      const tenant = tenantsDb.find(t => t.slug.toLowerCase() === slug.toLowerCase());
+      const tenant = await TenantService.getBySlug(slug);
       if (!tenant) {
         return NextResponse.json({ error: 'Comercio no encontrado' }, { status: 404 });
       }
@@ -21,10 +19,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (domain) {
-      const cleanHost = domain.toLowerCase().split(':')[0];
-      const tenant = tenantsDb.find(
-        t => t.domain?.toLowerCase() === cleanHost || t.customDomain?.toLowerCase() === cleanHost
-      );
+      const tenant = await TenantService.getByDomain(domain);
       if (!tenant) {
         return NextResponse.json({ error: 'Dominio no asignado a ningún comercio' }, { status: 404 });
       }
@@ -32,12 +27,16 @@ export async function GET(req: NextRequest) {
     }
 
     // Listing all tenants requires Super Admin authentication
-    const auth = await TenantContextHelper.requireTenantRole(req, 'SUPER_ADMIN');
-    if (!auth.success) {
-      return auth.response;
+    const superAdminAuth = await requireSuperAdmin(req);
+    if (!superAdminAuth.authorized) {
+      return NextResponse.json(
+        { error: 'Acceso denegado: Se requieren privilegios de SUPER_ADMIN para listar comercios', code: 'FORBIDDEN' },
+        { status: 403 }
+      );
     }
 
-    return NextResponse.json({ tenants: tenantsDb });
+    const tenants = await TenantService.listTenants();
+    return NextResponse.json({ tenants });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Error consultando comercios' }, { status: 500 });
   }
@@ -58,21 +57,14 @@ export async function PUT(req: NextRequest) {
 
     const { tenant, session, isSuperAdmin } = auth.context;
 
-    const idx = tenantsDb.findIndex(t => t.id === tenant.id);
-    if (idx === -1) {
-      return NextResponse.json({ error: 'Tenant no encontrado' }, { status: 404 });
-    }
-
-    const current = tenantsDb[idx];
-    tenantsDb[idx] = {
-      ...current,
-      ...(branding ? { branding: { ...current.branding, ...branding } } : {}),
-      ...(settings ? { settings: { ...current.settings, ...settings } } : {}),
+    const updatedTenant = await TenantService.updateTenant(tenant.id, {
+      ...(branding ? { branding: { ...tenant.branding, ...branding } } : {}),
+      ...(settings ? { settings: { ...tenant.settings, ...settings } } : {}),
       ...(status && isSuperAdmin ? { status } : {}), // Only super admin can alter active/suspended status
       ...(themeId ? { themeId } : {}),
       ...(activePlugins ? { activePlugins } : {}),
       ...(customDomain !== undefined ? { customDomain } : {})
-    };
+    });
 
     AuditService.log({
       tenantId: tenant.id,
@@ -84,7 +76,7 @@ export async function PUT(req: NextRequest) {
       details: { updatedFields: Object.keys(body) }
     });
 
-    return NextResponse.json({ success: true, tenant: tenantsDb[idx] });
+    return NextResponse.json({ success: true, tenant: updatedTenant });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Error actualizando comercio' }, { status: 500 });
   }

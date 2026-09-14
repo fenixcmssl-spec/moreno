@@ -1,32 +1,47 @@
-import { prisma } from '@/lib/prisma';
+import { prisma, isPostgresConfigured, isProductionMode, DatabaseConfigurationError } from '@/lib/prisma';
 import { ApplicationDefinition, ApplicationModuleDef, ApplicationTypeKey } from '@/types';
 import { INITIAL_APPLICATIONS } from '@/lib/initialData';
 
 export class ApplicationService {
   /**
+   * Maps Prisma Application to ApplicationDefinition interface
+   */
+  public static mapPrismaToAppDefinition(app: any): ApplicationDefinition {
+    const modulesList: ApplicationModuleDef[] = (app.modules || []).map((m: any) => ({
+      key: m.key,
+      name: m.name,
+      description: m.description || '',
+      isDefault: Boolean(m.isDefault)
+    }));
+
+    return {
+      id: app.id,
+      key: app.key as ApplicationTypeKey,
+      name: app.name,
+      slug: app.slug,
+      description: app.description || '',
+      category: app.category || 'General',
+      icon: app.icon || 'Box',
+      version: app.version || '1.0.0',
+      status: (app.status || 'ACTIVE').toUpperCase() as any,
+      modules: modulesList,
+      createdAt: app.createdAt ? new Date(app.createdAt).toISOString() : new Date().toISOString(),
+      updatedAt: app.updatedAt ? new Date(app.updatedAt).toISOString() : new Date().toISOString()
+    };
+  }
+
+  /**
    * Retrieves all applications from PostgreSQL with their available modules included
    */
   static async getAll(options?: { status?: string; search?: string }): Promise<ApplicationDefinition[]> {
-    try {
-      if (!process.env.DATABASE_URL || !prisma?.application?.findMany) {
-        let result = [...INITIAL_APPLICATIONS];
-        if (options?.status) {
-          result = result.filter(a => a.status.toLowerCase() === options.status?.toLowerCase());
-        }
-        if (options?.search) {
-          const q = options.search.toLowerCase();
-          result = result.filter(a => 
-            a.name.toLowerCase().includes(q) || 
-            a.key.toLowerCase().includes(q) || 
-            (a.description && a.description.toLowerCase().includes(q))
-          );
-        }
-        return result;
-      }
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
+    }
 
+    if (isPostgresConfigured() && prisma?.application?.findMany) {
       const where: any = {};
       if (options?.status) {
-        where.status = options.status;
+        where.status = options.status.toUpperCase();
       }
       if (options?.search) {
         where.OR = [
@@ -51,34 +66,39 @@ export class ApplicationService {
         return dbApps.map(this.mapPrismaToAppDefinition);
       }
 
-      // Fallback to initial applications if DB table is empty
-      let result = [...INITIAL_APPLICATIONS];
-      if (options?.status) {
-        result = result.filter(a => a.status.toLowerCase() === options.status?.toLowerCase());
+      // If database is empty and we are in production, return empty list (no fake data)
+      if (isProductionMode()) {
+        return [];
       }
-      if (options?.search) {
-        const q = options.search.toLowerCase();
-        result = result.filter(a => 
-          a.name.toLowerCase().includes(q) || 
-          a.key.toLowerCase().includes(q) || 
-          (a.description && a.description.toLowerCase().includes(q))
-        );
-      }
-      return result;
-    } catch {
-      return INITIAL_APPLICATIONS;
     }
+
+    // Development/Test fallback only when postgres not configured
+    let result = [...INITIAL_APPLICATIONS];
+    if (options?.status) {
+      result = result.filter(a => a.status.toLowerCase() === options.status?.toLowerCase());
+    }
+    if (options?.search) {
+      const q = options.search.toLowerCase();
+      result = result.filter(a => 
+        a.name.toLowerCase().includes(q) || 
+        a.key.toLowerCase().includes(q) || 
+        (a.description && a.description.toLowerCase().includes(q))
+      );
+    }
+    return result;
   }
 
   /**
    * Retrieves an application by its unique ID
    */
   static async getById(id: string): Promise<ApplicationDefinition | null> {
-    try {
-      if (!process.env.DATABASE_URL || !prisma?.application?.findUnique) {
-        return INITIAL_APPLICATIONS.find(a => a.id === id) || null;
-      }
+    if (!id) return null;
 
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
+    }
+
+    if (isPostgresConfigured() && prisma?.application?.findUnique) {
       const dbApp = await prisma.application.findUnique({
         where: { id },
         include: {
@@ -90,23 +110,28 @@ export class ApplicationService {
 
       if (dbApp) return this.mapPrismaToAppDefinition(dbApp);
 
-      return INITIAL_APPLICATIONS.find(a => a.id === id) || null;
-    } catch {
-      return INITIAL_APPLICATIONS.find(a => a.id === id) || null;
+      if (isProductionMode()) {
+        return null;
+      }
     }
+
+    return INITIAL_APPLICATIONS.find(a => a.id === id) || null;
   }
 
   /**
-   * Retrieves an application by its unique key (e.g. 'ECOMMERCE', 'BLOG', 'BLOG_ADS', 'CLASSIFIEDS', etc.)
+   * Retrieves an application by its unique key (e.g. 'ECOMMERCE', 'BLOG', 'BLOG_ADS', 'CLASSIFIEDS')
    */
   static async getByKey(key: string): Promise<ApplicationDefinition | null> {
-    try {
-      if (!process.env.DATABASE_URL || !prisma?.application?.findUnique) {
-        return INITIAL_APPLICATIONS.find(a => a.key.toUpperCase() === key.toUpperCase()) || null;
-      }
+    if (!key) return null;
+    const cleanKey = key.trim().toUpperCase();
 
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
+    }
+
+    if (isPostgresConfigured() && prisma?.application?.findUnique) {
       const dbApp = await prisma.application.findUnique({
-        where: { key: key.toUpperCase() },
+        where: { key: cleanKey },
         include: {
           modules: {
             orderBy: { createdAt: 'asc' }
@@ -116,23 +141,28 @@ export class ApplicationService {
 
       if (dbApp) return this.mapPrismaToAppDefinition(dbApp);
 
-      return INITIAL_APPLICATIONS.find(a => a.key.toUpperCase() === key.toUpperCase()) || null;
-    } catch {
-      return INITIAL_APPLICATIONS.find(a => a.key.toUpperCase() === key.toUpperCase()) || null;
+      if (isProductionMode()) {
+        return null;
+      }
     }
+
+    return INITIAL_APPLICATIONS.find(a => a.key.toUpperCase() === cleanKey) || null;
   }
 
   /**
    * Retrieves an application by its URL slug
    */
   static async getBySlug(slug: string): Promise<ApplicationDefinition | null> {
-    try {
-      if (!process.env.DATABASE_URL || !prisma?.application?.findUnique) {
-        return INITIAL_APPLICATIONS.find(a => a.slug.toLowerCase() === slug.toLowerCase()) || null;
-      }
+    if (!slug) return null;
+    const cleanSlug = slug.trim().toLowerCase();
 
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
+    }
+
+    if (isPostgresConfigured() && prisma?.application?.findUnique) {
       const dbApp = await prisma.application.findUnique({
-        where: { slug: slug.toLowerCase() },
+        where: { slug: cleanSlug },
         include: {
           modules: {
             orderBy: { createdAt: 'asc' }
@@ -142,10 +172,12 @@ export class ApplicationService {
 
       if (dbApp) return this.mapPrismaToAppDefinition(dbApp);
 
-      return INITIAL_APPLICATIONS.find(a => a.slug.toLowerCase() === slug.toLowerCase()) || null;
-    } catch {
-      return INITIAL_APPLICATIONS.find(a => a.slug.toLowerCase() === slug.toLowerCase()) || null;
+      if (isProductionMode()) {
+        return null;
+      }
     }
+
+    return INITIAL_APPLICATIONS.find(a => a.slug.toLowerCase() === cleanSlug) || null;
   }
 
   /**
@@ -167,34 +199,42 @@ export class ApplicationService {
       isDefault?: boolean;
     }>;
   }): Promise<ApplicationDefinition> {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
+    }
+
     const key = data.key.trim().toUpperCase();
     const slug = (data.slug || key.toLowerCase()).replace(/[^a-z0-9-]/g, '');
 
-    const created = await prisma.application.create({
-      data: {
-        key,
-        name: data.name.trim(),
-        slug,
-        description: data.description || '',
-        category: data.category || 'General',
-        icon: data.icon || 'Box',
-        version: data.version || '1.0.0',
-        status: data.status || 'ACTIVE',
-        modules: {
-          create: (data.modules || []).map(m => ({
-            key: m.key.trim().toLowerCase(),
-            name: m.name.trim(),
-            description: m.description || '',
-            isDefault: m.isDefault ?? true
-          }))
+    if (isPostgresConfigured() && prisma?.application?.create) {
+      const created = await prisma.application.create({
+        data: {
+          key,
+          name: data.name.trim(),
+          slug,
+          description: data.description || '',
+          category: data.category || 'General',
+          icon: data.icon || 'Box',
+          version: data.version || '1.0.0',
+          status: (data.status || 'ACTIVE').toUpperCase(),
+          modules: {
+            create: (data.modules || []).map(m => ({
+              key: m.key.trim().toLowerCase(),
+              name: m.name.trim(),
+              description: m.description || '',
+              isDefault: m.isDefault ?? true
+            }))
+          }
+        },
+        include: {
+          modules: true
         }
-      },
-      include: {
-        modules: true
-      }
-    });
+      });
 
-    return this.mapPrismaToAppDefinition(created);
+      return this.mapPrismaToAppDefinition(created);
+    }
+
+    throw new DatabaseConfigurationError('Database is not available for application creation.');
   }
 
   /**
@@ -220,179 +260,151 @@ export class ApplicationService {
       }>;
     }
   ): Promise<ApplicationDefinition | null> {
-    const existing = await prisma.application.findUnique({
-      where: { id },
-      include: { modules: true }
-    });
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
+    }
 
-    if (!existing) return null;
-
-    const updateData: any = {};
-    if (data.name !== undefined) updateData.name = data.name.trim();
-    if (data.key !== undefined) updateData.key = data.key.trim().toUpperCase();
-    if (data.slug !== undefined) updateData.slug = data.slug.trim().toLowerCase();
-    if (data.description !== undefined) updateData.description = data.description;
-    if (data.category !== undefined) updateData.category = data.category;
-    if (data.icon !== undefined) updateData.icon = data.icon;
-    if (data.version !== undefined) updateData.version = data.version;
-    if (data.status !== undefined) updateData.status = data.status;
-
-    // Execute update in transaction to cleanly synchronize modules
-    const updated = await prisma.$transaction(async (tx: any) => {
-      await tx.application.update({
-        where: { id },
-        data: updateData
-      });
-
-      if (data.modules && Array.isArray(data.modules)) {
-        await tx.applicationModule.deleteMany({
-          where: { applicationId: id }
-        });
-
-        if (data.modules.length > 0) {
-          await tx.applicationModule.createMany({
-            data: data.modules.map(m => ({
-              applicationId: id,
-              key: m.key.trim().toLowerCase(),
-              name: m.name.trim(),
-              description: m.description || '',
-              isDefault: m.isDefault ?? true
-            }))
-          });
-        }
-      }
-
-      return tx.application.findUnique({
+    if (isPostgresConfigured() && prisma?.application) {
+      const existing = await prisma.application.findUnique({
         where: { id },
         include: { modules: true }
       });
-    });
 
-    if (!updated) return null;
-    return this.mapPrismaToAppDefinition(updated);
-  }
+      if (!existing) return null;
 
-  /**
-   * Toggles or sets the active/inactive status of an application in PostgreSQL
-   */
-  static async toggleStatus(id: string, newStatus?: 'ACTIVE' | 'INACTIVE'): Promise<ApplicationDefinition | null> {
-    const existing = await prisma.application.findUnique({
-      where: { id },
-      include: { modules: true }
-    });
+      const updateData: any = {};
+      if (data.name !== undefined) updateData.name = data.name.trim();
+      if (data.key !== undefined) updateData.key = data.key.trim().toUpperCase();
+      if (data.slug !== undefined) updateData.slug = data.slug.trim().toLowerCase();
+      if (data.description !== undefined) updateData.description = data.description;
+      if (data.category !== undefined) updateData.category = data.category;
+      if (data.icon !== undefined) updateData.icon = data.icon;
+      if (data.version !== undefined) updateData.version = data.version;
+      if (data.status !== undefined) updateData.status = data.status.toUpperCase();
 
-    if (!existing) return null;
+      const updated = await prisma.$transaction(async (tx: any) => {
+        await tx.application.update({
+          where: { id },
+          data: updateData
+        });
 
-    const targetStatus = newStatus || (existing.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE');
+        if (data.modules && Array.isArray(data.modules)) {
+          await tx.applicationModule.deleteMany({
+            where: { applicationId: id }
+          });
 
-    const updated = await prisma.application.update({
-      where: { id },
-      data: { status: targetStatus },
-      include: { modules: true }
-    });
+          if (data.modules.length > 0) {
+            await tx.applicationModule.createMany({
+              data: data.modules.map(m => ({
+                applicationId: id,
+                key: m.key.trim().toLowerCase(),
+                name: m.name.trim(),
+                description: m.description || '',
+                isDefault: m.isDefault ?? true
+              }))
+            });
+          }
+        }
 
-    return this.mapPrismaToAppDefinition(updated);
-  }
-
-  /**
-   * Deletes an application from PostgreSQL (cascades to modules)
-   */
-  static async delete(id: string): Promise<boolean> {
-    try {
-      await prisma.application.delete({
-        where: { id }
+        return tx.application.findUnique({
+          where: { id },
+          include: { modules: true }
+        });
       });
-      return true;
-    } catch (error) {
-      console.error(`Error deleting application ${id}:`, error);
-      return false;
+
+      return updated ? this.mapPrismaToAppDefinition(updated) : null;
     }
+
+    return null;
   }
 
   /**
-   * Adds or updates a single module within an application in PostgreSQL
+   * Adds an individual module to an existing application
    */
   static async addModule(
     applicationId: string,
-    moduleData: { key: string; name: string; description?: string; isDefault?: boolean }
-  ): Promise<ApplicationModuleDef | null> {
-    try {
-      const mod = await prisma.applicationModule.upsert({
-        where: {
-          applicationId_key: {
-            applicationId,
-            key: moduleData.key.trim().toLowerCase()
-          }
-        },
-        update: {
-          name: moduleData.name.trim(),
-          description: moduleData.description,
-          isDefault: moduleData.isDefault ?? true
-        },
-        create: {
+    moduleData: {
+      key: string;
+      name: string;
+      description?: string;
+      isDefault?: boolean;
+    }
+  ): Promise<ApplicationModuleDef & { id: string } | null> {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
+    }
+
+    if (isPostgresConfigured() && prisma?.applicationModule?.create) {
+      const created = await prisma.applicationModule.create({
+        data: {
           applicationId,
           key: moduleData.key.trim().toLowerCase(),
           name: moduleData.name.trim(),
-          description: moduleData.description,
+          description: moduleData.description || '',
           isDefault: moduleData.isDefault ?? true
         }
       });
 
       return {
-        id: mod.id,
-        applicationId: mod.applicationId,
-        key: mod.key,
-        name: mod.name,
-        description: mod.description || undefined,
-        isDefault: mod.isDefault
+        id: created.id,
+        applicationId: created.applicationId,
+        key: created.key,
+        name: created.name,
+        description: created.description || '',
+        isDefault: Boolean(created.isDefault)
       };
-    } catch (error) {
-      console.error('Error adding module:', error);
-      return null;
     }
+
+    return null;
   }
 
   /**
-   * Deletes a module from an application in PostgreSQL
+   * Deletes a module from an application by its key
    */
-  static async deleteModule(applicationId: string, key: string): Promise<boolean> {
-    try {
-      await prisma.applicationModule.delete({
+  static async deleteModule(applicationId: string, moduleKey: string): Promise<boolean> {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
+    }
+
+    if (isPostgresConfigured() && prisma?.applicationModule?.deleteMany) {
+      const res = await prisma.applicationModule.deleteMany({
         where: {
-          applicationId_key: {
-            applicationId,
-            key: key.toLowerCase()
-          }
+          applicationId,
+          key: moduleKey.trim().toLowerCase()
         }
       });
-      return true;
-    } catch (error) {
-      console.error(`Error deleting module ${key} from app ${applicationId}:`, error);
-      return false;
+      return res.count > 0;
     }
+
+    return false;
   }
 
-  private static mapPrismaToAppDefinition(dbApp: any): ApplicationDefinition {
-    return {
-      id: dbApp.id,
-      key: dbApp.key as ApplicationTypeKey,
-      name: dbApp.name,
-      slug: dbApp.slug,
-      description: dbApp.description || '',
-      category: dbApp.category || 'General',
-      status: (dbApp.status || 'ACTIVE') as any,
-      icon: dbApp.icon || 'Box',
-      version: dbApp.version || '1.0.0',
-      modules: (dbApp.modules || []).map((m: any) => ({
-        id: m.id,
-        applicationId: m.applicationId,
-        key: m.key,
-        name: m.name,
-        description: m.description || undefined,
-        isDefault: m.isDefault
-      })),
-      createdAt: dbApp.createdAt instanceof Date ? dbApp.createdAt.toISOString() : (dbApp.createdAt || new Date().toISOString()),
-      updatedAt: dbApp.updatedAt instanceof Date ? dbApp.updatedAt.toISOString() : undefined
-    };
+  /**
+   * Toggles or updates the status of an application in PostgreSQL
+   */
+  static async toggleStatus(id: string, targetStatus?: 'ACTIVE' | 'INACTIVE'): Promise<ApplicationDefinition | null> {
+    const existing = await this.getById(id);
+    if (!existing) return null;
+
+    const newStatus = targetStatus || (existing.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE');
+    return this.update(id, { status: newStatus });
+  }
+
+  /**
+   * Deletes an application from PostgreSQL
+   */
+  static async delete(id: string): Promise<boolean> {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
+    }
+
+    if (isPostgresConfigured() && prisma?.application?.delete) {
+      await prisma.application.delete({
+        where: { id }
+      });
+      return true;
+    }
+
+    return false;
   }
 }

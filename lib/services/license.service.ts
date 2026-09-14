@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { prisma } from '@/lib/prisma';
+import { prisma, isPostgresConfigured, isProductionMode, DatabaseConfigurationError } from '@/lib/prisma';
 import { SaaSLicense, PlanEntitlements, LicenseActivationRecord } from '@/types';
 import { INITIAL_LICENSES } from '@/lib/initialData';
 import { EntitlementService } from './entitlement.service';
@@ -22,8 +22,8 @@ export interface LicenseValidationResult {
 }
 
 export class LicenseService {
-  private static licenses: SaaSLicense[] = [...INITIAL_LICENSES];
-  private static activations: LicenseActivationRecord[] = [
+  private static memoryLicenses: SaaSLicense[] = [...INITIAL_LICENSES];
+  private static memoryActivations: LicenseActivationRecord[] = [
     {
       id: 'act_1',
       licenseId: 'lic_1',
@@ -60,10 +60,10 @@ export class LicenseService {
     planKey: string = 'PRO',
     tenantSlug: string = 'TIENDA'
   ): { displayKey: string; keyHash: string; secret: string } {
-    const cleanApp = appKey.replace(/[^a-zA-Z0-9]/g, '').substring(0, 4).toUpperCase();
-    const cleanPlan = planKey.replace(/[^a-zA-Z0-9]/g, '').substring(0, 4).toUpperCase();
+    const cleanApp = appKey.replace(/[^a-zA-Z0-9]/g, '').substring(0, 4).toUpperCase() || 'ECO';
+    const cleanPlan = planKey.replace(/[^a-zA-Z0-9]/g, '').substring(0, 4).toUpperCase() || 'PRO';
     
-    // Cryptographically secure bytes (16 bytes = 128 bits of entropy)
+    // 128 bits of cryptographic entropy
     const secureBytes = crypto.randomBytes(16).toString('hex').toUpperCase();
     const part1 = secureBytes.substring(0, 8);
     const part2 = secureBytes.substring(8, 16);
@@ -78,40 +78,164 @@ export class LicenseService {
     };
   }
 
+  /**
+   * Helper to map Prisma License model to SaaSLicense interface
+   */
+  public static mapPrismaToSaaSLicense(l: any): SaaSLicense & { displayKey: string; activationLimit: number } {
+    const validFrom = l.startsAt ? new Date(l.startsAt).toISOString() : new Date().toISOString();
+    const validTo = l.expiresAt ? new Date(l.expiresAt).toISOString() : new Date().toISOString();
+    const displayKey = l.displayKey;
+
+    let entitlements: PlanEntitlements = {};
+    if (l.plan?.entitlements && Array.isArray(l.plan.entitlements)) {
+      for (const ent of l.plan.entitlements) {
+        if (ent.type === 'NUMBER') entitlements[ent.key] = Number(ent.value);
+        else if (ent.type === 'BOOLEAN') entitlements[ent.key] = ent.value === 'true';
+        else entitlements[ent.key] = ent.value;
+      }
+    }
+
+    return {
+      id: l.id,
+      licenseKey: displayKey,
+      displayKey,
+      tenantId: l.tenantId,
+      tenantName: l.tenant?.name || l.customerName || l.tenantId,
+      tenantSlug: l.tenant?.slug || l.tenantId,
+      applicationId: l.applicationId,
+      planId: l.planId,
+      planName: l.plan?.name || l.planId,
+      status: (l.status || 'ACTIVE').toLowerCase() as any,
+      validFrom,
+      validTo,
+      customerName: l.customerName,
+      customerEmail: l.customerEmail,
+      price: Number(l.price || 0),
+      paymentProvider: 'stripe',
+      transactionId: l.subscriptionId || `txn_${l.id}`,
+      billingPeriod: (l.billingPeriod || 'monthly') as any,
+      activationLimit: l.activationLimit || 1,
+      entitlements,
+      createdAt: l.createdAt ? new Date(l.createdAt).toISOString() : new Date().toISOString()
+    };
+  }
+
   static getAll(): SaaSLicense[] {
-    return this.licenses;
+    return this.memoryLicenses;
+  }
+
+  static async getAllAsync(): Promise<SaaSLicense[]> {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
+    }
+
+    if (isPostgresConfigured() && prisma?.license?.findMany) {
+      const list = await prisma.license.findMany({
+        include: {
+          tenant: true,
+          plan: { include: { entitlements: true } }
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+      return list.map(l => this.mapPrismaToSaaSLicense(l));
+    }
+
+    return this.memoryLicenses;
   }
 
   static getById(id: string): SaaSLicense | undefined {
-    return this.licenses.find(l => l.id === id);
+    return this.memoryLicenses.find(l => l.id === id);
+  }
+
+  static async getByIdAsync(id: string): Promise<SaaSLicense | null> {
+    if (!id) return null;
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
+    }
+
+    if (isPostgresConfigured() && prisma?.license?.findUnique) {
+      const l = await prisma.license.findUnique({
+        where: { id },
+        include: {
+          tenant: true,
+          plan: { include: { entitlements: true } }
+        }
+      });
+      return l ? this.mapPrismaToSaaSLicense(l) : null;
+    }
+
+    return this.memoryLicenses.find(l => l.id === id) || null;
   }
 
   static getByLicenseKey(key: string): SaaSLicense | undefined {
     if (!key) return undefined;
     const cleanKey = key.trim().toUpperCase();
-    return this.licenses.find(l => l.licenseKey.trim().toUpperCase() === cleanKey);
+    return this.memoryLicenses.find(l => l.licenseKey.trim().toUpperCase() === cleanKey);
+  }
+
+  static async getByLicenseKeyAsync(key: string): Promise<SaaSLicense | null> {
+    if (!key) return null;
+    const cleanKey = key.trim().toUpperCase();
+    const keyHash = this.hashKey(cleanKey);
+
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
+    }
+
+    if (isPostgresConfigured() && prisma?.license) {
+      const l = await prisma.license.findFirst({
+        where: {
+          OR: [
+            { licenseKeyHash: keyHash },
+            { displayKey: cleanKey }
+          ]
+        },
+        include: {
+          tenant: true,
+          plan: { include: { entitlements: true } }
+        }
+      });
+      return l ? this.mapPrismaToSaaSLicense(l) : null;
+    }
+
+    return this.memoryLicenses.find(l => l.licenseKey.trim().toUpperCase() === cleanKey) || null;
   }
 
   static getByTenantSlug(slug: string): SaaSLicense | undefined {
-    return this.licenses.find(l => l.tenantSlug.toLowerCase() === slug.toLowerCase());
+    return this.memoryLicenses.find(l => l.tenantSlug.toLowerCase() === slug.toLowerCase());
   }
 
   static getByTenantId(tenantId: string): SaaSLicense | undefined {
-    return this.licenses.find(l => l.tenantId === tenantId);
+    return this.memoryLicenses.find(l => l.tenantId === tenantId);
+  }
+
+  static async getByTenantIdAsync(tenantId: string): Promise<SaaSLicense | null> {
+    if (!tenantId) return null;
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
+    }
+
+    if (isPostgresConfigured() && prisma?.license) {
+      const l = await prisma.license.findFirst({
+        where: { tenantId },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          tenant: true,
+          plan: { include: { entitlements: true } }
+        }
+      });
+      return l ? this.mapPrismaToSaaSLicense(l) : null;
+    }
+
+    return this.memoryLicenses.find(l => l.tenantId === tenantId) || null;
   }
 
   static getActivationsByLicenseId(licenseId: string): LicenseActivationRecord[] {
-    return this.activations.filter(a => a.licenseId === licenseId);
+    return this.memoryActivations.filter(a => a.licenseId === licenseId);
   }
 
   /**
-   * Comprehensive Server-side License Validation (DENY BY DEFAULT)
-   * Enforces rules:
-   * 1. License status must be ACTIVE or TRIAL (not SUSPENDED, EXPIRED, REVOKED, CANCELLED)
-   * 2. Date must be valid (not expired)
-   * 3. Tenant matching
-   * 4. Application matching
-   * 5. Activation limits & domain activation status
+   * Comprehensive Server-side License Validation against PostgreSQL (DENY BY DEFAULT)
    */
   static validate(params: {
     licenseKey: string;
@@ -136,7 +260,7 @@ export class LicenseService {
       };
     }
 
-    // 1. Check status (DENY if REVOKED, SUSPENDED, EXPIRED, CANCELLED)
+    // 1. Check status
     const statusNormalized = (license.status || 'pending').toUpperCase();
     if (statusNormalized === 'REVOKED') {
       return {
@@ -178,7 +302,7 @@ export class LicenseService {
       };
     }
 
-    // 2. Check expiration date (Fecha válida)
+    // 2. Check expiration date
     if (license.validTo) {
       const expirationDate = new Date(license.validTo);
       const now = new Date();
@@ -195,7 +319,7 @@ export class LicenseService {
       }
     }
 
-    // 3. Validate Tenant Ownership (Tenant correcto)
+    // 3. Validate Tenant Ownership
     if (params.tenantId && license.tenantId !== params.tenantId) {
       return {
         valid: false,
@@ -205,7 +329,7 @@ export class LicenseService {
       };
     }
 
-    // 4. Validate Application Type (Application correcta)
+    // 4. Validate Application Type
     if (params.applicationId && license.applicationId && license.applicationId !== params.applicationId) {
       return {
         valid: false,
@@ -216,7 +340,7 @@ export class LicenseService {
     }
 
     // 5 & 6. Check Activations and Domain Binding
-    const activeActivations = this.activations.filter(
+    const activeActivations = this.memoryActivations.filter(
       a => a.licenseId === license.id && a.status === 'ACTIVE'
     );
     const activationLimit = (license as any).activationLimit || 1;
@@ -228,7 +352,6 @@ export class LicenseService {
         a => a.domain.toLowerCase() === cleanDomain
       );
 
-      // If domain specified and not active, verify if limit is reached
       if (!isDomainActive && activeActivations.length >= activationLimit) {
         return {
           valid: false,
@@ -242,7 +365,6 @@ export class LicenseService {
       }
     }
 
-    // Entitlements
     const resolvedEntitlements = EntitlementService.getTenantEntitlements(license.entitlements);
 
     return {
@@ -263,15 +385,110 @@ export class LicenseService {
   }
 
   /**
-   * Activates a license for a specific domain & tenant
-   * Strictly enforces:
-   * 1. License ACTIVE
-   * 2. Valid Date
-   * 3. Correct Tenant
-   * 4. Correct Application
-   * 5. Activation limit not exceeded
-   * 6. Domain permitted & bound
-   * 7. No activation of REVOKED licenses
+   * Asynchronous validation querying PostgreSQL directly
+   */
+  static async validateAsync(params: {
+    licenseKey: string;
+    domain?: string;
+    tenantId?: string;
+    applicationId?: string;
+  }): Promise<LicenseValidationResult> {
+    if (!params.licenseKey || params.licenseKey.trim().length === 0) {
+      return { valid: false, status: 'INVALID', error: 'No se proporcionó clave de licencia' };
+    }
+
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
+    }
+
+    if (isPostgresConfigured() && prisma?.license) {
+      const cleanKey = params.licenseKey.trim().toUpperCase();
+      const keyHash = this.hashKey(cleanKey);
+
+      const dbLicense = await prisma.license.findFirst({
+        where: {
+          OR: [
+            { licenseKeyHash: keyHash },
+            { displayKey: cleanKey }
+          ]
+        },
+        include: {
+          tenant: true,
+          plan: { include: { entitlements: true } },
+          activations: { where: { status: 'ACTIVE' } }
+        }
+      });
+
+      if (!dbLicense) {
+        return { valid: false, status: 'INVALID', error: 'Clave de licencia no encontrada en el registro de FenixCMS' };
+      }
+
+      const status = dbLicense.status;
+      if (status === 'REVOKED') return { valid: false, status: 'REVOKED', licenseId: dbLicense.id, tenantId: dbLicense.tenantId, error: 'Licencia revocada permanentemente' };
+      if (status === 'SUSPENDED') return { valid: false, status: 'SUSPENDED', licenseId: dbLicense.id, tenantId: dbLicense.tenantId, error: 'Licencia suspendida temporalmente' };
+      if (status === 'EXPIRED') return { valid: false, status: 'EXPIRED', licenseId: dbLicense.id, tenantId: dbLicense.tenantId, error: 'Licencia expirada' };
+      if (status === 'CANCELLED') return { valid: false, status: 'CANCELLED', licenseId: dbLicense.id, tenantId: dbLicense.tenantId, error: 'Licencia cancelada' };
+
+      if (dbLicense.expiresAt && new Date(dbLicense.expiresAt) < new Date()) {
+        await prisma.license.update({ where: { id: dbLicense.id }, data: { status: 'EXPIRED' } }).catch(() => {});
+        return { valid: false, status: 'EXPIRED', licenseId: dbLicense.id, tenantId: dbLicense.tenantId, expiresAt: dbLicense.expiresAt.toISOString(), error: 'Licencia expirada' };
+      }
+
+      if (params.tenantId && dbLicense.tenantId !== params.tenantId) {
+        return { valid: false, status: 'INVALID', licenseId: dbLicense.id, error: 'Tenant mismatch para esta clave de licencia' };
+      }
+
+      const activations = dbLicense.activations || [];
+      const activationLimit = dbLicense.activationLimit || 1;
+      let isDomainActive = false;
+
+      if (params.domain) {
+        const cleanDomain = params.domain.toLowerCase().trim();
+        isDomainActive = activations.some(a => a.domain.toLowerCase() === cleanDomain);
+
+        if (!isDomainActive && activations.length >= activationLimit) {
+          return {
+            valid: false,
+            status: 'INVALID',
+            licenseId: dbLicense.id,
+            activationCount: activations.length,
+            activationLimit,
+            isDomainActivated: false,
+            error: `Límite de activaciones alcanzado (${activations.length}/${activationLimit})`
+          };
+        }
+      }
+
+      return {
+        valid: true,
+        status: status === 'TRIAL' ? 'TRIAL' : 'ACTIVE',
+        licenseId: dbLicense.id,
+        applicationId: dbLicense.applicationId,
+        planId: dbLicense.planId,
+        tenantId: dbLicense.tenantId,
+        tenantSlug: dbLicense.tenant?.slug,
+        expiresAt: dbLicense.expiresAt.toISOString(),
+        activationLimit,
+        activationCount: activations.length,
+        activations: activations.map(a => ({
+          id: a.id,
+          licenseId: a.licenseId,
+          tenantId: a.tenantId,
+          domain: a.domain,
+          environment: a.environment,
+          ipAddress: a.ipAddress || undefined,
+          status: a.status as any,
+          activatedAt: a.activatedAt.toISOString()
+        })),
+        isDomainActivated: params.domain ? isDomainActive : true
+      };
+    }
+
+    return this.validate(params);
+  }
+
+  /**
+   * Activates a license for a domain with atomic transaction safety in PostgreSQL
    */
   static activate(params: {
     licenseKey: string;
@@ -287,7 +504,6 @@ export class LicenseService {
 
     const cleanDomain = params.domain.trim().toLowerCase();
 
-    // Validate license state first
     const validation = this.validate({
       licenseKey: params.licenseKey,
       tenantId: params.tenantId,
@@ -301,8 +517,7 @@ export class LicenseService {
     const licenseId = validation.licenseId;
     const activationLimit = validation.activationLimit || 1;
 
-    // Check if this domain is ALREADY active for this license (idempotency)
-    const existing = this.activations.find(
+    const existing = this.memoryActivations.find(
       a => a.licenseId === licenseId && 
            a.domain.toLowerCase() === cleanDomain &&
            a.status === 'ACTIVE'
@@ -313,12 +528,11 @@ export class LicenseService {
         success: true,
         activation: existing,
         limit: activationLimit,
-        currentCount: this.activations.filter(a => a.licenseId === licenseId && a.status === 'ACTIVE').length
+        currentCount: this.memoryActivations.filter(a => a.licenseId === licenseId && a.status === 'ACTIVE').length
       };
     }
 
-    // Count active activations
-    const currentActive = this.activations.filter(
+    const currentActive = this.memoryActivations.filter(
       a => a.licenseId === licenseId && a.status === 'ACTIVE'
     );
 
@@ -331,7 +545,6 @@ export class LicenseService {
       };
     }
 
-    // Register activation
     const newActivation: LicenseActivationRecord = {
       id: `act_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
       licenseId,
@@ -343,25 +556,23 @@ export class LicenseService {
       activatedAt: new Date().toISOString()
     };
 
-    this.activations.unshift(newActivation);
+    this.memoryActivations.unshift(newActivation);
 
-    // Also sync to PostgreSQL if connected
-    try {
-      if (process.env.DATABASE_URL && prisma?.licenseActivation) {
-        prisma.licenseActivation.create({
-          data: {
-            id: newActivation.id,
-            licenseId: newActivation.licenseId,
-            tenantId: newActivation.tenantId,
-            domain: newActivation.domain,
-            environment: newActivation.environment,
-            ipAddress: newActivation.ipAddress,
-            status: 'ACTIVE',
-            activatedAt: new Date(newActivation.activatedAt)
-          }
-        }).catch(() => {});
-      }
-    } catch {}
+    // Sync to PostgreSQL
+    if (isPostgresConfigured() && prisma?.licenseActivation) {
+      prisma.licenseActivation.create({
+        data: {
+          id: newActivation.id,
+          licenseId: newActivation.licenseId,
+          tenantId: newActivation.tenantId,
+          domain: newActivation.domain,
+          environment: newActivation.environment,
+          ipAddress: newActivation.ipAddress || null,
+          status: 'ACTIVE',
+          activatedAt: new Date(newActivation.activatedAt)
+        }
+      }).catch(() => {});
+    }
 
     return {
       success: true,
@@ -369,6 +580,127 @@ export class LicenseService {
       limit: activationLimit,
       currentCount: currentActive.length + 1
     };
+  }
+
+  /**
+   * Asynchronous atomic activation directly in PostgreSQL
+   */
+  static async activateAsync(params: {
+    licenseKey: string;
+    tenantId: string;
+    domain: string;
+    environment?: string;
+    ipAddress?: string;
+    applicationId?: string;
+  }): Promise<{ success: boolean; activation?: LicenseActivationRecord; error?: string; limit?: number; currentCount?: number }> {
+    if (!params.licenseKey || !params.tenantId || !params.domain) {
+      return { success: false, error: 'Parámetros incompletos' };
+    }
+
+    const cleanDomain = params.domain.trim().toLowerCase();
+    const cleanKey = params.licenseKey.trim().toUpperCase();
+    const keyHash = this.hashKey(cleanKey);
+
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
+    }
+
+    if (isPostgresConfigured() && prisma?.license) {
+      return await prisma.$transaction(async (tx) => {
+        const dbLicense = await tx.license.findFirst({
+          where: {
+            OR: [
+              { licenseKeyHash: keyHash },
+              { displayKey: cleanKey }
+            ]
+          },
+          include: {
+            activations: { where: { status: 'ACTIVE' } }
+          }
+        });
+
+        if (!dbLicense) {
+          return { success: false, error: 'Licencia no encontrada' };
+        }
+
+        if (dbLicense.tenantId !== params.tenantId) {
+          return { success: false, error: 'Tenant mismatch para esta licencia' };
+        }
+
+        if (dbLicense.status !== 'ACTIVE' && dbLicense.status !== 'TRIAL') {
+          return { success: false, error: `Licencia con estado ${dbLicense.status} no puede ser activada` };
+        }
+
+        if (dbLicense.expiresAt && new Date(dbLicense.expiresAt) < new Date()) {
+          return { success: false, error: 'Licencia expirada' };
+        }
+
+        const existing = dbLicense.activations.find(a => a.domain.toLowerCase() === cleanDomain);
+        if (existing) {
+          return {
+            success: true,
+            activation: {
+              id: existing.id,
+              licenseId: existing.licenseId,
+              tenantId: existing.tenantId,
+              domain: existing.domain,
+              environment: existing.environment,
+              ipAddress: existing.ipAddress || undefined,
+              status: existing.status as any,
+              activatedAt: existing.activatedAt.toISOString()
+            },
+            limit: dbLicense.activationLimit,
+            currentCount: dbLicense.activations.length
+          };
+        }
+
+        if (dbLicense.activations.length >= dbLicense.activationLimit) {
+          return {
+            success: false,
+            error: `Límite de activaciones alcanzado (${dbLicense.activations.length}/${dbLicense.activationLimit})`,
+            limit: dbLicense.activationLimit,
+            currentCount: dbLicense.activations.length
+          };
+        }
+
+        const createdAct = await tx.licenseActivation.create({
+          data: {
+            licenseId: dbLicense.id,
+            tenantId: params.tenantId,
+            domain: cleanDomain,
+            environment: params.environment || 'production',
+            ipAddress: params.ipAddress || null,
+            status: 'ACTIVE'
+          }
+        });
+
+        await tx.license.update({
+          where: { id: dbLicense.id },
+          data: {
+            activationCount: dbLicense.activations.length + 1,
+            lastValidatedAt: new Date()
+          }
+        });
+
+        return {
+          success: true,
+          activation: {
+            id: createdAct.id,
+            licenseId: createdAct.licenseId,
+            tenantId: createdAct.tenantId,
+            domain: createdAct.domain,
+            environment: createdAct.environment,
+            ipAddress: createdAct.ipAddress || undefined,
+            status: createdAct.status as any,
+            activatedAt: createdAct.activatedAt.toISOString()
+          },
+          limit: dbLicense.activationLimit,
+          currentCount: dbLicense.activations.length + 1
+        };
+      });
+    }
+
+    return this.activate(params);
   }
 
   /**
@@ -391,7 +723,7 @@ export class LicenseService {
     }
 
     const cleanDomain = params.domain.trim().toLowerCase();
-    const act = this.activations.find(
+    const act = this.memoryActivations.find(
       a => a.licenseId === license.id && 
            a.domain.toLowerCase() === cleanDomain &&
            a.status === 'ACTIVE'
@@ -404,26 +736,26 @@ export class LicenseService {
     act.status = 'REVOKED';
     act.deactivatedAt = new Date().toISOString();
 
-    // Also update in PostgreSQL if connected
-    try {
-      if (process.env.DATABASE_URL && prisma?.licenseActivation) {
-        prisma.licenseActivation.updateMany({
-          where: {
-            licenseId: license.id,
-            domain: cleanDomain,
-            status: 'ACTIVE'
-          },
-          data: {
-            status: 'REVOKED',
-            deactivatedAt: new Date()
-          }
-        }).catch(() => {});
-      }
-    } catch {}
+    if (isPostgresConfigured() && prisma?.licenseActivation) {
+      prisma.licenseActivation.updateMany({
+        where: {
+          licenseId: license.id,
+          domain: cleanDomain,
+          status: 'ACTIVE'
+        },
+        data: {
+          status: 'REVOKED',
+          deactivatedAt: new Date()
+        }
+      }).catch(() => {});
+    }
 
     return { success: true };
   }
 
+  /**
+   * Creates a new License in PostgreSQL
+   */
   static async createLicense(params: {
     tenantId: string;
     applicationId: string;
@@ -449,13 +781,48 @@ export class LicenseService {
       validTo.setMonth(validTo.getMonth() + 1);
     }
 
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
+    }
+
+    if (isPostgresConfigured() && prisma?.license) {
+      const created = await prisma.license.create({
+        data: {
+          licenseKeyHash: keyHash,
+          displayKey,
+          tenantId: params.tenantId,
+          applicationId: params.applicationId || 'ECOMMERCE',
+          planId: params.planId,
+          status: 'ACTIVE',
+          startsAt: now,
+          expiresAt: validTo,
+          activationLimit: params.activationLimit || 1,
+          activationCount: 0,
+          customerName: params.customerName.trim(),
+          customerEmail: params.customerEmail.trim().toLowerCase(),
+          price: Number(params.price ?? 79),
+          currency: params.currency || 'EUR',
+          billingPeriod: params.billingPeriod || 'monthly'
+        },
+        include: {
+          tenant: true,
+          plan: { include: { entitlements: true } }
+        }
+      });
+
+      const mapped = this.mapPrismaToSaaSLicense(created);
+      this.memoryLicenses.unshift(mapped);
+      return mapped as SaaSLicense & { displayKey: string };
+    }
+
+    // Fallback for memory dev
     const license: SaaSLicense = {
       id: `lic_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
       licenseKey: displayKey,
       tenantId: params.tenantId,
       tenantName: params.customerName || params.tenantId,
       tenantSlug: params.tenantId.replace('tenant_', ''),
-      applicationId: params.applicationId || 'app_ecommerce',
+      applicationId: params.applicationId || 'ECOMMERCE',
       planId: params.planId || 'plan_pro',
       planName: (params.planId || 'plan_pro').toUpperCase(),
       status: 'active',
@@ -472,33 +839,7 @@ export class LicenseService {
     (license as any).displayKey = displayKey;
     (license as any).activationLimit = params.activationLimit || 1;
 
-    this.licenses.unshift(license);
-
-    // Save to PostgreSQL if available
-    try {
-      if (process.env.DATABASE_URL && prisma?.license) {
-        await prisma.license.create({
-          data: {
-            id: license.id,
-            licenseKeyHash: keyHash,
-            displayKey,
-            tenantId: license.tenantId,
-            applicationId: license.applicationId,
-            planId: license.planId,
-            status: 'ACTIVE',
-            startsAt: now,
-            expiresAt: validTo,
-            activationLimit: (license as any).activationLimit,
-            customerName: license.customerName,
-            customerEmail: license.customerEmail,
-            price: license.price,
-            currency: params.currency || 'EUR',
-            billingPeriod: license.billingPeriod
-          }
-        }).catch(() => {});
-      }
-    } catch {}
-
+    this.memoryLicenses.unshift(license);
     return license as SaaSLicense & { displayKey: string };
   }
 
@@ -509,49 +850,32 @@ export class LicenseService {
       createdAt: new Date().toISOString()
     };
     (newLicense as any).activationLimit = licenseData.activationLimit || 1;
-    this.licenses.unshift(newLicense);
+    this.memoryLicenses.unshift(newLicense);
 
-    // Save to PostgreSQL if available
-    try {
-      if (process.env.DATABASE_URL && prisma?.license) {
-        const keyHash = this.hashKey(newLicense.licenseKey);
-        prisma.license.create({
-          data: {
-            id: newLicense.id,
-            licenseKeyHash: keyHash,
-            displayKey: newLicense.licenseKey,
-            tenantId: newLicense.tenantId,
-            applicationId: newLicense.applicationId || 'ECOMMERCE',
-            planId: newLicense.planId,
-            status: 'ACTIVE',
-            startsAt: new Date(newLicense.validFrom),
-            expiresAt: new Date(newLicense.validTo),
-            activationLimit: (newLicense as any).activationLimit || 1,
-            customerName: newLicense.customerName,
-            customerEmail: newLicense.customerEmail,
-            price: newLicense.price,
-            currency: 'EUR',
-            billingPeriod: newLicense.billingPeriod
-          }
-        }).catch(() => {});
-      }
-    } catch {}
+    if (isPostgresConfigured() && prisma?.license) {
+      const keyHash = this.hashKey(newLicense.licenseKey);
+      prisma.license.create({
+        data: {
+          id: newLicense.id,
+          licenseKeyHash: keyHash,
+          displayKey: newLicense.licenseKey,
+          tenantId: newLicense.tenantId,
+          applicationId: newLicense.applicationId || 'ECOMMERCE',
+          planId: newLicense.planId,
+          status: 'ACTIVE',
+          startsAt: new Date(newLicense.validFrom),
+          expiresAt: new Date(newLicense.validTo),
+          activationLimit: (newLicense as any).activationLimit || 1,
+          customerName: newLicense.customerName,
+          customerEmail: newLicense.customerEmail,
+          price: newLicense.price,
+          currency: 'EUR',
+          billingPeriod: newLicense.billingPeriod
+        }
+      }).catch(() => {});
+    }
 
     return newLicense;
-  }
-
-  static update(id: string, updates: Partial<SaaSLicense>): SaaSLicense | null {
-    const idx = this.licenses.findIndex(l => l.id === id);
-    if (idx === -1) return null;
-    this.licenses[idx] = { ...this.licenses[idx], ...updates };
-    return this.licenses[idx];
-  }
-
-  static toggleStatus(id: string, status: 'active' | 'suspended' | 'expired'): SaaSLicense | null {
-    const license = this.getById(id);
-    if (!license) return null;
-    license.status = status;
-    return license;
   }
 
   static updateStatus(id: string, status: string): SaaSLicense | null {
@@ -564,12 +888,22 @@ export class LicenseService {
       license.status = 'suspended';
     } else if (lower === 'expired') {
       license.status = 'expired';
-    } else if (lower === 'revoked') {
-      license.status = 'expired'; // mapped to expired/revoked
     } else {
       license.status = 'pending';
     }
+
+    if (isPostgresConfigured() && prisma?.license) {
+      prisma.license.update({
+        where: { id },
+        data: { status: license.status.toUpperCase() as any }
+      }).catch(() => {});
+    }
+
     return license;
+  }
+
+  static toggleStatus(id: string, status: 'active' | 'suspended' | 'expired'): SaaSLicense | null {
+    return this.updateStatus(id, status);
   }
 
   static renew(id: string, months: number = 1): SaaSLicense | null {
@@ -582,6 +916,17 @@ export class LicenseService {
 
     license.validTo = baseDate.toISOString();
     license.status = 'active';
+
+    if (isPostgresConfigured() && prisma?.license) {
+      prisma.license.update({
+        where: { id },
+        data: {
+          expiresAt: baseDate,
+          status: 'ACTIVE'
+        }
+      }).catch(() => {});
+    }
+
     return license;
   }
 }

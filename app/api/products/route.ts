@@ -1,18 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { INITIAL_PRODUCTS } from '@/lib/initialData';
 import { TenantContextHelper } from '@/lib/auth/tenantContext';
+import { ProductService } from '@/lib/services/product.service';
 import { AuditService } from '@/lib/services/audit.service';
-import { Product } from '@/types';
 import prisma from '@/lib/prisma';
-
-let productsDb: Product[] = [...INITIAL_PRODUCTS];
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const category = searchParams.get('category');
-    const search = searchParams.get('search');
+    const category = searchParams.get('category') || undefined;
+    const search = searchParams.get('search') || undefined;
     const requestedTenantId = searchParams.get('tenantId');
+    const limit = searchParams.get('limit') ? Number(searchParams.get('limit')) : 100;
+    const offset = searchParams.get('offset') ? Number(searchParams.get('offset')) : 0;
 
     const session = await TenantContextHelper.getSessionFromRequest(req);
     let effectiveTenantId: string;
@@ -20,7 +19,7 @@ export async function GET(req: NextRequest) {
     if (session) {
       // Authenticated call - enforce tenant boundaries
       if (session.role === 'SUPER_ADMIN') {
-        effectiveTenantId = requestedTenantId || session.tenantId || 'tenant_1';
+        effectiveTenantId = requestedTenantId || session.tenantId || 'tenant_demo';
       } else {
         if (requestedTenantId && requestedTenantId !== session.tenantId && requestedTenantId !== session.tenantSlug) {
           return NextResponse.json(
@@ -28,30 +27,26 @@ export async function GET(req: NextRequest) {
             { status: 403 }
           );
         }
-        effectiveTenantId = session.tenantId || requestedTenantId || 'tenant_1';
+        effectiveTenantId = session.tenantId || requestedTenantId || 'tenant_demo';
       }
     } else {
       // Public Storefront query - derive strictly from domain / slug
       const publicContext = await TenantContextHelper.resolvePublicTenant(req);
-      effectiveTenantId = publicContext.tenant?.id || requestedTenantId || 'tenant_1';
+      effectiveTenantId = publicContext?.tenant?.id || requestedTenantId || 'tenant_demo';
     }
 
-    let list = productsDb.filter(p => p.tenantId === effectiveTenantId);
+    const { products, total } = await ProductService.listProducts(effectiveTenantId, {
+      category,
+      search,
+      limit,
+      offset
+    });
 
-    if (category && category !== 'all' && category !== 'Todos') {
-      list = list.filter(p => p.category?.toLowerCase() === category.toLowerCase());
-    }
-
-    if (search) {
-      const q = search.toLowerCase();
-      list = list.filter(p => 
-        p.title.toLowerCase().includes(q) || 
-        p.description?.toLowerCase().includes(q) ||
-        p.category?.toLowerCase().includes(q)
-      );
-    }
-
-    return NextResponse.json({ products: list, total: list.length, tenantId: effectiveTenantId });
+    return NextResponse.json({
+      products,
+      total,
+      tenantId: effectiveTenantId
+    });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Error cargando productos' }, { status: 500 });
   }
@@ -62,19 +57,24 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const {
       title,
+      slug,
+      description,
       price,
       comparePrice,
+      costPrice,
       stock = 10,
       sku,
       category = 'General',
-      images = ['https://picsum.photos/seed/product/800/800'],
+      categoryId,
+      images,
       featured = false,
+      isBestSeller = false,
       isDeal = false,
-      rating = 5.0,
-      reviewsCount = 0,
+      tags = [],
       attributes,
       variants,
-      translations
+      translations,
+      status = 'active'
     } = body;
 
     // Strict Tenant Role & Context Verification
@@ -96,7 +96,10 @@ export async function POST(req: NextRequest) {
     }
 
     // Entitlement limit check for products.max
-    const currentCount = productsDb.filter(p => p.tenantId === tenant.id).length;
+    const currentCount = await (prisma as any).product.count({
+      where: { tenantId: tenant.id }
+    });
+
     const entitlementCheck = await TenantContextHelper.requireEntitlement(req, 'products.max', {
       targetTenantId: tenant.id,
       currentCount,
@@ -107,32 +110,27 @@ export async function POST(req: NextRequest) {
       return entitlementCheck.response;
     }
 
-    const cleanSlug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-    const newProduct: Product = {
-      id: `prod_${Date.now()}`,
-      tenantId: tenant.id,
+    const product = await ProductService.createProduct(tenant.id, {
       title,
-      slug: cleanSlug || `product-${Date.now()}`,
-      description: body.description || '',
+      slug,
+      description,
       price: Number(price),
-      comparePrice: comparePrice ? Number(comparePrice) : undefined,
+      comparePrice: comparePrice !== undefined ? Number(comparePrice) : undefined,
+      costPrice: costPrice !== undefined ? Number(costPrice) : undefined,
       stock: Number(stock),
-      sku: sku || `SKU-${Date.now().toString().slice(-6)}`,
+      sku,
       category,
+      categoryId,
       images,
-      isFeatured: Boolean(featured),
+      featured: Boolean(featured),
+      isBestSeller: Boolean(isBestSeller),
       isDeal: Boolean(isDeal),
-      rating: Number(rating) || 5.0,
-      reviewsCount: Number(reviewsCount) || 0,
-      tags: body.tags || [],
-      status: 'ACTIVE',
+      tags,
       attributes,
       variants,
       translations,
-      createdAt: new Date().toISOString()
-    };
-
-    productsDb.unshift(newProduct);
+      status
+    });
 
     AuditService.log({
       tenantId: tenant.id,
@@ -140,11 +138,11 @@ export async function POST(req: NextRequest) {
       userEmail: session?.email,
       action: 'PRODUCT_CREATED',
       entity: 'Product',
-      entityId: newProduct.id,
-      details: { title, price }
+      entityId: product.id,
+      details: { title, price: product.price, sku: product.sku }
     });
 
-    return NextResponse.json({ success: true, product: newProduct }, { status: 201 });
+    return NextResponse.json({ success: true, product }, { status: 201 });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Error creando producto' }, { status: 500 });
   }
@@ -169,20 +167,7 @@ export async function PUT(req: NextRequest) {
 
     const { tenant, session } = auth.context;
 
-    // Verify product belongs to this verified tenant
-    const idx = productsDb.findIndex(p => p.id === id && p.tenantId === tenant.id);
-    if (idx === -1) {
-      return NextResponse.json(
-        { error: 'Producto no encontrado o no pertenece a este comercio', code: 'PRODUCT_NOT_FOUND' },
-        { status: 404 }
-      );
-    }
-
-    productsDb[idx] = {
-      ...productsDb[idx],
-      ...updates,
-      tenantId: tenant.id // Prevent tampering tenantId
-    };
+    const updated = await ProductService.updateProduct(tenant.id, id, updates);
 
     AuditService.log({
       tenantId: tenant.id,
@@ -194,7 +179,7 @@ export async function PUT(req: NextRequest) {
       details: { updatedFields: Object.keys(updates) }
     });
 
-    return NextResponse.json({ success: true, product: productsDb[idx] });
+    return NextResponse.json({ success: true, product: updated });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Error actualizando producto' }, { status: 500 });
   }
@@ -216,15 +201,7 @@ export async function DELETE(req: NextRequest) {
 
     const { tenant, session } = auth.context;
 
-    const idx = productsDb.findIndex(p => p.id === id && p.tenantId === tenant.id);
-    if (idx === -1) {
-      return NextResponse.json(
-        { error: 'Producto no encontrado en este comercio', code: 'PRODUCT_NOT_FOUND' },
-        { status: 404 }
-      );
-    }
-
-    productsDb.splice(idx, 1);
+    await ProductService.deleteProduct(tenant.id, id);
 
     AuditService.log({
       tenantId: tenant.id,

@@ -10,6 +10,10 @@ export async function POST(
     const { id } = await params;
     const duplicated = await PlanService.duplicate(id);
 
+    if (!duplicated) {
+      return NextResponse.json({ success: false, error: 'Plan no encontrado para duplicar' }, { status: 404 });
+    }
+
     AuditService.log({
       action: 'PLAN_DUPLICATED_PG',
       entity: 'Plan',

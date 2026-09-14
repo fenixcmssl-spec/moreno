@@ -79,7 +79,7 @@ export class SaaSCheckoutService {
             tenantId,
             amount,
             currency,
-            provider: params.provider,
+            provider: (params.provider === 'MANUAL' ? 'BANK_TRANSFER' : params.provider) as any,
             providerTransactionId: sessionId,
             status: 'PENDING',
             paymentType: 'SAAS_LICENSE',

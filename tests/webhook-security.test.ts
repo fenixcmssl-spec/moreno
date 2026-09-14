@@ -71,7 +71,7 @@ async function runWebhookSecurityTests() {
 
   const expiredResult = WebhookService.verifyStripeSignature(stripePayload, expiredHeader, testSecret);
   assert(expiredResult.valid === false, 'Timestamp expirado (> 300s) debe ser rechazado para prevenir ataques de repetición (Replay Attacks)');
-  assert(expiredResult.reason?.includes('expirado') || expiredResult.reason?.includes('desfasado'), 'Motivo debe indicar timestamp expirado');
+  assert(Boolean(expiredResult.reason?.includes('expirado') || expiredResult.reason?.includes('desfasado')), 'Motivo debe indicar timestamp expirado');
 
   // -------------------------------------------------------------------------
   // Test Suite 2: Verificación de Cabeceras de Transmisión PayPal

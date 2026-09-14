@@ -1,4 +1,6 @@
 import crypto from 'crypto';
+import prisma from '@/lib/prisma';
+import { SecurityService } from '@/lib/security/security.service';
 
 export interface MediaFileItem {
   id: string;
@@ -8,80 +10,106 @@ export interface MediaFileItem {
   url: string;
   mimeType: string;
   size: number;
-  width?: number;
-  height?: number;
-  alt?: string;
-  checksum: string;
-  createdBy: string;
+  width?: number | null;
+  height?: number | null;
+  alt?: string | null;
+  checksum?: string;
+  createdBy?: string;
   createdAt: string;
+  updatedAt?: string;
 }
 
-const MEDIA_STORE = new Map<string, MediaFileItem[]>();
+export interface StorageUploadResult {
+  url: string;
+  storageKey: string;
+  size: number;
+  checksum: string;
+}
 
-// Pre-seeded high quality media assets
-const INITIAL_MEDIA_FILES: MediaFileItem[] = [
-  {
-    id: 'med_logo_fenix',
-    tenantId: 'tenant_1',
-    filename: 'fenix-brand-logo.png',
-    storageKey: 'tenants/tenant_1/branding/logo.png',
-    url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop&q=80',
-    mimeType: 'image/png',
-    size: 142800,
-    width: 600,
-    height: 600,
-    alt: 'Logo Oficial Fenix',
-    checksum: 'a9f24b819c9e',
-    createdBy: 'admin@fenix.com',
-    createdAt: '2026-08-01T10:00:00Z'
-  },
-  {
-    id: 'med_banner_hero',
-    tenantId: 'tenant_1',
-    filename: 'summer-collection-banner.webp',
-    storageKey: 'tenants/tenant_1/banners/hero_summer.webp',
-    url: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=1600&auto=format&fit=crop&q=80',
-    mimeType: 'image/webp',
-    size: 345000,
-    width: 1600,
-    height: 800,
-    alt: 'Banner Colección Verano',
-    checksum: 'c4e912ab78f0',
-    createdBy: 'admin@fenix.com',
-    createdAt: '2026-08-05T14:30:00Z'
-  },
-  {
-    id: 'med_product_watch',
-    tenantId: 'tenant_1',
-    filename: 'smartwatch-ultra-titanium.jpg',
-    storageKey: 'tenants/tenant_1/products/smartwatch.jpg',
-    url: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&auto=format&fit=crop&q=80',
-    mimeType: 'image/jpeg',
-    size: 198000,
-    width: 800,
-    height: 800,
-    alt: 'Reloj Inteligente Titanio',
-    checksum: '99bf034e81a3',
-    createdBy: 'admin@fenix.com',
-    createdAt: '2026-08-10T12:00:00Z'
+export interface IStorageProvider {
+  upload(params: {
+    tenantId: string;
+    filename: string;
+    mimeType: string;
+    size: number;
+    bufferOrUrl?: string | Buffer;
+  }): Promise<StorageUploadResult>;
+  delete(storageKey: string): Promise<boolean>;
+  getUrl(storageKey: string): string;
+}
+
+export class ManagedStorageProvider implements IStorageProvider {
+  private cdnBaseUrl: string;
+
+  constructor(cdnBaseUrl: string = process.env.STORAGE_CDN_URL || '/uploads') {
+    this.cdnBaseUrl = cdnBaseUrl;
   }
-];
+
+  async upload(params: {
+    tenantId: string;
+    filename: string;
+    mimeType: string;
+    size: number;
+    bufferOrUrl?: string | Buffer;
+  }): Promise<StorageUploadResult> {
+    const sanitizedFilename = params.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const timestamp = Date.now();
+    const storageKey = `tenants/${params.tenantId}/uploads/${timestamp}_${sanitizedFilename}`;
+
+    const checksum = crypto
+      .createHash('sha256')
+      .update(params.filename + timestamp + params.size)
+      .digest('hex')
+      .slice(0, 16);
+
+    let url = typeof params.bufferOrUrl === 'string' && params.bufferOrUrl.startsWith('http')
+      ? params.bufferOrUrl
+      : `${this.cdnBaseUrl}/${storageKey}`;
+
+    return {
+      url,
+      storageKey,
+      size: params.size,
+      checksum
+    };
+  }
+
+  async delete(storageKey: string): Promise<boolean> {
+    return true;
+  }
+
+  getUrl(storageKey: string): string {
+    return `${this.cdnBaseUrl}/${storageKey}`;
+  }
+}
 
 export class StorageService {
+  private static provider: IStorageProvider = new ManagedStorageProvider();
+
   private static ALLOWED_MIME_TYPES = [
     'image/jpeg',
+    'image/jpg',
     'image/png',
     'image/webp',
+    'image/gif',
     'image/svg+xml',
     'image/x-icon',
+    'application/pdf',
     'application/zip',
-    'application/pdf'
+    'text/csv',
+    'application/json',
+    'video/mp4',
+    'video/webm'
   ];
 
   private static MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024; // 15MB
 
+  static setProvider(newProvider: IStorageProvider) {
+    this.provider = newProvider;
+  }
+
   /**
-   * Uploads and registers a new media item
+   * Uploads and registers a new media asset in PostgreSQL
    */
   static async uploadFile(params: {
     tenantId: string;
@@ -92,8 +120,14 @@ export class StorageService {
     alt?: string;
     createdBy?: string;
     url?: string;
+    width?: number;
+    height?: number;
   }): Promise<{ success: boolean; file?: MediaFileItem; error?: string }> {
-    if (!this.ALLOWED_MIME_TYPES.includes(params.mimeType)) {
+    if (!params.tenantId) {
+      return { success: false, error: 'tenantId es obligatorio para el aislamiento de datos' };
+    }
+
+    if (!this.ALLOWED_MIME_TYPES.includes(params.mimeType.toLowerCase())) {
       return { success: false, error: `Tipo de archivo no permitido: ${params.mimeType}` };
     }
 
@@ -101,48 +135,228 @@ export class StorageService {
       return { success: false, error: 'El archivo excede el límite máximo de 15MB' };
     }
 
-    const checksum = crypto.createHash('sha256').update(params.filename + Date.now()).digest('hex').slice(0, 16);
-    const storageKey = `tenants/${params.tenantId}/uploads/${Date.now()}_${params.filename.replace(/\s+/g, '_')}`;
+    // Security checks: path traversal & dangerous extension blacklist
+    const validation = SecurityService.validateFileUpload({
+      name: params.filename,
+      type: params.mimeType,
+      size: params.size
+    });
 
-    const newFile: MediaFileItem = {
-      id: `med_${Date.now()}`,
-      tenantId: params.tenantId,
-      filename: params.filename,
-      storageKey,
-      url: params.url || `https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&auto=format&fit=crop&q=80`,
-      mimeType: params.mimeType,
-      size: params.size,
-      width: 800,
-      height: 600,
-      alt: params.alt || params.filename,
-      checksum,
-      createdBy: params.createdBy || 'Sistema',
-      createdAt: new Date().toISOString()
-    };
-
-    const currentFiles = this.getTenantMedia(params.tenantId);
-    MEDIA_STORE.set(params.tenantId, [newFile, ...currentFiles]);
-
-    return { success: true, file: newFile };
-  }
-
-  /**
-   * Retrieves media files for a tenant
-   */
-  static getTenantMedia(tenantId: string): MediaFileItem[] {
-    if (!MEDIA_STORE.has(tenantId)) {
-      MEDIA_STORE.set(tenantId, [...INITIAL_MEDIA_FILES]);
+    if (!validation.valid) {
+      return { success: false, error: validation.reason || 'Archivo rechazado por seguridad' };
     }
-    return MEDIA_STORE.get(tenantId) || [];
+
+    const safeFilename = validation.sanitizedName || params.filename;
+
+    try {
+      const uploadResult = await this.provider.upload({
+        tenantId: params.tenantId,
+        filename: safeFilename,
+        mimeType: params.mimeType,
+        size: params.size,
+        bufferOrUrl: params.url || params.base64Data
+      });
+
+      const sanitizedAlt = params.alt ? SecurityService.sanitizeString(params.alt) : safeFilename;
+
+      const created = await prisma.mediaAsset.create({
+        data: {
+          tenantId: params.tenantId,
+          filename: safeFilename,
+          url: uploadResult.url,
+          storageKey: uploadResult.storageKey,
+          mimeType: params.mimeType,
+          size: params.size,
+          width: params.width || 800,
+          height: params.height || 600,
+          alt: sanitizedAlt
+        }
+      });
+
+      return {
+        success: true,
+        file: {
+          id: created.id,
+          tenantId: created.tenantId,
+          filename: created.filename,
+          storageKey: created.storageKey || uploadResult.storageKey,
+          url: created.url,
+          mimeType: created.mimeType,
+          size: created.size,
+          width: created.width,
+          height: created.height,
+          alt: created.alt,
+          checksum: uploadResult.checksum,
+          createdBy: params.createdBy || 'Sistema',
+          createdAt: created.createdAt.toISOString(),
+          updatedAt: created.updatedAt.toISOString()
+        }
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error?.message || 'Error guardando archivo multimedia en PostgreSQL'
+      };
+    }
   }
 
   /**
-   * Deletes a media file by id
+   * Retrieves media files for a tenant from PostgreSQL
    */
-  static deleteFile(tenantId: string, fileId: string): boolean {
-    const files = this.getTenantMedia(tenantId);
-    const filtered = files.filter(f => f.id !== fileId);
-    MEDIA_STORE.set(tenantId, filtered);
-    return true;
+  static async getTenantMedia(
+    tenantId: string,
+    options?: { search?: string; type?: string; limit?: number; offset?: number }
+  ): Promise<MediaFileItem[]> {
+    if (!tenantId) return [];
+
+    try {
+      const whereClause: any = { tenantId };
+      if (options?.search) {
+        whereClause.filename = {
+          contains: options.search,
+          mode: 'insensitive'
+        };
+      }
+      if (options?.type) {
+        whereClause.mimeType = {
+          startsWith: options.type,
+          mode: 'insensitive'
+        };
+      }
+
+      const records = await prisma.mediaAsset.findMany({
+        where: whereClause,
+        orderBy: { createdAt: 'desc' },
+        take: options?.limit || 100,
+        skip: options?.offset || 0
+      });
+
+      return records.map(r => ({
+        id: r.id,
+        tenantId: r.tenantId,
+        filename: r.filename,
+        storageKey: r.storageKey || '',
+        url: r.url,
+        mimeType: r.mimeType,
+        size: r.size,
+        width: r.width,
+        height: r.height,
+        alt: r.alt,
+        createdAt: r.createdAt.toISOString(),
+        updatedAt: r.updatedAt.toISOString()
+      }));
+    } catch (error) {
+      console.error(`[StorageService] Error fetching media for tenant ${tenantId}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Retrieves single media asset by id ensuring tenant isolation
+   */
+  static async getMediaById(tenantId: string, fileId: string): Promise<MediaFileItem | null> {
+    if (!tenantId || !fileId) return null;
+
+    try {
+      const record = await prisma.mediaAsset.findFirst({
+        where: { id: fileId, tenantId }
+      });
+
+      if (!record) return null;
+
+      return {
+        id: record.id,
+        tenantId: record.tenantId,
+        filename: record.filename,
+        storageKey: record.storageKey || '',
+        url: record.url,
+        mimeType: record.mimeType,
+        size: record.size,
+        width: record.width,
+        height: record.height,
+        alt: record.alt,
+        createdAt: record.createdAt.toISOString(),
+        updatedAt: record.updatedAt.toISOString()
+      };
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
+   * Deletes a media file by id ensuring strict tenant isolation
+   */
+  static async deleteFile(tenantId: string, fileId: string): Promise<boolean> {
+    if (!tenantId || !fileId) return false;
+
+    try {
+      const existing = await prisma.mediaAsset.findFirst({
+        where: { id: fileId, tenantId }
+      });
+
+      if (!existing) return false;
+
+      if (existing.storageKey) {
+        await this.provider.delete(existing.storageKey);
+      }
+
+      await prisma.mediaAsset.delete({
+        where: { id: existing.id }
+      });
+
+      return true;
+    } catch (error) {
+      console.error(`[StorageService] Error deleting media asset ${fileId}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Updates media asset metadata (alt text, filename)
+   */
+  static async updateMedia(
+    tenantId: string,
+    fileId: string,
+    updates: { alt?: string; filename?: string }
+  ): Promise<MediaFileItem | null> {
+    if (!tenantId || !fileId) return null;
+
+    try {
+      const existing = await prisma.mediaAsset.findFirst({
+        where: { id: fileId, tenantId }
+      });
+
+      if (!existing) return null;
+
+      const dataToUpdate: any = {};
+      if (updates.alt !== undefined) {
+        dataToUpdate.alt = SecurityService.sanitizeString(updates.alt);
+      }
+      if (updates.filename !== undefined) {
+        dataToUpdate.filename = updates.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+      }
+
+      const updated = await prisma.mediaAsset.update({
+        where: { id: fileId },
+        data: dataToUpdate
+      });
+
+      return {
+        id: updated.id,
+        tenantId: updated.tenantId,
+        filename: updated.filename,
+        storageKey: updated.storageKey || '',
+        url: updated.url,
+        mimeType: updated.mimeType,
+        size: updated.size,
+        width: updated.width,
+        height: updated.height,
+        alt: updated.alt,
+        createdAt: updated.createdAt.toISOString(),
+        updatedAt: updated.updatedAt.toISOString()
+      };
+    } catch (error) {
+      return null;
+    }
   }
 }

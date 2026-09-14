@@ -112,6 +112,9 @@ enum ContentStatus {
   DRAFT
   PUBLISHED
   ARCHIVED
+  PENDING
+  REJECTED
+  SOLD
 }
 
 // =========================================================================
@@ -119,38 +122,38 @@ enum ContentStatus {
 // =========================================================================
 
 model User {
-  id           String             @id @default(uuid())
-  email        String             @unique
+  id           String        @id @default(uuid())
+  email        String        @unique
   name         String
   passwordHash String
-  role         UserRole           @default(CUSTOMER)
-  status       AccountStatus      @default(ACTIVE)
+  role         UserRole      @default(CUSTOMER)
+  status       AccountStatus @default(ACTIVE)
   avatarUrl    String?
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 
-  memberships  TenantMembership[]
-  sessions     Session[]
-  auditLogs    AuditLog[]
+  memberships TenantMembership[]
+  sessions    Session[]
+  auditLogs   AuditLog[]
 
   @@index([email])
   @@index([role])
 }
 
 model Session {
-  id           String    @id @default(uuid())
-  tokenHash    String    @unique
+  id           String   @id @default(uuid())
+  tokenHash    String   @unique
   userId       String
   tenantId     String?
   role         UserRole
   ipAddress    String?
   userAgent    String?
   expiresAt    DateTime
-  createdAt    DateTime  @default(now())
-  lastActiveAt DateTime  @default(now())
+  createdAt    DateTime @default(now())
+  lastActiveAt DateTime @default(now())
 
-  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tenant       Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tokenHash])
   @@index([userId])
@@ -169,61 +172,61 @@ model Role {
 }
 
 model Permission {
-  id          String   @id @default(uuid())
-  roleId      String
-  action      String   // e.g. "products:create", "orders:manage", "settings:write"
-  resource    String   // e.g. "product", "order", "tenant", "license"
-  createdAt   DateTime @default(now())
+  id        String   @id @default(uuid())
+  roleId    String
+  action    String // e.g. "products:create", "orders:manage", "settings:write"
+  resource  String // e.g. "product", "order", "tenant", "license"
+  createdAt DateTime @default(now())
 
-  role        Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@unique([roleId, action, resource])
   @@index([roleId])
 }
 
 model Tenant {
-  id               String               @id @default(uuid())
+  id               String       @id @default(uuid())
   name             String
-  slug             String               @unique
+  slug             String       @unique
   domain           String?
   customDomain     String?
-  status           TenantStatus         @default(active)
-  applicationId    String               @default("ECOMMERCE")
+  status           TenantStatus @default(active)
+  applicationId    String       @default("ECOMMERCE")
   planId           String
-  licenseKey       String               @unique
+  licenseKey       String       @unique
   ownerEmail       String
   ownerName        String
-  themeId          String               @default("theme_modern_luxe")
-  currency         String               @default("EUR")
-  defaultLocale    String               @default("es")
-  supportedLocales String[]             @default(["es", "it", "en", "fr", "de", "pt"])
+  themeId          String       @default("theme_modern_luxe")
+  currency         String       @default("EUR")
+  defaultLocale    String       @default("es")
+  supportedLocales String[]     @default(["es", "it", "en", "fr", "de", "pt"])
   branding         Json?
   settings         Json?
-  activePlugins    String[]             @default(["plugin_correos_pro", "plugin_stripe_connect", "plugin_seo_pro", "plugin_fenix_all_import"])
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
+  activePlugins    String[]     @default(["plugin_correos_pro", "plugin_stripe_connect", "plugin_seo_pro", "plugin_fenix_all_import"])
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
-  memberships        TenantMembership[]
-  sessions           Session[]
-  domains            Domain[]
-  licenses           License[]
-  subscriptions      Subscription[]
-  payments           Payment[]
-  invoices           Invoice[]
-  products           Product[]
-  categories         Category[]
-  orders             Order[]
-  customers          Customer[]
-  coupons            Coupon[]
-  themes             Theme[]
-  themeInstallations ThemeInstallation[]
-  plugins            Plugin[]
+  memberships         TenantMembership[]
+  sessions            Session[]
+  domains             Domain[]
+  licenses            License[]
+  subscriptions       Subscription[]
+  payments            Payment[]
+  invoices            Invoice[]
+  products            Product[]
+  categories          Category[]
+  orders              Order[]
+  customers           Customer[]
+  coupons             Coupon[]
+  themes              Theme[]
+  themeInstallations  ThemeInstallation[]
+  plugins             Plugin[]
   pluginInstallations PluginInstallation[]
-  mediaAssets        MediaAsset[]
-  pages              Page[]
-  blogPosts          BlogPost[]
-  classifiedAds      ClassifiedAd[]
-  auditLogs          AuditLog[]
+  mediaAssets         MediaAsset[]
+  pages               Page[]
+  blogPosts           BlogPost[]
+  classifiedAds       ClassifiedAd[]
+  auditLogs           AuditLog[]
 
   @@index([slug])
   @@index([licenseKey])
@@ -240,8 +243,8 @@ model TenantMembership {
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
 
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, userId])
   @@index([tenantId])
@@ -249,18 +252,18 @@ model TenantMembership {
 }
 
 model Domain {
-  id          String     @id @default(uuid())
-  tenantId    String
-  hostname    String     @unique
-  type        DomainType @default(SYSTEM_SUBDOMAIN)
-  status      String     @default("active")
-  verified    Boolean    @default(false)
-  isPrimary   Boolean    @default(false)
-  sslStatus   String     @default("active")
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  id        String     @id @default(uuid())
+  tenantId  String
+  hostname  String     @unique
+  type      DomainType @default(SYSTEM_SUBDOMAIN)
+  status    String     @default("active")
+  verified  Boolean    @default(false)
+  isPrimary Boolean    @default(false)
+  sslStatus String     @default("active")
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 
-  tenant      Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([hostname])
@@ -291,15 +294,15 @@ model Application {
 }
 
 model ApplicationModule {
-  id            String      @id @default(uuid())
+  id            String   @id @default(uuid())
   applicationId String
-  key           String      // products, categories, orders, posts, ads, etc.
+  key           String // products, categories, orders, posts, ads, etc.
   name          String
   description   String?
-  isDefault     Boolean     @default(true)
-  createdAt     DateTime    @default(now())
+  isDefault     Boolean  @default(true)
+  createdAt     DateTime @default(now())
 
-  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   @@unique([applicationId, key])
   @@index([applicationId])
@@ -326,21 +329,21 @@ model Plan {
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
 
-  application   Application       @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   @@index([applicationId])
   @@index([slug])
 }
 
 model PlanEntitlement {
-  id          String   @id @default(uuid())
-  planId      String
-  key         String   // products.max, storage.max_mb, domains.max, users.max, ai.enabled, plugins.allowed
-  value       String   // String representation of limit, json array or boolean
-  type        String   @default("NUMBER") // NUMBER, BOOLEAN, ARRAY, STRING
-  createdAt   DateTime @default(now())
+  id        String   @id @default(uuid())
+  planId    String
+  key       String // products.max, storage.max_mb, domains.max, users.max, ai.enabled, plugins.allowed
+  value     String // String representation of limit, json array or boolean
+  type      String   @default("NUMBER") // NUMBER, BOOLEAN, ARRAY, STRING
+  createdAt DateTime @default(now())
 
-  plan        Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
 
   @@unique([planId, key])
   @@index([planId])
@@ -352,32 +355,32 @@ model PlanEntitlement {
 // =========================================================================
 
 model License {
-  id               String              @id @default(uuid())
-  licenseKeyHash   String              @unique
-  displayKey       String              @unique // FNX-ECOM-PRO-XXXX-XXXX
-  tenantId         String
-  applicationId    String
-  planId           String
-  subscriptionId   String?
-  status           LicenseStatus       @default(ACTIVE)
-  startsAt         DateTime            @default(now())
-  expiresAt        DateTime
-  activationLimit  Int                 @default(1)
-  activationCount  Int                 @default(0)
-  lastValidatedAt  DateTime?
-  customerName     String
-  customerEmail    String
-  price            Float               @default(0)
-  currency         String              @default("EUR")
-  billingPeriod    String              @default("monthly")
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
+  id              String        @id @default(uuid())
+  licenseKeyHash  String        @unique
+  displayKey      String        @unique // FNX-ECOM-PRO-XXXX-XXXX
+  tenantId        String
+  applicationId   String
+  planId          String
+  subscriptionId  String?
+  status          LicenseStatus @default(ACTIVE)
+  startsAt        DateTime      @default(now())
+  expiresAt       DateTime
+  activationLimit Int           @default(1)
+  activationCount Int           @default(0)
+  lastValidatedAt DateTime?
+  customerName    String
+  customerEmail   String
+  price           Float         @default(0)
+  currency        String        @default("EUR")
+  billingPeriod   String        @default("monthly")
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
-  tenant           Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  application      Application         @relation(fields: [applicationId], references: [id])
-  plan             Plan                @relation(fields: [planId], references: [id])
-  subscription     Subscription?       @relation(fields: [subscriptionId], references: [id])
-  activations      LicenseActivation[]
+  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  application  Application         @relation(fields: [applicationId], references: [id])
+  plan         Plan                @relation(fields: [planId], references: [id])
+  subscription Subscription?       @relation(fields: [subscriptionId], references: [id])
+  activations  LicenseActivation[]
 
   @@index([tenantId])
   @@index([applicationId])
@@ -399,7 +402,7 @@ model LicenseActivation {
   activatedAt   DateTime  @default(now())
   deactivatedAt DateTime?
 
-  license       License   @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+  license License @relation(fields: [licenseId], references: [id], onDelete: Cascade)
 
   @@index([licenseId])
   @@index([tenantId])
@@ -423,11 +426,11 @@ model Subscription {
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt
 
-  tenant                 Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  plan                   Plan               @relation(fields: [planId], references: [id])
-  licenses               License[]
-  payments               Payment[]
-  invoices               Invoice[]
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan     Plan      @relation(fields: [planId], references: [id])
+  licenses License[]
+  payments Payment[]
+  invoices Invoice[]
 
   @@index([tenantId])
   @@index([planId])
@@ -451,9 +454,9 @@ model Payment {
   metadata              Json?
   createdAt             DateTime        @default(now())
 
-  tenant                Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  subscription          Subscription?   @relation(fields: [subscriptionId], references: [id])
-  invoice               Invoice?
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id])
+  invoice      Invoice?
 
   @@index([tenantId])
   @@index([subscriptionId])
@@ -482,9 +485,9 @@ model Invoice {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
-  tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  subscription   Subscription? @relation(fields: [subscriptionId], references: [id])
-  payment        Payment?      @relation(fields: [paymentId], references: [id])
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id])
+  payment      Payment?      @relation(fields: [paymentId], references: [id])
 
   @@index([tenantId])
   @@index([subscriptionId])
@@ -494,7 +497,7 @@ model Invoice {
 
 model WebhookEvent {
   id                String    @id @default(uuid())
-  provider          String    // paypal, stripe
+  provider          String // paypal, stripe
   eventId           String    @unique
   eventType         String
   payload           Json
@@ -509,19 +512,19 @@ model WebhookEvent {
 }
 
 model AuditLog {
-  id           String    @id @default(uuid())
+  id           String   @id @default(uuid())
   actorId      String?
   tenantId     String?
-  action       String    // LOGIN, LICENSE_CREATED, LICENSE_ACTIVATED, etc.
-  resourceType String    // Tenant, License, Subscription, Product, etc.
+  action       String // LOGIN, LICENSE_CREATED, LICENSE_ACTIVATED, etc.
+  resourceType String // Tenant, License, Subscription, Product, etc.
   resourceId   String?
   metadata     Json?
   ip           String?
   userAgent    String?
-  createdAt    DateTime  @default(now())
+  createdAt    DateTime @default(now())
 
-  user         User?     @relation(fields: [actorId], references: [id])
-  tenant       Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User?   @relation(fields: [actorId], references: [id])
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([actorId])
@@ -534,57 +537,59 @@ model AuditLog {
 // =========================================================================
 
 model Category {
-  id          String    @id @default(uuid())
+  id          String   @id @default(uuid())
   tenantId    String
   name        String
   slug        String
   description String?
   image       String?
   parentId    String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  status      String   @default("ACTIVE")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  parent      Category? @relation("CategoryHierarchy", fields: [parentId], references: [id])
-  children    Category[] @relation("CategoryHierarchy")
-  products    Product[]
+  tenant   Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  parent   Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryHierarchy")
+  products Product[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
   @@index([parentId])
+  @@index([status])
 }
 
 model Product {
-  id            String      @id @default(uuid())
-  tenantId      String
-  categoryId    String?
-  title         String
-  slug          String
-  description   String?
-  price         Float
-  comparePrice  Float?
-  costPrice     Float?
-  stock         Int         @default(0)
-  sku           String?
-  barcode       String?
-  category      String      @default("General")
-  images        String[]    @default([])
-  featured      Boolean     @default(false)
-  isBestSeller  Boolean     @default(false)
-  isDeal        Boolean     @default(false)
-  rating        Float       @default(5.0)
-  reviewsCount  Int         @default(0)
-  tags          String[]    @default([])
-  attributes    Json?
-  variants      Json?
-  translations  Json?
-  status        String      @default("active")
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  id           String   @id @default(uuid())
+  tenantId     String
+  categoryId   String?
+  title        String
+  slug         String
+  description  String?
+  price        Float
+  comparePrice Float?
+  costPrice    Float?
+  stock        Int      @default(0)
+  sku          String?
+  barcode      String?
+  category     String   @default("General")
+  images       String[] @default([])
+  featured     Boolean  @default(false)
+  isBestSeller Boolean  @default(false)
+  isDeal       Boolean  @default(false)
+  rating       Float    @default(5.0)
+  reviewsCount Int      @default(0)
+  tags         String[] @default([])
+  attributes   Json?
+  variants     Json?
+  translations Json?
+  status       String   @default("active")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  categoryRel   Category?   @relation(fields: [categoryId], references: [id])
-  orderItems    OrderItem[]
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  categoryRel Category?   @relation(fields: [categoryId], references: [id])
+  orderItems  OrderItem[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -604,8 +609,8 @@ model Customer {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  orders      Order[]
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orders Order[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -617,32 +622,36 @@ model Order {
   tenantId          String
   customerId        String?
   orderNumber       String            @unique
+  idempotencyKey    String?           @unique
   customerName      String
   customerEmail     String
   customerPhone     String?
+  currency          String            @default("EUR")
   total             Float
   subtotal          Float
   tax               Float             @default(0)
   shippingCost      Float             @default(0)
   discount          Float             @default(0)
-  status            OrderStatus       @default(completed)
-  fulfillmentStatus FulfillmentStatus @default(fulfilled)
+  status            OrderStatus       @default(pending)
+  fulfillmentStatus FulfillmentStatus @default(unfulfilled)
   paymentMethod     String            @default("stripe")
-  paymentStatus     String            @default("paid")
+  paymentStatus     String            @default("pending")
   trackingNumber    String?
   carrier           String?
   shippingAddress   Json?
-  items             Json              // For fast snapshot access
+  items             Json // For fast snapshot access
+  notes             String?
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
-  tenant            Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  customer          Customer?         @relation(fields: [customerId], references: [id])
-  orderItems        OrderItem[]
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer   Customer?   @relation(fields: [customerId], references: [id])
+  orderItems OrderItem[]
 
   @@index([tenantId])
   @@index([customerId])
   @@index([orderNumber])
+  @@index([idempotencyKey])
   @@index([status])
 }
 
@@ -651,14 +660,15 @@ model OrderItem {
   orderId   String
   productId String?
   title     String
+  sku       String?
   price     Float
   quantity  Int
   total     Float
   variant   Json?
   createdAt DateTime @default(now())
 
-  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product   Product? @relation(fields: [productId], references: [id])
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id])
 
   @@index([orderId])
   @@index([productId])
@@ -671,33 +681,36 @@ model Coupon {
   discountType  DiscountType @default(PERCENTAGE)
   discountValue Float
   minSpend      Float?
+  maxUses       Int?
   usedCount     Int          @default(0)
+  expiresAt     DateTime?
   status        String       @default("ACTIVE")
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
-  tenant        Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, code])
   @@index([tenantId])
+  @@index([status])
 }
 
 model Theme {
-  id            String              @id @default(uuid())
-  tenantId      String
-  key           String
-  name          String
-  slug          String
-  description   String?
-  version       String              @default("1.0.0")
-  author        String              @default("Fenix Team")
-  palette       Json?
-  typography    Json?
-  layout        Json?
-  sections      Json?
-  isActive      Boolean             @default(false)
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
+  id          String   @id @default(uuid())
+  tenantId    String
+  key         String
+  name        String
+  slug        String
+  description String?
+  version     String   @default("1.0.0")
+  author      String   @default("Fenix Team")
+  palette     Json?
+  typography  Json?
+  layout      Json?
+  sections    Json?
+  isActive    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   tenant        Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   installations ThemeInstallation[]
@@ -716,8 +729,8 @@ model ThemeInstallation {
   installedAt DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  theme       Theme    @relation(fields: [themeId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  theme  Theme  @relation(fields: [themeId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, themeId])
   @@index([tenantId])
@@ -725,17 +738,17 @@ model ThemeInstallation {
 }
 
 model Plugin {
-  id            String               @id @default(uuid())
-  tenantId      String
-  key           String
-  name          String
-  version       String               @default("1.0.0")
-  category      String               @default("tools")
-  isEnabled     Boolean              @default(false)
-  config        Json?
-  manifest      Json?
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @updatedAt
+  id        String   @id @default(uuid())
+  tenantId  String
+  key       String
+  name      String
+  version   String   @default("1.0.0")
+  category  String   @default("tools")
+  isEnabled Boolean  @default(false)
+  config    Json?
+  manifest  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   tenant        Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   installations PluginInstallation[]
@@ -754,8 +767,8 @@ model PluginInstallation {
   installedAt DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  plugin      Plugin   @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plugin Plugin @relation(fields: [pluginId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, pluginId])
   @@index([tenantId])
@@ -776,24 +789,24 @@ model MediaAsset {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
 }
 
 model Page {
-  id          String        @id @default(uuid())
-  tenantId    String
-  title       String
-  slug        String
-  content     String
-  status      ContentStatus @default(PUBLISHED)
-  seoTitle    String?
-  seoDesc     String?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id        String        @id @default(uuid())
+  tenantId  String
+  title     String
+  slug      String
+  content   String
+  status    ContentStatus @default(PUBLISHED)
+  seoTitle  String?
+  seoDesc   String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
 
-  tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -801,23 +814,25 @@ model Page {
 }
 
 model BlogPost {
-  id            String        @id @default(uuid())
-  tenantId      String
-  title         String
-  slug          String
-  excerpt       String?
-  content       String
-  category      String        @default("Noticias")
-  author        Json?
-  featuredImage String?
-  tags          String[]      @default([])
-  status        ContentStatus @default(PUBLISHED)
-  viewsCount    Int           @default(0)
-  publishedAt   DateTime      @default(now())
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id             String        @id @default(uuid())
+  tenantId       String
+  title          String
+  slug           String
+  excerpt        String?
+  content        String
+  category       String        @default("Noticias")
+  author         Json?
+  featuredImage  String?
+  tags           String[]      @default([])
+  status         ContentStatus @default(PUBLISHED)
+  seoTitle       String?
+  seoDescription String?
+  viewsCount     Int           @default(0)
+  publishedAt    DateTime      @default(now())
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
-  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -831,22 +846,27 @@ model ClassifiedAd {
   slug           String
   description    String
   category       String
+  categoryId     String?
   price          Float
   location       String
+  city           String?
   images         String[]      @default([])
   status         ContentStatus @default(PUBLISHED)
   featured       Boolean       @default(false)
+  sellerId       String?
   sellerName     String
   sellerPhone    String?
   sellerEmail    String?
+  attributes     Json?
   viewsCount     Int           @default(0)
   favoritesCount Int           @default(0)
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
-  tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, slug])
   @@index([tenantId])
   @@index([slug])
+  @@index([sellerId])
 }

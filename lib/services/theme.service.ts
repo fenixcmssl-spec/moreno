@@ -1,6 +1,6 @@
 import { ThemeBlockSection, ApplicationTypeKey } from '@/types';
+import prisma from '@/lib/prisma';
 import { AuditService } from './audit.service';
-import { INITIAL_THEMES } from '../initialData';
 
 export interface ThemeRecord {
   id: string;
@@ -10,8 +10,8 @@ export interface ThemeRecord {
   description: string;
   version: string;
   author: string;
-  applicationScope: ApplicationTypeKey | 'ALL';
-  previewImage: string;
+  applicationScope?: ApplicationTypeKey | 'ALL';
+  previewImage?: string;
   sections: ThemeBlockSection[];
   palette: {
     primary: string;
@@ -25,8 +25,10 @@ export interface ThemeRecord {
     headingFont: string;
     bodyFont: string;
   };
-  isPublished: boolean;
-  createdAt: string;
+  isActive?: boolean;
+  isPublished?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface ThemeDraftState {
@@ -39,121 +41,477 @@ export interface ThemeDraftState {
   isPublished: boolean;
 }
 
-const THEMES_REGISTRY: ThemeRecord[] = INITIAL_THEMES.map(t => ({
-  id: t.id,
-  key: t.id,
-  name: t.name,
-  slug: t.name.toLowerCase().replace(/\s+/g, '-'),
-  description: t.description,
-  version: t.version || '1.0.0',
-  author: 'Fenix Studio',
-  applicationScope: (t.applicationScope as ApplicationTypeKey) || 'ECOMMERCE',
-  previewImage: t.previewImage,
-  sections: t.sections || [],
-  palette: {
-    primary: t.palette?.primary || t.colors?.primary || '#3b82f6',
-    secondary: t.palette?.secondary || t.colors?.secondary || '#1e293b',
-    background: t.palette?.background || t.colors?.background || '#ffffff',
-    surface: t.palette?.surface || t.colors?.surface || '#f8fafc',
-    accent: t.colors?.accent || '#f59e0b',
-    text: t.palette?.text || t.colors?.text || '#0f172a'
-  },
-  typography: {
-    headingFont: t.typography?.headingFont || 'Plus Jakarta Sans',
-    bodyFont: t.typography?.bodyFont || 'Inter'
-  },
-  isPublished: true,
-  createdAt: '2026-01-01T00:00:00Z'
-}));
+const DEFAULT_SECTIONS: ThemeBlockSection[] = [
+  { id: 'sec_hero_1', type: 'hero_banner', name: 'Hero Banner Principal', isEnabled: true, order: 0, settings: {} },
+  { id: 'sec_feat_1', type: 'featured_products', name: 'Productos Destacados', isEnabled: true, order: 1, settings: {} },
+  { id: 'sec_cat_1', type: 'category_grid', name: 'Categorías Destacadas', isEnabled: true, order: 2, settings: {} }
+];
 
-const ACTIVE_THEMES_BY_TENANT = new Map<string, string>(); // tenantId -> active themeId
-const DRAFTS_BY_TENANT = new Map<string, ThemeDraftState>();
+const DEFAULT_PALETTE = {
+  primary: '#131921',
+  secondary: '#232f3e',
+  background: '#ffffff',
+  surface: '#f8fafc',
+  accent: '#febd69',
+  text: '#0f172a'
+};
+
+const DEFAULT_TYPOGRAPHY = {
+  headingFont: 'Plus Jakarta Sans, sans-serif',
+  bodyFont: 'Inter, sans-serif'
+};
 
 export class ThemeService {
-  static getAllThemes(): ThemeRecord[] {
-    return THEMES_REGISTRY;
-  }
+  /**
+   * Converts Prisma Theme model to ThemeRecord
+   */
+  private static mapToRecord(t: any): ThemeRecord {
+    const rawPalette = typeof t.palette === 'object' && t.palette !== null ? t.palette : {};
+    const rawTypography = typeof t.typography === 'object' && t.typography !== null ? t.typography : {};
+    const rawSections = Array.isArray(t.sections) && t.sections.length > 0 ? t.sections : DEFAULT_SECTIONS;
 
-  static getThemeById(id: string): ThemeRecord | undefined {
-    return THEMES_REGISTRY.find(t => t.id === id);
+    return {
+      id: t.id,
+      key: t.key,
+      name: t.name,
+      slug: t.slug || t.name.toLowerCase().replace(/\s+/g, '-'),
+      description: t.description || '',
+      version: t.version || '1.0.0',
+      author: t.author || 'Fenix Team',
+      applicationScope: 'ECOMMERCE',
+      previewImage: (t.layout as any)?.previewImage || 'https://images.unsplash.com/photo-1472851294608-062f824d29cc?w=600&q=80',
+      sections: rawSections as ThemeBlockSection[],
+      palette: {
+        primary: rawPalette.primary || DEFAULT_PALETTE.primary,
+        secondary: rawPalette.secondary || DEFAULT_PALETTE.secondary,
+        background: rawPalette.background || DEFAULT_PALETTE.background,
+        surface: rawPalette.surface || DEFAULT_PALETTE.surface,
+        accent: rawPalette.accent || DEFAULT_PALETTE.accent,
+        text: rawPalette.text || DEFAULT_PALETTE.text
+      },
+      typography: {
+        headingFont: rawTypography.headingFont || DEFAULT_TYPOGRAPHY.headingFont,
+        bodyFont: rawTypography.bodyFont || DEFAULT_TYPOGRAPHY.bodyFont
+      },
+      isActive: t.isActive || false,
+      isPublished: true,
+      createdAt: t.createdAt ? t.createdAt.toISOString() : new Date().toISOString(),
+      updatedAt: t.updatedAt ? t.updatedAt.toISOString() : new Date().toISOString()
+    };
   }
 
   /**
-   * Enforces single active theme per tenant (Point 15)
+   * Lists all available themes in the global/tenant catalog
    */
-  static setActiveTheme(tenantId: string, themeId: string): boolean {
-    const theme = this.getThemeById(themeId);
-    if (!theme) return false;
+  static async getAllThemes(options?: { tenantId?: string; search?: string }): Promise<ThemeRecord[]> {
+    try {
+      const whereClause: any = {};
+      if (options?.search) {
+        whereClause.OR = [
+          { name: { contains: options.search, mode: 'insensitive' } },
+          { key: { contains: options.search, mode: 'insensitive' } },
+          { description: { contains: options.search, mode: 'insensitive' } }
+        ];
+      }
 
-    ACTIVE_THEMES_BY_TENANT.set(tenantId, themeId);
+      const themes = await prisma.theme.findMany({
+        where: whereClause,
+        orderBy: { createdAt: 'asc' }
+      });
 
-    AuditService.log({
-      tenantId,
-      action: 'THEME_ACTIVATED',
-      entity: 'Theme',
-      entityId: themeId,
-      details: { name: theme.name, version: theme.version }
+      return themes.map(t => this.mapToRecord(t));
+    } catch (error) {
+      console.error('[ThemeService] Error fetching themes from PostgreSQL:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Retrieves single theme by id or key
+   */
+  static async getThemeById(idOrKey: string): Promise<ThemeRecord | null> {
+    if (!idOrKey) return null;
+
+    try {
+      const theme = await prisma.theme.findFirst({
+        where: {
+          OR: [{ id: idOrKey }, { key: idOrKey }]
+        }
+      });
+
+      if (!theme) return null;
+      return this.mapToRecord(theme);
+    } catch (error) {
+      console.error(`[ThemeService] Error fetching theme ${idOrKey}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Creates a new Theme record in PostgreSQL
+   */
+  static async createTheme(data: {
+    tenantId: string;
+    key: string;
+    name: string;
+    slug?: string;
+    description?: string;
+    version?: string;
+    author?: string;
+    palette?: Record<string, string>;
+    typography?: Record<string, string>;
+    layout?: any;
+    sections?: ThemeBlockSection[];
+  }): Promise<ThemeRecord> {
+    const slug = data.slug || data.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const created = await prisma.theme.create({
+      data: {
+        tenantId: data.tenantId,
+        key: data.key,
+        name: data.name,
+        slug,
+        description: data.description || null,
+        version: data.version || '1.0.0',
+        author: data.author || 'Fenix Team',
+        palette: (data.palette || DEFAULT_PALETTE) as any,
+        typography: (data.typography || DEFAULT_TYPOGRAPHY) as any,
+        layout: (data.layout || {}) as any,
+        sections: (data.sections || DEFAULT_SECTIONS) as any,
+        isActive: false
+      }
     });
 
-    return true;
-  }
-
-  static getActiveThemeId(tenantId: string): string {
-    return ACTIVE_THEMES_BY_TENANT.get(tenantId) || THEMES_REGISTRY[0]?.id || 'theme_modern_minimal';
+    return this.mapToRecord(created);
   }
 
   /**
-   * Theme Builder: saves a working draft (Point 16)
+   * Updates an existing theme
    */
-  static saveDraft(tenantId: string, draft: Partial<ThemeDraftState>): ThemeDraftState {
-    const existing = DRAFTS_BY_TENANT.get(tenantId);
-    const themeId = draft.themeId || existing?.themeId || this.getActiveThemeId(tenantId);
-    const currentTheme = this.getThemeById(themeId);
+  static async updateTheme(id: string, updates: Partial<any>): Promise<ThemeRecord | null> {
+    try {
+      const updated = await prisma.theme.update({
+        where: { id },
+        data: updates
+      });
+      return this.mapToRecord(updated);
+    } catch (error) {
+      return null;
+    }
+  }
 
-    const updatedDraft: ThemeDraftState = {
+  /**
+   * Deletes a theme
+   */
+  static async deleteTheme(id: string): Promise<boolean> {
+    try {
+      await prisma.theme.delete({ where: { id } });
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Retrieves active theme record for a tenant, applying any custom published modifications
+   */
+  static async getActiveTheme(tenantId: string): Promise<ThemeRecord | null> {
+    if (!tenantId) return null;
+
+    try {
+      const installation = await prisma.themeInstallation.findFirst({
+        where: { tenantId, isActive: true },
+        include: { theme: true }
+      });
+
+      if (installation && installation.theme) {
+        const base = this.mapToRecord(installation.theme);
+        const customProps = typeof installation.customProps === 'object' && installation.customProps !== null
+          ? (installation.customProps as any)
+          : null;
+
+        if (customProps) {
+          if (customProps.sections && Array.isArray(customProps.sections)) {
+            base.sections = customProps.sections;
+          }
+          if (customProps.palette) {
+            base.palette = { ...base.palette, ...customProps.palette };
+          }
+          if (customProps.typography) {
+            base.typography = { ...base.typography, ...customProps.typography };
+          }
+        }
+        return base;
+      }
+
+      // Fallback to first available theme
+      const firstTheme = await prisma.theme.findFirst({ orderBy: { createdAt: 'asc' } });
+      if (firstTheme) {
+        return this.mapToRecord(firstTheme);
+      }
+      return null;
+    } catch (error) {
+      console.error(`[ThemeService] Error fetching active theme for tenant ${tenantId}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Retrieves active theme identifier (key or ID) for a tenant
+   */
+  static async getActiveThemeId(tenantId: string): Promise<string> {
+    if (!tenantId) return 'theme_fenix_market';
+
+    try {
+      const installation = await prisma.themeInstallation.findFirst({
+        where: { tenantId, isActive: true },
+        include: { theme: true }
+      });
+
+      if (installation && installation.theme) {
+        return installation.theme.key || installation.theme.id;
+      }
+
+      const firstTheme = await prisma.theme.findFirst({ orderBy: { createdAt: 'asc' } });
+      return firstTheme ? (firstTheme.key || firstTheme.id) : 'theme_fenix_market';
+    } catch (error) {
+      return 'theme_fenix_market';
+    }
+  }
+
+  /**
+   * Enforces single active theme per tenant in PostgreSQL
+   */
+  static async setActiveTheme(tenantId: string, themeIdOrKey: string): Promise<boolean> {
+    if (!tenantId || !themeIdOrKey) return false;
+
+    try {
+      const targetTheme = await prisma.theme.findFirst({
+        where: {
+          OR: [{ id: themeIdOrKey }, { key: themeIdOrKey }]
+        }
+      });
+
+      if (!targetTheme) return false;
+
+      // In a transaction: deactivate all existing themes for this tenant, then activate target
+      await prisma.$transaction([
+        prisma.themeInstallation.updateMany({
+          where: { tenantId },
+          data: { isActive: false }
+        }),
+        prisma.themeInstallation.upsert({
+          where: {
+            tenantId_themeId: {
+              tenantId,
+              themeId: targetTheme.id
+            }
+          },
+          update: {
+            isActive: true
+          },
+          create: {
+            tenantId,
+            themeId: targetTheme.id,
+            isActive: true
+          }
+        })
+      ]);
+
+      AuditService.log({
+        tenantId,
+        action: 'THEME_ACTIVATED',
+        entity: 'Theme',
+        entityId: targetTheme.id,
+        details: { key: targetTheme.key, name: targetTheme.name }
+      });
+
+      return true;
+    } catch (error) {
+      console.error(`[ThemeService] Error setting active theme for tenant ${tenantId}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Theme Builder: saves a working draft into PostgreSQL
+   */
+  static async saveDraft(
+    tenantId: string,
+    draftOrThemeId: Partial<ThemeDraftState> | string,
+    sections?: ThemeBlockSection[]
+  ): Promise<ThemeDraftState> {
+    let targetThemeId: string;
+    let secList: ThemeBlockSection[] = [];
+    let palette: any;
+    let typography: any;
+
+    if (typeof draftOrThemeId === 'string') {
+      targetThemeId = draftOrThemeId;
+      secList = sections || [];
+    } else {
+      targetThemeId = draftOrThemeId.themeId || (await this.getActiveThemeId(tenantId));
+      secList = draftOrThemeId.sections || [];
+      palette = draftOrThemeId.palette;
+      typography = draftOrThemeId.typography;
+    }
+
+    const theme = await this.getThemeById(targetThemeId);
+    const resolvedThemeId = theme ? theme.id : targetThemeId;
+
+    if (secList.length === 0 && theme?.sections) {
+      secList = theme.sections;
+    }
+
+    const draftState: ThemeDraftState = {
       tenantId,
-      themeId,
-      sections: draft.sections || existing?.sections || currentTheme?.sections || [],
-      palette: draft.palette || existing?.palette || currentTheme?.palette,
-      typography: draft.typography || existing?.typography || currentTheme?.typography,
+      themeId: targetThemeId,
+      sections: secList,
+      palette: palette || theme?.palette,
+      typography: typography || theme?.typography,
       lastSavedAt: new Date().toISOString(),
       isPublished: false
     };
 
-    DRAFTS_BY_TENANT.set(tenantId, updatedDraft);
-    return updatedDraft;
+    if (theme) {
+      await prisma.themeInstallation.upsert({
+        where: {
+          tenantId_themeId: {
+            tenantId,
+            themeId: resolvedThemeId
+          }
+        },
+        update: {
+          draftProps: draftState as any
+        },
+        create: {
+          tenantId,
+          themeId: resolvedThemeId,
+          draftProps: draftState as any,
+          isActive: false
+        }
+      });
+    }
+
+    return draftState;
   }
 
   /**
-   * Theme Builder: publishes the draft to live production (Point 16)
+   * Theme Builder: retrieves saved draft for tenant
    */
-  static publishDraft(tenantId: string): { success: boolean; theme?: ThemeRecord } {
-    const draft = DRAFTS_BY_TENANT.get(tenantId);
-    if (!draft) return { success: false };
+  static async getDraft(tenantId: string, themeId?: string): Promise<ThemeDraftState | null> {
+    if (!tenantId) return null;
 
-    const theme = this.getThemeById(draft.themeId);
-    if (theme) {
-      theme.sections = draft.sections;
-      if (draft.palette) theme.palette = { ...theme.palette, ...draft.palette } as any;
-      if (draft.typography) theme.typography = { ...theme.typography, ...draft.typography } as any;
+    try {
+      const whereClause: any = { tenantId };
+      if (themeId) {
+        const theme = await this.getThemeById(themeId);
+        if (theme) {
+          whereClause.themeId = theme.id;
+        }
+      } else {
+        whereClause.isActive = true;
+      }
+
+      const installation = await prisma.themeInstallation.findFirst({
+        where: whereClause
+      });
+
+      if (installation && installation.draftProps && typeof installation.draftProps === 'object') {
+        return installation.draftProps as unknown as ThemeDraftState;
+      }
+
+      return null;
+    } catch (error) {
+      return null;
     }
-
-    draft.isPublished = true;
-    draft.lastSavedAt = new Date().toISOString();
-    DRAFTS_BY_TENANT.set(tenantId, draft);
-
-    AuditService.log({
-      tenantId,
-      action: 'THEME_BUILDER_PUBLISHED',
-      entity: 'Theme',
-      entityId: draft.themeId,
-      details: { sectionsCount: draft.sections.length }
-    });
-
-    return { success: true, theme };
   }
 
-  static getDraft(tenantId: string): ThemeDraftState | undefined {
-    return DRAFTS_BY_TENANT.get(tenantId);
+  /**
+   * Theme Builder: publishes the draft to live production in PostgreSQL
+   */
+  static async publishDraft(
+    tenantId: string,
+    themeId?: string
+  ): Promise<{ success: boolean; isPublished: boolean; theme?: ThemeRecord | null }> {
+    try {
+      const targetThemeKeyOrId = themeId || (await this.getActiveThemeId(tenantId));
+      const theme = await this.getThemeById(targetThemeKeyOrId);
+
+      if (!theme) {
+        return { success: false, isPublished: false };
+      }
+
+      const installation = await prisma.themeInstallation.findUnique({
+        where: {
+          tenantId_themeId: {
+            tenantId,
+            themeId: theme.id
+          }
+        }
+      });
+
+      const draft = installation?.draftProps as unknown as ThemeDraftState | undefined;
+      const customPropsToSave = {
+        sections: draft?.sections || theme.sections,
+        palette: draft?.palette || theme.palette,
+        typography: draft?.typography || theme.typography,
+        publishedAt: new Date().toISOString()
+      };
+
+      const updatedDraft = draft
+        ? { ...draft, isPublished: true, lastSavedAt: new Date().toISOString() }
+        : {
+            tenantId,
+            themeId: theme.id,
+            sections: theme.sections,
+            palette: theme.palette,
+            typography: theme.typography,
+            lastSavedAt: new Date().toISOString(),
+            isPublished: true
+          };
+
+      await prisma.themeInstallation.upsert({
+        where: {
+          tenantId_themeId: {
+            tenantId,
+            themeId: theme.id
+          }
+        },
+        update: {
+          customProps: customPropsToSave as any,
+          draftProps: updatedDraft as any,
+          isActive: true
+        },
+        create: {
+          tenantId,
+          themeId: theme.id,
+          customProps: customPropsToSave as any,
+          draftProps: updatedDraft as any,
+          isActive: true
+        }
+      });
+
+      AuditService.log({
+        tenantId,
+        action: 'THEME_BUILDER_PUBLISHED',
+        entity: 'Theme',
+        entityId: theme.id,
+        details: { sectionsCount: customPropsToSave.sections.length }
+      });
+
+      const publishedTheme: ThemeRecord = {
+        ...theme,
+        sections: customPropsToSave.sections,
+        palette: { ...theme.palette, ...(customPropsToSave.palette || {}) },
+        typography: { ...theme.typography, ...(customPropsToSave.typography || {}) },
+        isPublished: true
+      };
+
+      return { success: true, isPublished: true, theme: publishedTheme };
+    } catch (error) {
+      console.error(`[ThemeService] Error publishing draft for tenant ${tenantId}:`, error);
+      return { success: false, isPublished: false };
+    }
   }
 }
+

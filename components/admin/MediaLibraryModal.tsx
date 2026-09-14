@@ -23,12 +23,40 @@ interface MediaLibraryModalProps {
 }
 
 export function MediaLibraryModal({ tenantId, isOpen, onClose, onSelectImage }: MediaLibraryModalProps) {
-  const [files, setFiles] = useState<MediaFileItem[]>(() => StorageService.getTenantMedia(tenantId));
+  const [files, setFiles] = useState<MediaFileItem[]>([]);
+  const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [newFileUrl, setNewFileUrl] = useState('');
   const [newFileName, setNewFileName] = useState('');
+
+  useEffect(() => {
+    if (!isOpen || !tenantId) return;
+
+    let isMounted = true;
+    setLoading(true);
+
+    fetch(`/api/media?tenantId=${tenantId}`)
+      .then(res => res.json())
+      .then(data => {
+        if (isMounted && data.success && Array.isArray(data.files)) {
+          setFiles(data.files);
+        }
+      })
+      .catch(() => {
+        StorageService.getTenantMedia(tenantId).then(items => {
+          if (isMounted) setFiles(items);
+        });
+      })
+      .finally(() => {
+        if (isMounted) setLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, tenantId]);
 
   if (!isOpen) return null;
 
@@ -42,24 +70,50 @@ export function MediaLibraryModal({ tenantId, isOpen, onClose, onSelectImage }: 
     if (!newFileName || !newFileUrl) return;
     setIsUploading(true);
 
-    const res = await StorageService.uploadFile({
-      tenantId,
-      filename: newFileName,
-      mimeType: newFileName.endsWith('.png') ? 'image/png' : newFileName.endsWith('.webp') ? 'image/webp' : 'image/jpeg',
-      size: 154000,
-      url: newFileUrl
-    });
-
-    setIsUploading(false);
-    if (res.success && res.file) {
-      setFiles([res.file, ...files]);
-      setNewFileName('');
-      setNewFileUrl('');
+    try {
+      const res = await fetch('/api/media', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId,
+          filename: newFileName,
+          mimeType: newFileName.endsWith('.png') ? 'image/png' : newFileName.endsWith('.webp') ? 'image/webp' : 'image/jpeg',
+          size: 154000,
+          url: newFileUrl
+        })
+      });
+      const data = await res.json();
+      if (data.success && data.file) {
+        setFiles([data.file, ...files]);
+        setNewFileName('');
+        setNewFileUrl('');
+      }
+    } catch (e) {
+      const fallbackRes = await StorageService.uploadFile({
+        tenantId,
+        filename: newFileName,
+        mimeType: newFileName.endsWith('.png') ? 'image/png' : newFileName.endsWith('.webp') ? 'image/webp' : 'image/jpeg',
+        size: 154000,
+        url: newFileUrl
+      });
+      if (fallbackRes.success && fallbackRes.file) {
+        setFiles([fallbackRes.file, ...files]);
+        setNewFileName('');
+        setNewFileUrl('');
+      }
+    } finally {
+      setIsUploading(false);
     }
   };
 
-  const handleDelete = (id: string) => {
-    StorageService.deleteFile(tenantId, id);
+  const handleDelete = async (id: string) => {
+    try {
+      await fetch(`/api/media?tenantId=${tenantId}&fileId=${id}`, {
+        method: 'DELETE'
+      });
+    } catch {
+      await StorageService.deleteFile(tenantId, id);
+    }
     setFiles(files.filter(f => f.id !== id));
   };
 

@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/prisma';
+import { prisma, isPostgresConfigured, isProductionMode, DatabaseConfigurationError } from '@/lib/prisma';
 import { PlanEntitlements } from '@/types';
 import { INITIAL_TENANTS, INITIAL_PLANS, INITIAL_PRODUCTS, INITIAL_BLOG_POSTS, INITIAL_CLASSIFIED_ADS } from '@/lib/initialData';
 
@@ -123,6 +123,10 @@ export class EntitlementService {
       };
     }
 
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
+    }
+
     let tenantId = typeof tenantIdOrSlugOrObject === 'string' 
       ? tenantIdOrSlugOrObject.trim() 
       : tenantIdOrSlugOrObject.id || tenantIdOrSlugOrObject.slug;
@@ -130,7 +134,7 @@ export class EntitlementService {
     let dbTenant: any = null;
 
     try {
-      if (process.env.DATABASE_URL && prisma?.tenant) {
+      if (isPostgresConfigured() && prisma?.tenant) {
         dbTenant = await prisma.tenant.findFirst({
           where: {
             OR: [
@@ -170,7 +174,7 @@ export class EntitlementService {
     // Fallback if not in database
     if (!dbTenant && typeof tenantIdOrSlugOrObject === 'object' && tenantIdOrSlugOrObject.id) {
       dbTenant = tenantIdOrSlugOrObject;
-    } else if (!dbTenant) {
+    } else if (!dbTenant && !isProductionMode()) {
       const fallback = INITIAL_TENANTS.find(t => t.id === tenantId || t.slug.toLowerCase() === tenantId.toLowerCase());
       if (fallback) {
         dbTenant = {
@@ -224,7 +228,6 @@ export class EntitlementService {
       const status = (activeSubscription.status || '').toUpperCase();
       isLicenseActive = (status === 'ACTIVE' || status === 'TRIALING') && (!activeSubscription.currentPeriodEnd || new Date(activeSubscription.currentPeriodEnd) > now);
     } else if (isTenantActive && dbTenant.licenseKey) {
-      // Default dev active license key
       isLicenseActive = true;
     }
 
@@ -233,7 +236,7 @@ export class EntitlementService {
     let planId = plan?.id || dbTenant.planId;
 
     if (!plan && planId) {
-      if (process.env.DATABASE_URL && prisma?.plan) {
+      if (isPostgresConfigured() && prisma?.plan) {
         try {
           plan = await prisma.plan.findUnique({
             where: { id: planId },
@@ -243,7 +246,7 @@ export class EntitlementService {
           // Continue
         }
       }
-      if (!plan) {
+      if (!plan && !isProductionMode()) {
         plan = INITIAL_PLANS.find(p => p.id === planId) || null;
       }
     }
@@ -290,7 +293,6 @@ export class EntitlementService {
   /**
    * CAN: Determines whether a tenant has permission for a specific boolean feature
    * STRICT RULE: DENY BY DEFAULT
-   * Never missing => true! If missing, returns false.
    */
   static async can(tenantIdOrSlug: string | any, feature: string): Promise<boolean> {
     const context = await this.resolveTenantContext(tenantIdOrSlug);
@@ -334,10 +336,13 @@ export class EntitlementService {
     return false;
   }
 
+  static async canAccessFeature(tenantIdOrSlug: string | any, feature: string): Promise<boolean> {
+    return this.can(tenantIdOrSlug, feature);
+  }
+
   /**
    * LIMIT: Returns the maximum numerical quota allowed for a given resource
    * STRICT RULE: DENY BY DEFAULT
-   * Never missing => unlimited! If missing, returns 0.
    */
   static async limit(tenantIdOrSlug: string | any, resource: string): Promise<number> {
     const context = await this.resolveTenantContext(tenantIdOrSlug);
@@ -372,7 +377,7 @@ export class EntitlementService {
       }
     }
 
-    // 4. DENY BY DEFAULT: Missing numerical limit is ALWAYS 0 (never unlimited)
+    // 4. DENY BY DEFAULT: Missing numerical limit is ALWAYS 0
     return 0;
   }
 
@@ -389,7 +394,7 @@ export class EntitlementService {
     const normalizedResource = this.RESOURCE_MAP[resource] || resource;
 
     try {
-      if (process.env.DATABASE_URL && prisma) {
+      if (isPostgresConfigured() && prisma) {
         switch (normalizedResource) {
           case 'products.max':
             if (prisma.product) {
@@ -419,9 +424,9 @@ export class EntitlementService {
             if (prisma.mediaAsset) {
               const agg = await prisma.mediaAsset.aggregate({
                 where: { tenantId },
-                _sum: { sizeBytes: true }
+                _sum: { size: true }
               });
-              const bytes = agg._sum?.sizeBytes || 0;
+              const bytes = agg._sum?.size || 0;
               return Math.ceil(bytes / (1024 * 1024));
             }
             break;
@@ -452,16 +457,20 @@ export class EntitlementService {
 
           case 'plugins.max':
             if (prisma.pluginInstallation) {
-              return await prisma.pluginInstallation.count({ where: { tenantId, status: 'ACTIVE' } });
+              return await prisma.pluginInstallation.count({ where: { tenantId, isEnabled: true } });
             }
             return (context.tenant.activePlugins || []).length;
         }
       }
     } catch (err) {
-      console.warn('EntitlementService: getUsage DB query warning, falling back to local store:', err);
+      console.warn('EntitlementService: getUsage DB query warning:', err);
     }
 
-    // Memory / mock fallback
+    if (isProductionMode()) {
+      return 0;
+    }
+
+    // Memory fallback for development/test only
     switch (normalizedResource) {
       case 'products.max':
         return INITIAL_PRODUCTS.filter(p => p.tenantId === tenantId).length;
@@ -478,7 +487,6 @@ export class EntitlementService {
 
   /**
    * REMAINING: Returns the available remaining capacity for a given resource
-   * remaining = max(0, limit - currentUsage)
    */
   static async remaining(tenantIdOrSlug: string | any, resource: string): Promise<number> {
     const maxLimit = await this.limit(tenantIdOrSlug, resource);
@@ -663,81 +671,89 @@ export class EntitlementService {
    * Sets an explicit tenant-level entitlement override in PostgreSQL
    */
   static async setOverride(tenantIdOrSlug: string, key: string, value: string | number | boolean): Promise<any> {
-    if (!prisma?.tenant) {
-      throw new Error('Database connection not available to set override');
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
     }
 
-    const tenant = await prisma.tenant.findFirst({
-      where: {
-        OR: [
-          { id: tenantIdOrSlug },
-          { slug: tenantIdOrSlug.toLowerCase() }
-        ]
-      }
-    });
+    if (isPostgresConfigured() && prisma?.tenant) {
+      const tenant = await prisma.tenant.findFirst({
+        where: {
+          OR: [
+            { id: tenantIdOrSlug },
+            { slug: tenantIdOrSlug.toLowerCase() }
+          ]
+        }
+      });
 
-    if (!tenant) {
-      throw new Error(`Tenant '${tenantIdOrSlug}' no encontrado.`);
+      if (!tenant) {
+        throw new Error(`Tenant '${tenantIdOrSlug}' no encontrado.`);
+      }
+
+      const currentSettings = typeof tenant.settings === 'object' && tenant.settings !== null ? (tenant.settings as any) : {};
+      const currentOverrides = currentSettings.overrides || currentSettings.entitlements || {};
+
+      const updatedOverrides = {
+        ...currentOverrides,
+        [key]: value
+      };
+
+      const updatedSettings = {
+        ...currentSettings,
+        overrides: updatedOverrides
+      };
+
+      return await prisma.tenant.update({
+        where: { id: tenant.id },
+        data: {
+          settings: updatedSettings
+        }
+      });
     }
 
-    const currentSettings = typeof tenant.settings === 'object' && tenant.settings !== null ? (tenant.settings as any) : {};
-    const currentOverrides = currentSettings.overrides || currentSettings.entitlements || {};
-
-    const updatedOverrides = {
-      ...currentOverrides,
-      [key]: value
-    };
-
-    const updatedSettings = {
-      ...currentSettings,
-      overrides: updatedOverrides
-    };
-
-    return await prisma.tenant.update({
-      where: { id: tenant.id },
-      data: {
-        settings: updatedSettings
-      }
-    });
+    throw new DatabaseConfigurationError('Database not available to set override');
   }
 
   /**
    * Removes an explicit tenant-level entitlement override in PostgreSQL
    */
   static async removeOverride(tenantIdOrSlug: string, key: string): Promise<any> {
-    if (!prisma?.tenant) {
-      throw new Error('Database connection not available to remove override');
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
     }
 
-    const tenant = await prisma.tenant.findFirst({
-      where: {
-        OR: [
-          { id: tenantIdOrSlug },
-          { slug: tenantIdOrSlug.toLowerCase() }
-        ]
-      }
-    });
+    if (isPostgresConfigured() && prisma?.tenant) {
+      const tenant = await prisma.tenant.findFirst({
+        where: {
+          OR: [
+            { id: tenantIdOrSlug },
+            { slug: tenantIdOrSlug.toLowerCase() }
+          ]
+        }
+      });
 
-    if (!tenant) {
-      throw new Error(`Tenant '${tenantIdOrSlug}' no encontrado.`);
+      if (!tenant) {
+        throw new Error(`Tenant '${tenantIdOrSlug}' no encontrado.`);
+      }
+
+      const currentSettings = typeof tenant.settings === 'object' && tenant.settings !== null ? (tenant.settings as any) : {};
+      const currentOverrides = { ...(currentSettings.overrides || currentSettings.entitlements || {}) };
+
+      delete currentOverrides[key];
+
+      const updatedSettings = {
+        ...currentSettings,
+        overrides: currentOverrides
+      };
+
+      return await prisma.tenant.update({
+        where: { id: tenant.id },
+        data: {
+          settings: updatedSettings
+        }
+      });
     }
 
-    const currentSettings = typeof tenant.settings === 'object' && tenant.settings !== null ? (tenant.settings as any) : {};
-    const currentOverrides = { ...(currentSettings.overrides || currentSettings.entitlements || {}) };
-
-    delete currentOverrides[key];
-
-    const updatedSettings = {
-      ...currentSettings,
-      overrides: currentOverrides
-    };
-
-    return await prisma.tenant.update({
-      where: { id: tenant.id },
-      data: {
-        settings: updatedSettings
-      }
-    });
+    throw new DatabaseConfigurationError('Database not available to remove override');
   }
 
   // =========================================================================

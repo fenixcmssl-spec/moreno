@@ -1,6 +1,6 @@
 import { UserRole } from './rbac';
 import crypto from 'crypto';
-import prisma from '../prisma';
+import { prisma, isPostgresConfigured, isProductionMode, DatabaseConfigurationError } from '../prisma';
 
 export interface AuthSession {
   id: string;
@@ -10,24 +10,33 @@ export interface AuthSession {
   role: UserRole;
   tenantId?: string;
   tenantSlug?: string;
+  avatarUrl?: string;
   expiresAt: string;
+  lastActiveAt?: string;
 }
 
-const memorySessionStore = new Map<string, AuthSession>();
-
+/**
+ * =========================================================================
+ * FenixCMS SaaS Engine — PostgreSQL Persistent Session Service
+ * =========================================================================
+ * Strict PostgreSQL-backed session management using cryptographically
+ * hashed tokens (SHA-256). In production, PostgreSQL is the single source
+ * of truth without in-memory persistent fallbacks.
+ * =========================================================================
+ */
 export class SessionService {
-  private static SESSION_COOKIE_NAME = 'fenix_session_token';
-  private static SESSION_TTL_HOURS = 24 * 7; // 7 days
+  private static readonly SESSION_COOKIE_NAME = 'fenix_session_token';
+  private static readonly SESSION_TTL_HOURS = 24 * 7; // 7 days
 
   /**
    * Hashes a raw token for secure storage in PostgreSQL
    */
-  private static hashToken(token: string): string {
-    return crypto.createHash('sha256').update(token).digest('hex');
+  public static hashToken(token: string): string {
+    return crypto.createHash('sha256').update(token.trim()).digest('hex');
   }
 
   /**
-   * Creates a persistent session in PostgreSQL and returns the secret client token
+   * Creates a persistent session in PostgreSQL and returns the raw client token and session
    */
   static async createSession(user: {
     id: string;
@@ -47,6 +56,27 @@ export class SessionService {
 
     const sessionId = `sid_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError(
+        'Session creation failed: PostgreSQL is not configured in production mode.'
+      );
+    }
+
+    if (isPostgresConfigured() && prisma?.session?.create) {
+      await prisma.session.create({
+        data: {
+          id: sessionId,
+          tokenHash,
+          userId: user.id,
+          tenantId: user.tenantId || null,
+          role: user.role,
+          ipAddress: user.ipAddress || null,
+          userAgent: user.userAgent || null,
+          expiresAt: expiresDate
+        }
+      });
+    }
+
     const session: AuthSession = {
       id: sessionId,
       userId: user.id,
@@ -55,131 +85,244 @@ export class SessionService {
       role: user.role,
       tenantId: user.tenantId,
       tenantSlug: user.tenantSlug,
-      expiresAt: expiresDate.toISOString()
+      expiresAt: expiresDate.toISOString(),
+      lastActiveAt: new Date().toISOString()
     };
-
-    // Store in memory cache
-    memorySessionStore.set(tokenHash, session);
-
-    try {
-      if (process.env.DATABASE_URL && prisma && typeof (prisma as any).session?.create === 'function') {
-        await (prisma as any).session.create({
-          data: {
-            id: sessionId,
-            tokenHash,
-            userId: user.id,
-            tenantId: user.tenantId || null,
-            role: user.role,
-            ipAddress: user.ipAddress || null,
-            userAgent: user.userAgent || null,
-            expiresAt: expiresDate
-          }
-        });
-      }
-    } catch (e) {
-      // Prisma error fallback handled gracefully
-    }
 
     return { token: rawToken, session };
   }
 
   /**
-   * Validates a session token against PostgreSQL and memory cache
+   * Validates a session token directly against PostgreSQL
    */
   static async getSession(token: string | null | undefined): Promise<AuthSession | null> {
     if (!token) return null;
     const tokenHash = this.hashToken(token);
 
-    try {
-      if (process.env.DATABASE_URL && prisma && typeof (prisma as any).session?.findUnique === 'function') {
-        const sessionRecord = await (prisma as any).session.findUnique({
-          where: { tokenHash },
-          include: {
-            user: true,
-            tenant: true
-          }
-        });
-
-        if (sessionRecord) {
-          if (new Date(sessionRecord.expiresAt) < new Date()) {
-            await (prisma as any).session.delete({ where: { id: sessionRecord.id } }).catch(() => {});
-            memorySessionStore.delete(tokenHash);
-            return null;
-          }
-
-          (prisma as any).session.update({
-            where: { id: sessionRecord.id },
-            data: { lastActiveAt: new Date() }
-          }).catch(() => {});
-
-          const sess: AuthSession = {
-            id: sessionRecord.id,
-            userId: sessionRecord.user.id,
-            email: sessionRecord.user.email,
-            name: sessionRecord.user.name,
-            role: sessionRecord.role as UserRole,
-            tenantId: sessionRecord.tenantId || undefined,
-            tenantSlug: sessionRecord.tenant?.slug || undefined,
-            expiresAt: sessionRecord.expiresAt.toISOString()
-          };
-          memorySessionStore.set(tokenHash, sess);
-          return sess;
-        }
-      }
-    } catch (e) {
-      // Fall through to memory store
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError(
+        'Session lookup failed: PostgreSQL is not configured in production mode.'
+      );
     }
 
-    const cached = memorySessionStore.get(tokenHash);
-    if (cached) {
-      if (new Date(cached.expiresAt) < new Date()) {
-        memorySessionStore.delete(tokenHash);
+    if (isPostgresConfigured() && prisma?.session?.findUnique) {
+      const sessionRecord = await prisma.session.findUnique({
+        where: { tokenHash },
+        include: {
+          user: true,
+          tenant: true
+        }
+      });
+
+      if (!sessionRecord) {
         return null;
       }
-      return cached;
+
+      // Check Expiration
+      if (new Date(sessionRecord.expiresAt) < new Date()) {
+        await prisma.session.delete({ where: { id: sessionRecord.id } }).catch(() => {});
+        return null;
+      }
+
+      // Check User Status (account suspended/inactive invalidates session)
+      if (sessionRecord.user.status !== 'ACTIVE') {
+        await prisma.session.delete({ where: { id: sessionRecord.id } }).catch(() => {});
+        return null;
+      }
+
+      // Touch lastActiveAt
+      prisma.session.update({
+        where: { id: sessionRecord.id },
+        data: { lastActiveAt: new Date() }
+      }).catch(() => {});
+
+      return {
+        id: sessionRecord.id,
+        userId: sessionRecord.user.id,
+        email: sessionRecord.user.email,
+        name: sessionRecord.user.name,
+        role: sessionRecord.role as UserRole,
+        tenantId: sessionRecord.tenantId || undefined,
+        tenantSlug: sessionRecord.tenant?.slug || undefined,
+        expiresAt: sessionRecord.expiresAt.toISOString(),
+        lastActiveAt: sessionRecord.lastActiveAt.toISOString()
+      };
     }
 
     return null;
   }
 
   /**
-   * Revokes / deletes a session
+   * Validates a session token and returns boolean validation status
+   */
+  static async validateSession(token: string | null | undefined): Promise<{ valid: boolean; session?: AuthSession; error?: string }> {
+    const session = await this.getSession(token);
+    if (!session) {
+      return { valid: false, error: 'Sesión inválida, expirada o no encontrada' };
+    }
+    return { valid: true, session };
+  }
+
+  /**
+   * Refreshes a session expiration date
+   */
+  static async refreshSession(token: string): Promise<boolean> {
+    if (!token) return false;
+    const tokenHash = this.hashToken(token);
+
+    const newExpiresAt = new Date();
+    newExpiresAt.setHours(newExpiresAt.getHours() + this.SESSION_TTL_HOURS);
+
+    if (isPostgresConfigured() && prisma?.session?.updateMany) {
+      const result = await prisma.session.updateMany({
+        where: { 
+          tokenHash,
+          expiresAt: { gt: new Date() }
+        },
+        data: { 
+          expiresAt: newExpiresAt,
+          lastActiveAt: new Date()
+        }
+      });
+      return result.count > 0;
+    }
+
+    return false;
+  }
+
+  /**
+   * Revokes / deletes a specific session by token
    */
   static async revokeSession(token: string): Promise<boolean> {
     if (!token) return false;
     const tokenHash = this.hashToken(token);
-    memorySessionStore.delete(tokenHash);
 
-    try {
-      if (process.env.DATABASE_URL && prisma && typeof (prisma as any).session?.deleteMany === 'function') {
-        await (prisma as any).session.deleteMany({
-          where: { tokenHash }
-        });
-      }
-    } catch {}
+    if (isPostgresConfigured() && prisma?.session?.deleteMany) {
+      await prisma.session.deleteMany({
+        where: { tokenHash }
+      });
+      return true;
+    }
+
+    return true;
+  }
+
+  static async invalidateSession(token: string): Promise<boolean> {
+    return this.revokeSession(token);
+  }
+
+  /**
+   * Revokes all active sessions for a given user across all devices
+   */
+  static async revokeAllUserSessions(userId: string): Promise<boolean> {
+    if (!userId) return false;
+
+    if (isPostgresConfigured() && prisma?.session?.deleteMany) {
+      await prisma.session.deleteMany({
+        where: { userId }
+      });
+      return true;
+    }
 
     return true;
   }
 
   /**
-   * Revokes all active sessions for a given user
+   * Switches the active tenant context for an existing authenticated session.
+   * Validates membership against PostgreSQL before updating.
    */
-  static async revokeAllUserSessions(userId: string): Promise<boolean> {
-    for (const [hash, sess] of memorySessionStore.entries()) {
-      if (sess.userId === userId) {
-        memorySessionStore.delete(hash);
-      }
+  static async switchTenant(token: string, targetTenantId: string): Promise<{ success: boolean; session?: AuthSession; error?: string }> {
+    if (!token || !targetTenantId) {
+      return { success: false, error: 'Token de sesión y tenantId requeridos' };
     }
 
-    try {
-      if (process.env.DATABASE_URL && prisma && typeof (prisma as any).session?.deleteMany === 'function') {
-        await (prisma as any).session.deleteMany({
-          where: { userId }
-        });
-      }
-    } catch {}
+    const currentSession = await this.getSession(token);
+    if (!currentSession) {
+      return { success: false, error: 'Sesión no válida o expirada' };
+    }
 
-    return true;
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
+    }
+
+    if (isPostgresConfigured() && prisma?.tenantMembership) {
+      // 1. If super admin, allow switching to any tenant
+      if (currentSession.role === 'SUPER_ADMIN') {
+        const tenant = await prisma.tenant.findUnique({ where: { id: targetTenantId } });
+        if (!tenant) {
+          return { success: false, error: 'Comercio destino no encontrado' };
+        }
+
+        const tokenHash = this.hashToken(token);
+        await prisma.session.updateMany({
+          where: { tokenHash },
+          data: {
+            tenantId: targetTenantId,
+            lastActiveAt: new Date()
+          }
+        });
+
+        const updatedSession = await this.getSession(token);
+        return { success: true, session: updatedSession || undefined };
+      }
+
+      // 2. For non-superadmin, verify user has ACTIVE membership in targetTenantId
+      const membership = await prisma.tenantMembership.findUnique({
+        where: {
+          tenantId_userId: {
+            tenantId: targetTenantId,
+            userId: currentSession.userId
+          }
+        },
+        include: {
+          tenant: true
+        }
+      });
+
+      if (!membership || membership.status !== 'ACTIVE') {
+        return {
+          success: false,
+          error: 'Acceso denegado: No posees membresía activa en el comercio seleccionado.'
+        };
+      }
+
+      if (membership.tenant.status === 'suspended') {
+        return {
+          success: false,
+          error: 'El comercio seleccionado se encuentra suspendido.'
+        };
+      }
+
+      const tokenHash = this.hashToken(token);
+      await prisma.session.updateMany({
+        where: { tokenHash },
+        data: {
+          tenantId: targetTenantId,
+          role: membership.role,
+          lastActiveAt: new Date()
+        }
+      });
+
+      const updatedSession = await this.getSession(token);
+      return { success: true, session: updatedSession || undefined };
+    }
+
+    return { success: false, error: 'Servicio de base de datos no disponible' };
+  }
+
+  /**
+   * Deletes all expired sessions from the database
+   */
+  static async deleteExpiredSessions(): Promise<number> {
+    if (isPostgresConfigured() && prisma?.session?.deleteMany) {
+      const res = await prisma.session.deleteMany({
+        where: {
+          expiresAt: { lt: new Date() }
+        }
+      });
+      return res.count;
+    }
+    return 0;
   }
 
   static getCookieName(): string {

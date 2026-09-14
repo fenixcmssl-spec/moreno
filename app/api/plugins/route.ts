@@ -3,6 +3,7 @@ import { PluginService } from '@/lib/services/plugin.service';
 import { PluginManifestSchema } from '@/lib/validators';
 import { TenantContextHelper } from '@/lib/auth/tenantContext';
 import { AuditService } from '@/lib/services/audit.service';
+import { SecurityService } from '@/lib/security/security.service';
 
 export async function GET(req: NextRequest) {
   try {
@@ -18,15 +19,33 @@ export async function GET(req: NextRequest) {
     }
 
     const { tenant } = auth.context;
-    const plugins = PluginService.getAllPlugins();
-    
-    // Enrich with tenant-specific active status
-    const tenantPlugins = plugins.map(p => ({
-      ...p,
-      isActiveForTenant: tenant.activePlugins?.includes(p.id) ?? false
-    }));
+    const { searchParams } = new URL(req.url);
+    const category = searchParams.get('category') || undefined;
+    const search = searchParams.get('search') || undefined;
 
-    return NextResponse.json({ success: true, plugins: tenantPlugins, tenantId: tenant.id });
+    const [plugins, installations] = await Promise.all([
+      PluginService.getAllPlugins({ category, search }),
+      PluginService.getTenantInstallations(tenant.id)
+    ]);
+
+    const installationMap = new Map(installations.map(inst => [inst.pluginId, inst]));
+
+    // Enrich with tenant-specific active status and settings from PostgreSQL
+    const tenantPlugins = plugins.map(p => {
+      const inst = installationMap.get(p.id);
+      return {
+        ...p,
+        isActiveForTenant: inst ? inst.status === 'ACTIVE' : (p.isEnabled ?? false),
+        tenantSettings: inst ? inst.config : p.config
+      };
+    });
+
+    return NextResponse.json({
+      success: true,
+      plugins: tenantPlugins,
+      installations,
+      tenantId: tenant.id
+    });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error?.message || 'Error listando plugins' }, { status: 500 });
   }
@@ -58,16 +77,46 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, error: 'pluginId requerido' }, { status: 400 });
       }
 
+      const toggleResult = await PluginService.togglePluginForTenant(
+        tenant.id,
+        pluginId,
+        enable !== undefined ? Boolean(enable) : undefined
+      );
+
       AuditService.log({
         tenantId: tenant.id,
         userId: session?.userId,
         userEmail: session?.email,
-        action: enable ? 'PLUGIN_ENABLED' : 'PLUGIN_DISABLED',
+        action: toggleResult.isEnabled ? 'PLUGIN_ENABLED' : 'PLUGIN_DISABLED',
         entity: 'Plugin',
         entityId: pluginId
       });
 
-      return NextResponse.json({ success: true, pluginId, enabled: Boolean(enable) });
+      return NextResponse.json({
+        success: toggleResult.success,
+        pluginId,
+        enabled: toggleResult.isEnabled
+      });
+    }
+
+    if (body.action === 'updateConfig') {
+      const auth = await TenantContextHelper.requireTenantRole(req, 'ADMIN', {
+        targetTenantId: body.tenantId
+      });
+
+      if (!auth.success) {
+        return auth.response;
+      }
+
+      const { tenant } = auth.context;
+      const { pluginId, settings } = body;
+
+      if (!pluginId || !settings) {
+        return NextResponse.json({ success: false, error: 'pluginId y settings requeridos' }, { status: 400 });
+      }
+
+      const updated = await PluginService.updatePluginConfig(tenant.id, pluginId, settings);
+      return NextResponse.json({ success: updated, pluginId, settings });
     }
 
     // Global plugin installation/creation requires Super Admin
@@ -95,9 +144,12 @@ export async function POST(req: NextRequest) {
       }, { status: 400 });
     }
 
-    const result = PluginService.createPlugin(validated.data as any);
+    const result = await PluginService.createPlugin(validated.data as any, {
+      tenantId: auth.context.tenant.id
+    });
     return NextResponse.json(result, { status: result.success ? 200 : 400 });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error?.message }, { status: 500 });
   }
 }
+

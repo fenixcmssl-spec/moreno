@@ -12,7 +12,11 @@ export async function GET(req: NextRequest) {
     }
 
     const { tenant } = auth.context;
-    const files = StorageService.getTenantMedia(tenant.id);
+    const { searchParams } = new URL(req.url);
+    const search = searchParams.get('search') || undefined;
+    const type = searchParams.get('type') || undefined;
+
+    const files = await StorageService.getTenantMedia(tenant.id, { search, type });
     return NextResponse.json({ success: true, files, tenantId: tenant.id });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error?.message || 'Error cargando archivos multimedia' }, { status: 500 });
@@ -104,7 +108,7 @@ export async function DELETE(req: NextRequest) {
     }
 
     const { tenant, session } = auth.context;
-    const success = StorageService.deleteFile(tenant.id, fileId);
+    const success = await StorageService.deleteFile(tenant.id, fileId);
 
     if (success) {
       AuditService.log({

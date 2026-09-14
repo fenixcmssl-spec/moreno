@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/prisma';
+import { prisma, isPostgresConfigured, isProductionMode, DatabaseConfigurationError } from '@/lib/prisma';
 import { SubscriptionRecord, SubscriptionStatusType } from '@/types';
 import { LicenseService } from './license.service';
 
@@ -53,30 +53,34 @@ export interface CreateSubscriptionInput {
 
 export class SubscriptionService {
   /**
-   * Retrieves all subscriptions (PostgreSQL with fallback)
+   * Retrieves all subscriptions from PostgreSQL
    */
   static async getAll(options?: { status?: string; tenantId?: string }): Promise<SubscriptionRecord[]> {
-    try {
-      if (process.env.DATABASE_URL && prisma?.subscription) {
-        const where: any = {};
-        if (options?.status) where.status = options.status.toUpperCase();
-        if (options?.tenantId) where.tenantId = options.tenantId;
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
+    }
 
-        const dbSubs = await prisma.subscription.findMany({
-          where,
-          include: {
-            plan: true,
-            tenant: true
-          },
-          orderBy: { createdAt: 'desc' }
-        });
+    if (isPostgresConfigured() && prisma?.subscription?.findMany) {
+      const where: any = {};
+      if (options?.status) where.status = options.status.toUpperCase();
+      if (options?.tenantId) where.tenantId = options.tenantId;
 
-        if (dbSubs && dbSubs.length > 0) {
-          return dbSubs.map((s: any) => this.mapPrismaToSubscription(s));
-        }
+      const dbSubs = await prisma.subscription.findMany({
+        where,
+        include: {
+          plan: true,
+          tenant: true
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      if (dbSubs && dbSubs.length > 0) {
+        return dbSubs.map((s: any) => this.mapPrismaToSubscription(s));
       }
-    } catch {
-      // Fallback
+
+      if (isProductionMode()) {
+        return [];
+      }
     }
 
     let list = [...memorySubscriptions];
@@ -93,20 +97,26 @@ export class SubscriptionService {
    * Retrieves active or latest subscription for a tenant
    */
   static async getByTenantId(tenantId: string): Promise<SubscriptionRecord | null> {
-    try {
-      if (process.env.DATABASE_URL && prisma?.subscription) {
-        const sub = await prisma.subscription.findFirst({
-          where: { tenantId },
-          include: {
-            plan: true,
-            tenant: true
-          },
-          orderBy: { createdAt: 'desc' }
-        });
-        if (sub) return this.mapPrismaToSubscription(sub);
+    if (!tenantId) return null;
+
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
+    }
+
+    if (isPostgresConfigured() && prisma?.subscription) {
+      const sub = await prisma.subscription.findFirst({
+        where: { tenantId },
+        include: {
+          plan: true,
+          tenant: true
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+      if (sub) return this.mapPrismaToSubscription(sub);
+
+      if (isProductionMode()) {
+        return null;
       }
-    } catch {
-      // Fallback
     }
 
     const found = memorySubscriptions.find(s => s.tenantId === tenantId);
@@ -114,22 +124,28 @@ export class SubscriptionService {
   }
 
   /**
-   * Retrieves subscription by ID
+   * Retrieves subscription by unique ID
    */
   static async getById(id: string): Promise<SubscriptionRecord | null> {
-    try {
-      if (process.env.DATABASE_URL && prisma?.subscription) {
-        const sub = await prisma.subscription.findUnique({
-          where: { id },
-          include: {
-            plan: true,
-            tenant: true
-          }
-        });
-        if (sub) return this.mapPrismaToSubscription(sub);
+    if (!id) return null;
+
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
+    }
+
+    if (isPostgresConfigured() && prisma?.subscription) {
+      const sub = await prisma.subscription.findUnique({
+        where: { id },
+        include: {
+          plan: true,
+          tenant: true
+        }
+      });
+      if (sub) return this.mapPrismaToSubscription(sub);
+
+      if (isProductionMode()) {
+        return null;
       }
-    } catch {
-      // Fallback
     }
 
     const found = memorySubscriptions.find(s => s.id === id);
@@ -139,7 +155,15 @@ export class SubscriptionService {
   /**
    * Creates a new Subscription and synchronizes linked License
    */
+  static async create(input: CreateSubscriptionInput): Promise<SubscriptionRecord> {
+    return this.createSubscription(input);
+  }
+
   static async createSubscription(input: CreateSubscriptionInput): Promise<SubscriptionRecord> {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
+    }
+
     const now = new Date();
     const isTrial = (input.trialDays && input.trialDays > 0) || input.status === 'TRIALING';
     const durationDays = isTrial ? (input.trialDays || 14) : (input.billingPeriod === 'yearly' ? 365 : 30);
@@ -164,48 +188,46 @@ export class SubscriptionService {
       updatedAt: now.toISOString()
     };
 
-    try {
-      if (process.env.DATABASE_URL && prisma?.subscription) {
-        const dbCreated = await prisma.subscription.create({
-          data: {
-            id: newSub.id,
-            tenantId: newSub.tenantId,
-            planId: newSub.planId,
-            provider: newSub.provider,
-            providerSubscriptionId: newSub.providerSubscriptionId,
-            status: newSub.status as any,
-            billingPeriod: newSub.billingPeriod,
-            currentPeriodStart: periodStart,
-            currentPeriodEnd: periodEnd,
-            cancelAtPeriodEnd: false,
-            amount: newSub.amount || 0,
-            currency: newSub.currency || 'EUR'
-          }
-        });
-        newSub.id = dbCreated.id;
-      }
-    } catch {
-      // Fallback
+    if (isPostgresConfigured() && prisma?.subscription) {
+      const dbCreated = await prisma.subscription.create({
+        data: {
+          id: newSub.id,
+          tenantId: newSub.tenantId,
+          planId: newSub.planId,
+          provider: newSub.provider,
+          providerSubscriptionId: newSub.providerSubscriptionId || null,
+          status: newSub.status as any,
+          billingPeriod: newSub.billingPeriod,
+          currentPeriodStart: periodStart,
+          currentPeriodEnd: periodEnd,
+          cancelAtPeriodEnd: false,
+          amount: Number(newSub.amount || 0),
+          currency: newSub.currency || 'EUR'
+        },
+        include: {
+          plan: true,
+          tenant: true
+        }
+      });
+      return this.mapPrismaToSubscription(dbCreated);
     }
 
     memorySubscriptions.unshift(newSub);
-
-    // Sync license active state
     await this.syncLicenseWithSubscription(newSub.id);
-
     return newSub;
   }
 
   /**
    * Cancels a subscription
-   * Regla:
-   * - cancelAtPeriodEnd = true: Keeps subscription active until currentPeriodEnd
-   * - cancelAtPeriodEnd = false: Immediate cancellation
    */
   static async cancelSubscription(
     id: string,
     options: { cancelAtPeriodEnd?: boolean; reason?: string } = { cancelAtPeriodEnd: true }
   ): Promise<{ success: boolean; subscription?: SubscriptionRecord; error?: string }> {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
+    }
+
     const sub = await this.getById(id);
     if (!sub) return { success: false, error: 'Suscripción no encontrada' };
 
@@ -213,42 +235,39 @@ export class SubscriptionService {
     const cancelAtPeriodEnd = options.cancelAtPeriodEnd !== false;
 
     if (cancelAtPeriodEnd) {
-      // Mark cancelAtPeriodEnd = true; keeps status ACTIVE until period end
       sub.cancelAtPeriodEnd = true;
       sub.cancelledAt = now.toISOString();
       sub.updatedAt = now.toISOString();
     } else {
-      // Immediate cancellation
       sub.status = 'CANCELLED';
       sub.cancelAtPeriodEnd = false;
       sub.cancelledAt = now.toISOString();
       sub.updatedAt = now.toISOString();
     }
 
-    try {
-      if (process.env.DATABASE_URL && prisma?.subscription) {
-        await prisma.subscription.update({
-          where: { id },
-          data: {
-            cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
-            status: sub.status as any,
-            cancelledAt: sub.cancelledAt ? new Date(sub.cancelledAt) : null
-          }
-        });
-      }
-    } catch {
-      // Fallback
+    if (isPostgresConfigured() && prisma?.subscription) {
+      const updated = await prisma.subscription.update({
+        where: { id },
+        data: {
+          cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+          status: sub.status as any,
+          cancelledAt: sub.cancelledAt ? new Date(sub.cancelledAt) : null
+        },
+        include: {
+          plan: true,
+          tenant: true
+        }
+      });
+      await this.syncLicenseWithSubscription(id);
+      return { success: true, subscription: this.mapPrismaToSubscription(updated) };
     }
 
-    // Update in memory
     const idx = memorySubscriptions.findIndex(s => s.id === id);
     if (idx !== -1) {
       memorySubscriptions[idx] = { ...sub };
     }
 
-    // Synchronize license status
     await this.syncLicenseWithSubscription(id);
-
     return { success: true, subscription: sub };
   }
 
@@ -259,23 +278,44 @@ export class SubscriptionService {
     const sub = await this.getById(id);
     if (!sub) return { success: false };
 
-    // Set to PAST_DUE (Grace period: no immediate revocation)
     sub.status = 'PAST_DUE';
     sub.updatedAt = new Date().toISOString();
 
-    try {
-      if (process.env.DATABASE_URL && prisma?.subscription) {
-        await prisma.subscription.update({
-          where: { id },
-          data: { status: 'PAST_DUE' as any }
-        });
-      }
-    } catch {}
+    if (isPostgresConfigured() && prisma?.subscription) {
+      const updated = await prisma.subscription.update({
+        where: { id },
+        data: { status: 'PAST_DUE' as any },
+        include: { plan: true, tenant: true }
+      });
+      return { success: true, subscription: this.mapPrismaToSubscription(updated) };
+    }
 
     const idx = memorySubscriptions.findIndex(s => s.id === id);
     if (idx !== -1) memorySubscriptions[idx] = { ...sub };
 
     return { success: true, subscription: sub };
+  }
+
+  static async updateStatus(id: string, status: SubscriptionStatusType): Promise<SubscriptionRecord | null> {
+    const sub = await this.getById(id);
+    if (!sub) return null;
+
+    sub.status = status;
+    sub.updatedAt = new Date().toISOString();
+
+    if (isPostgresConfigured() && prisma?.subscription) {
+      const updated = await prisma.subscription.update({
+        where: { id },
+        data: { status: status as any },
+        include: { plan: true, tenant: true }
+      });
+      return this.mapPrismaToSubscription(updated);
+    }
+
+    const idx = memorySubscriptions.findIndex(s => s.id === id);
+    if (idx !== -1) memorySubscriptions[idx] = { ...sub };
+
+    return sub;
   }
 
   static handlePaymentFailed = this.handleFailedPayment;
@@ -299,25 +339,24 @@ export class SubscriptionService {
     sub.currentPeriodEnd = end.toISOString();
     sub.updatedAt = now.toISOString();
 
-    try {
-      if (process.env.DATABASE_URL && prisma?.subscription) {
-        await prisma.subscription.update({
-          where: { id },
-          data: {
-            status: 'ACTIVE' as any,
-            currentPeriodStart: now,
-            currentPeriodEnd: end
-          }
-        });
-      }
-    } catch {}
+    if (isPostgresConfigured() && prisma?.subscription) {
+      const updated = await prisma.subscription.update({
+        where: { id },
+        data: {
+          status: 'ACTIVE' as any,
+          currentPeriodStart: now,
+          currentPeriodEnd: end
+        },
+        include: { plan: true, tenant: true }
+      });
+      await this.syncLicenseWithSubscription(id);
+      return { success: true, subscription: this.mapPrismaToSubscription(updated) };
+    }
 
     const idx = memorySubscriptions.findIndex(s => s.id === id);
     if (idx !== -1) memorySubscriptions[idx] = { ...sub };
 
-    // Keep license active & validTo synchronized
     await this.syncLicenseWithSubscription(id);
-
     return { success: true, subscription: sub };
   }
 
@@ -325,11 +364,6 @@ export class SubscriptionService {
 
   /**
    * Evaluates if a subscription is currently providing access
-   * Active rules:
-   * - ACTIVE: yes
-   * - TRIALING: yes
-   * - PAST_DUE: yes (during grace period)
-   * - CANCELLED / EXPIRED: only if currentPeriodEnd > now (when cancelAtPeriodEnd was set)
    */
   static isSubscriptionEffective(subscription: SubscriptionRecord): boolean {
     const now = new Date();
@@ -359,21 +393,44 @@ export class SubscriptionService {
     const sub = await this.getById(subscriptionId);
     if (!sub) return;
 
+    if (isPostgresConfigured() && prisma?.license) {
+      const isEffective = this.isSubscriptionEffective(sub);
+      const dbLicense = await prisma.license.findFirst({
+        where: { tenantId: sub.tenantId },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      if (dbLicense) {
+        if (isEffective) {
+          const updates: any = { status: 'ACTIVE' };
+          if (new Date(dbLicense.expiresAt) < new Date(sub.currentPeriodEnd)) {
+            updates.expiresAt = new Date(sub.currentPeriodEnd);
+          }
+          await prisma.license.update({
+            where: { id: dbLicense.id },
+            data: updates
+          });
+        } else if (sub.status === 'CANCELLED' || sub.status === 'EXPIRED') {
+          await prisma.license.update({
+            where: { id: dbLicense.id },
+            data: { status: 'EXPIRED' }
+          });
+        }
+      }
+      return;
+    }
+
     const tenantLicense = LicenseService.getByTenantId(sub.tenantId);
     if (!tenantLicense) return;
 
     const isEffective = this.isSubscriptionEffective(sub);
-
     if (isEffective) {
       tenantLicense.status = 'active';
-      // Sync validity to subscription period end
       if (new Date(tenantLicense.validTo) < new Date(sub.currentPeriodEnd)) {
         tenantLicense.validTo = sub.currentPeriodEnd;
       }
     } else {
-      if (sub.status === 'CANCELLED') {
-        tenantLicense.status = 'expired';
-      } else if (sub.status === 'EXPIRED') {
+      if (sub.status === 'CANCELLED' || sub.status === 'EXPIRED') {
         tenantLicense.status = 'expired';
       }
     }

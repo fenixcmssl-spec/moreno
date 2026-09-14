@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/prisma';
+import { prisma, isPostgresConfigured, isProductionMode, DatabaseConfigurationError } from '@/lib/prisma';
 import { SaaSPlan, PlanEntitlements, EntityStatus } from '@/types';
 import { INITIAL_PLANS } from '@/lib/initialData';
 
@@ -6,7 +6,7 @@ export class PlanService {
   /**
    * Helper to map Prisma Plan model to SaaSPlan interface with full backwards compatibility
    */
-  private static mapPrismaToSaaSPlan(plan: any, activeLicensesCount = 0): SaaSPlan {
+  public static mapPrismaToSaaSPlan(plan: any, activeLicensesCount = 0): SaaSPlan {
     const entitlementsObj: PlanEntitlements = {};
     if (plan.entitlements && Array.isArray(plan.entitlements)) {
       for (const ent of plan.entitlements) {
@@ -64,7 +64,7 @@ export class PlanService {
    * Resolves or ensures a valid Application ID in PostgreSQL
    */
   private static async resolveApplicationId(appIdOrKey: string): Promise<string> {
-    if (!prisma?.application) {
+    if (!isPostgresConfigured() || !prisma?.application) {
       return appIdOrKey;
     }
 
@@ -82,13 +82,11 @@ export class PlanService {
       return app.id;
     }
 
-    // Fallback: lookup first application
     const firstApp = await prisma.application.findFirst();
     if (firstApp) {
       return firstApp.id;
     }
 
-    // If no applications in DB, create default ECOMMERCE application
     const createdApp = await prisma.application.create({
       data: {
         key: 'ECOMMERCE',
@@ -103,41 +101,23 @@ export class PlanService {
   }
 
   /**
-   * Retrieves all plans from PostgreSQL with optional filtering
+   * Retrieves all SaaS plans from PostgreSQL with entitlements included
    */
-  static async getAll(options?: {
-    applicationId?: string;
-    status?: string;
-    search?: string;
-  }): Promise<SaaSPlan[]> {
-    try {
-      if (!process.env.DATABASE_URL || !prisma?.plan) {
-        let plans = [...INITIAL_PLANS];
-        if (options?.status) {
-          plans = plans.filter(p => (p.status || 'ACTIVE').toLowerCase() === options.status?.toLowerCase());
-        }
-        if (options?.applicationId) {
-          const targetAppId = options.applicationId;
-          plans = plans.filter(p => p.applicationId === targetAppId || (p.slug && p.slug.includes(targetAppId)));
-        }
-        if (options?.search) {
-          const q = options.search.toLowerCase();
-          plans = plans.filter(p => p.name.toLowerCase().includes(q) || p.slug.toLowerCase().includes(q) || (p.description && p.description.toLowerCase().includes(q)));
-        }
-        return plans;
-      }
+  static async getAll(options?: { applicationId?: string; status?: string; search?: string }): Promise<SaaSPlan[]> {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
+    }
 
-      await this.ensureSeedPlans();
-
+    if (isPostgresConfigured() && prisma?.plan?.findMany) {
       const where: any = {};
       if (options?.status) {
-        where.status = options.status;
+        where.status = options.status.toUpperCase();
       }
       if (options?.applicationId) {
         where.OR = [
           { applicationId: options.applicationId },
-          { application: { key: options.applicationId } },
-          { application: { slug: options.applicationId } }
+          { application: { key: options.applicationId.toUpperCase() } },
+          { application: { slug: options.applicationId.toLowerCase() } }
         ];
       }
       if (options?.search) {
@@ -151,7 +131,6 @@ export class PlanService {
       const dbPlans = await prisma.plan.findMany({
         where,
         include: {
-          application: true,
           entitlements: true,
           _count: {
             select: {
@@ -160,49 +139,43 @@ export class PlanService {
             }
           }
         },
-        orderBy: { createdAt: 'desc' }
+        orderBy: { monthlyPrice: 'asc' }
       });
 
-      // Count active licenses for each plan
-      const plansWithActiveCount = await Promise.all(
-        dbPlans.map(async (p: any) => {
-          const activeCount = await prisma.license.count({
-            where: {
-              planId: p.id,
-              status: 'ACTIVE'
-            }
-          });
-          return this.mapPrismaToSaaSPlan(p, activeCount);
-        })
-      );
+      if (dbPlans && dbPlans.length > 0) {
+        return dbPlans.map(p => this.mapPrismaToSaaSPlan(p));
+      }
 
-      return plansWithActiveCount;
-    } catch {
-      let plans = [...INITIAL_PLANS];
-      if (options?.status) {
-        plans = plans.filter(p => (p.status || 'ACTIVE').toLowerCase() === options.status?.toLowerCase());
+      if (isProductionMode()) {
+        return [];
       }
-      if (options?.applicationId) {
-        const targetAppId = options.applicationId;
-        plans = plans.filter(p => p.applicationId === targetAppId || (p.slug && p.slug.includes(targetAppId)));
-      }
-      return plans;
     }
+
+    // Fallback for development/test only
+    let plans = [...INITIAL_PLANS];
+    if (options?.applicationId) {
+      plans = plans.filter(p => p.applicationId === options.applicationId || p.applicationId === 'ECOMMERCE');
+    }
+    if (options?.status) {
+      plans = plans.filter(p => p.status.toLowerCase() === options.status?.toLowerCase());
+    }
+    return plans;
   }
 
   /**
-   * Retrieves a single plan by ID from PostgreSQL
+   * Retrieves a single SaaS plan by unique ID
    */
   static async getById(id: string): Promise<SaaSPlan | null> {
-    try {
-      if (!process.env.DATABASE_URL || !prisma?.plan) {
-        return INITIAL_PLANS.find(p => p.id === id) || null;
-      }
+    if (!id) return null;
 
-      const plan = await prisma.plan.findUnique({
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
+    }
+
+    if (isPostgresConfigured() && prisma?.plan?.findUnique) {
+      const dbPlan = await prisma.plan.findUnique({
         where: { id },
         include: {
-          application: true,
           entitlements: true,
           _count: {
             select: {
@@ -213,453 +186,326 @@ export class PlanService {
         }
       });
 
-      if (!plan) return INITIAL_PLANS.find(p => p.id === id) || null;
-
-      const activeCount = await prisma.license.count({
-        where: {
-          planId: id,
-          status: 'ACTIVE'
-        }
-      });
-
-      return this.mapPrismaToSaaSPlan(plan, activeCount);
-    } catch {
-      return INITIAL_PLANS.find(p => p.id === id) || null;
-    }
-  }
-
-  /**
-   * Retrieves a single plan by slug from PostgreSQL
-   */
-  static async getBySlug(slug: string): Promise<SaaSPlan | null> {
-    try {
-      if (!process.env.DATABASE_URL || !prisma?.plan) {
-        return INITIAL_PLANS.find(p => p.slug.toLowerCase() === slug.toLowerCase()) || null;
+      if (dbPlan) {
+        return this.mapPrismaToSaaSPlan(dbPlan);
       }
 
-      const plan = await prisma.plan.findUnique({
-        where: { slug: slug.toLowerCase() },
+      if (isProductionMode()) {
+        return null;
+      }
+    }
+
+    return INITIAL_PLANS.find(p => p.id === id) || null;
+  }
+
+  /**
+   * Retrieves a single SaaS plan by unique URL slug
+   */
+  static async getBySlug(slug: string): Promise<SaaSPlan | null> {
+    if (!slug) return null;
+    const cleanSlug = slug.trim().toLowerCase();
+
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
+    }
+
+    if (isPostgresConfigured() && prisma?.plan?.findUnique) {
+      const dbPlan = await prisma.plan.findUnique({
+        where: { slug: cleanSlug },
         include: {
-          application: true,
-          entitlements: true
+          entitlements: true,
+          _count: {
+            select: {
+              licenses: true,
+              subscriptions: true
+            }
+          }
         }
       });
 
-      if (!plan) return INITIAL_PLANS.find(p => p.slug.toLowerCase() === slug.toLowerCase()) || null;
+      if (dbPlan) {
+        return this.mapPrismaToSaaSPlan(dbPlan);
+      }
 
-      return this.mapPrismaToSaaSPlan(plan);
-    } catch {
-      return INITIAL_PLANS.find(p => p.slug.toLowerCase() === slug.toLowerCase()) || null;
+      if (isProductionMode()) {
+        return null;
+      }
     }
+
+    return INITIAL_PLANS.find(p => p.slug.toLowerCase() === cleanSlug) || null;
   }
 
   /**
-   * Retrieves all plans for a specific application
-   */
-  static async getByApplication(applicationId: string): Promise<SaaSPlan[]> {
-    return this.getAll({ applicationId });
-  }
-
-  /**
-   * Creates a new plan in PostgreSQL
+   * Creates a new SaaS plan with full transactional entitlement synchronization in PostgreSQL
    */
   static async create(data: {
-    applicationId: string;
     name: string;
     slug?: string;
-    description: string;
-    monthlyPrice?: number;
-    yearlyPrice?: number;
-    priceMonthly?: number;
-    priceYearly?: number;
+    applicationId?: string;
+    description?: string;
+    monthlyPrice: number;
+    yearlyPrice: number;
     currency?: string;
     trialDays?: number;
-    status?: string;
+    popular?: boolean;
     badge?: string;
     imageUrl?: string;
-    popular?: boolean;
     features?: string[];
-    entitlements?: PlanEntitlements;
+    entitlements?: Record<string, any>;
+    status?: EntityStatus;
   }): Promise<SaaSPlan> {
-    const validAppId = await this.resolveApplicationId(data.applicationId);
-    const mPrice = Number(data.monthlyPrice ?? data.priceMonthly ?? 0);
-    const yPrice = Number(data.yearlyPrice ?? data.priceYearly ?? (mPrice * 10));
-    
-    let baseSlug = (data.slug || data.name).toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-    if (!baseSlug) baseSlug = `plan-${Date.now()}`;
-
-    // Verify slug uniqueness in PostgreSQL
-    let uniqueSlug = baseSlug;
-    let count = 1;
-    while (await prisma.plan.findUnique({ where: { slug: uniqueSlug } })) {
-      uniqueSlug = `${baseSlug}-${count}`;
-      count++;
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
     }
 
-    const created = await prisma.plan.create({
-      data: {
-        applicationId: validAppId,
-        name: data.name.trim(),
-        slug: uniqueSlug,
-        description: data.description || '',
-        monthlyPrice: mPrice,
-        yearlyPrice: yPrice,
-        currency: data.currency || 'EUR',
-        trialDays: Number(data.trialDays ?? 14),
-        status: data.status || 'ACTIVE',
-        badge: data.badge || null,
-        imageUrl: data.imageUrl || null,
-        popular: Boolean(data.popular),
-        features: Array.isArray(data.features) ? data.features : [],
-        entitlements: {
-          create: data.entitlements ? Object.entries(data.entitlements).map(([key, val]) => {
+    const rawSlug = data.slug || data.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const slug = rawSlug.toLowerCase().replace(/^-+|-+$/g, '');
+
+    const resolvedAppId = await this.resolveApplicationId(data.applicationId || 'ECOMMERCE');
+
+    if (isPostgresConfigured() && prisma?.plan) {
+      const created = await prisma.$transaction(async (tx: any) => {
+        const plan = await tx.plan.create({
+          data: {
+            name: data.name.trim(),
+            slug,
+            applicationId: resolvedAppId,
+            description: data.description || '',
+            monthlyPrice: Number(data.monthlyPrice || 0),
+            yearlyPrice: Number(data.yearlyPrice || 0),
+            currency: data.currency || 'EUR',
+            trialDays: Number(data.trialDays ?? 14),
+            popular: Boolean(data.popular),
+            badge: data.badge || null,
+            imageUrl: data.imageUrl || null,
+            features: Array.isArray(data.features) ? data.features : [],
+            status: (data.status || 'ACTIVE').toUpperCase()
+          }
+        });
+
+        if (data.entitlements && typeof data.entitlements === 'object') {
+          const entitlementRecords = Object.entries(data.entitlements).map(([key, val]) => {
             let type = 'STRING';
-            let valStr = String(val);
+            let valueStr = String(val);
+
             if (typeof val === 'number') {
               type = 'NUMBER';
             } else if (typeof val === 'boolean') {
               type = 'BOOLEAN';
+              valueStr = val ? 'true' : 'false';
             } else if (Array.isArray(val) || typeof val === 'object') {
               type = 'ARRAY';
-              valStr = JSON.stringify(val);
+              valueStr = JSON.stringify(val);
             }
+
             return {
+              planId: plan.id,
               key,
-              value: valStr,
+              value: valueStr,
               type
             };
-          }) : []
-        }
-      },
-      include: {
-        application: true,
-        entitlements: true
-      }
-    });
+          });
 
-    return this.mapPrismaToSaaSPlan(created, 0);
+          if (entitlementRecords.length > 0) {
+            await tx.planEntitlement.createMany({
+              data: entitlementRecords
+            });
+          }
+        }
+
+        return tx.plan.findUnique({
+          where: { id: plan.id },
+          include: { entitlements: true }
+        });
+      });
+
+      return this.mapPrismaToSaaSPlan(created);
+    }
+
+    throw new DatabaseConfigurationError('Database is not available for plan creation.');
   }
 
   /**
-   * Updates an existing plan in PostgreSQL
+   * Updates an existing SaaS plan and its entitlements in PostgreSQL
    */
   static async update(
     id: string,
     data: {
-      applicationId?: string;
       name?: string;
       slug?: string;
+      applicationId?: string;
       description?: string;
       monthlyPrice?: number;
       yearlyPrice?: number;
-      priceMonthly?: number;
-      priceYearly?: number;
       currency?: string;
       trialDays?: number;
-      status?: string;
+      popular?: boolean;
       badge?: string;
       imageUrl?: string;
-      popular?: boolean;
       features?: string[];
-      entitlements?: PlanEntitlements;
+      entitlements?: Record<string, any>;
+      status?: EntityStatus;
     }
   ): Promise<SaaSPlan | null> {
-    const existing = await prisma.plan.findUnique({
-      where: { id },
-      include: { entitlements: true }
-    });
-
-    if (!existing) return null;
-
-    const updateData: any = {};
-    if (data.name !== undefined) updateData.name = data.name.trim();
-    if (data.description !== undefined) updateData.description = data.description;
-    if (data.currency !== undefined) updateData.currency = data.currency;
-    if (data.trialDays !== undefined) updateData.trialDays = Number(data.trialDays);
-    if (data.status !== undefined) updateData.status = data.status;
-    if (data.badge !== undefined) updateData.badge = data.badge;
-    if (data.imageUrl !== undefined) updateData.imageUrl = data.imageUrl;
-    if (data.popular !== undefined) updateData.popular = Boolean(data.popular);
-    if (data.features !== undefined) updateData.features = Array.isArray(data.features) ? data.features : [];
-
-    if (data.monthlyPrice !== undefined || data.priceMonthly !== undefined) {
-      updateData.monthlyPrice = Number(data.monthlyPrice ?? data.priceMonthly);
-    }
-    if (data.yearlyPrice !== undefined || data.priceYearly !== undefined) {
-      updateData.yearlyPrice = Number(data.yearlyPrice ?? data.priceYearly);
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
     }
 
-    if (data.slug !== undefined) {
-      const cleanSlug = data.slug.toLowerCase().replace(/[^a-z0-9-]/g, '');
-      if (cleanSlug && cleanSlug !== existing.slug) {
-        const slugExists = await prisma.plan.findFirst({
-          where: { slug: cleanSlug, NOT: { id } }
-        });
-        if (!slugExists) {
-          updateData.slug = cleanSlug;
-        }
+    if (isPostgresConfigured() && prisma?.plan) {
+      const existing = await prisma.plan.findUnique({ where: { id } });
+      if (!existing) return null;
+
+      const updateData: any = {};
+      if (data.name !== undefined) updateData.name = data.name.trim();
+      if (data.slug !== undefined) updateData.slug = data.slug.trim().toLowerCase();
+      if (data.description !== undefined) updateData.description = data.description;
+      if (data.monthlyPrice !== undefined) updateData.monthlyPrice = Number(data.monthlyPrice);
+      if (data.yearlyPrice !== undefined) updateData.yearlyPrice = Number(data.yearlyPrice);
+      if (data.currency !== undefined) updateData.currency = data.currency;
+      if (data.trialDays !== undefined) updateData.trialDays = Number(data.trialDays);
+      if (data.popular !== undefined) updateData.popular = Boolean(data.popular);
+      if (data.badge !== undefined) updateData.badge = data.badge;
+      if (data.imageUrl !== undefined) updateData.imageUrl = data.imageUrl;
+      if (data.features !== undefined) updateData.features = data.features;
+      if (data.status !== undefined) updateData.status = data.status.toUpperCase();
+      if (data.applicationId) {
+        updateData.applicationId = await this.resolveApplicationId(data.applicationId);
       }
-    }
 
-    if (data.applicationId !== undefined) {
-      updateData.applicationId = await this.resolveApplicationId(data.applicationId);
-    }
-
-    const updated = await prisma.$transaction(async (tx: any) => {
-      await tx.plan.update({
-        where: { id },
-        data: updateData
-      });
-
-      if (data.entitlements !== undefined) {
-        await tx.planEntitlement.deleteMany({
-          where: { planId: id }
+      const updated = await prisma.$transaction(async (tx: any) => {
+        await tx.plan.update({
+          where: { id },
+          data: updateData
         });
 
-        const entitlementEntries = Object.entries(data.entitlements);
-        if (entitlementEntries.length > 0) {
-          await tx.planEntitlement.createMany({
-            data: entitlementEntries.map(([key, val]) => {
-              let type = 'STRING';
-              let valStr = String(val);
-              if (typeof val === 'number') {
-                type = 'NUMBER';
-              } else if (typeof val === 'boolean') {
-                type = 'BOOLEAN';
-              } else if (Array.isArray(val) || typeof val === 'object') {
-                type = 'ARRAY';
-                valStr = JSON.stringify(val);
-              }
-              return {
-                planId: id,
-                key,
-                value: valStr,
-                type
-              };
-            })
+        if (data.entitlements && typeof data.entitlements === 'object') {
+          await tx.planEntitlement.deleteMany({
+            where: { planId: id }
           });
-        }
-      }
 
-      return tx.plan.findUnique({
-        where: { id },
-        include: {
-          application: true,
-          entitlements: true,
-          _count: {
-            select: {
-              licenses: true,
-              subscriptions: true
+          const entitlementRecords = Object.entries(data.entitlements).map(([key, val]) => {
+            let type = 'STRING';
+            let valueStr = String(val);
+
+            if (typeof val === 'number') {
+              type = 'NUMBER';
+            } else if (typeof val === 'boolean') {
+              type = 'BOOLEAN';
+              valueStr = val ? 'true' : 'false';
+            } else if (Array.isArray(val) || typeof val === 'object') {
+              type = 'ARRAY';
+              valueStr = JSON.stringify(val);
+            }
+
+            return {
+              planId: id,
+              key,
+              value: valueStr,
+              type
+            };
+          });
+
+          if (entitlementRecords.length > 0) {
+            await tx.planEntitlement.createMany({
+              data: entitlementRecords
+            });
+          }
+        }
+
+        return tx.plan.findUnique({
+          where: { id },
+          include: {
+            entitlements: true,
+            _count: {
+              select: {
+                licenses: true,
+                subscriptions: true
+              }
             }
           }
-        }
+        });
       });
-    });
 
-    const activeCount = await prisma.license.count({
-      where: { planId: id, status: 'ACTIVE' }
-    });
-
-    return this.mapPrismaToSaaSPlan(updated, activeCount);
-  }
-
-  /**
-   * Activates or deactivates a plan in PostgreSQL
-   */
-  static async setStatus(id: string, status: 'ACTIVE' | 'INACTIVE'): Promise<SaaSPlan | null> {
-    return this.update(id, { status });
-  }
-
-  /**
-   * Duplicates an existing plan in PostgreSQL with a unique copy slug
-   */
-  static async duplicate(id: string): Promise<SaaSPlan> {
-    const original = await this.getById(id);
-    if (!original) {
-      throw new Error(`Plan con ID "${id}" no encontrado en PostgreSQL.`);
+      return updated ? this.mapPrismaToSaaSPlan(updated) : null;
     }
 
-    const copyName = `${original.name} (Copia)`;
-    const copySlug = `${original.slug}-copia-${Date.now().toString().slice(-4)}`;
+    return null;
+  }
+
+  /**
+   * Duplicates an existing SaaS plan and its entitlements in PostgreSQL
+   */
+  static async duplicate(id: string): Promise<SaaSPlan | null> {
+    const original = await this.getById(id);
+    if (!original) return null;
+
+    const newSlug = `${original.slug}-copy-${Date.now().toString(36)}`;
+    const newName = `${original.name} (Copia)`;
 
     return this.create({
+      name: newName,
+      slug: newSlug,
       applicationId: original.applicationId,
-      name: copyName,
-      slug: copySlug,
       description: original.description,
-      monthlyPrice: original.monthlyPrice,
-      yearlyPrice: original.yearlyPrice,
+      monthlyPrice: original.priceMonthly ?? (original as any).price ?? 0,
+      yearlyPrice: original.priceYearly ?? (original as any).yearlyPrice ?? 0,
       currency: original.currency,
       trialDays: original.trialDays,
-      status: 'ACTIVE',
-      badge: original.badge ? `${original.badge} (Copia)` : undefined,
-      imageUrl: original.imageUrl,
       popular: false,
-      features: [...original.features],
-      entitlements: original.entitlements ? { ...original.entitlements } : {}
+      status: 'ACTIVE',
+      features: original.features,
+      entitlements: original.entitlements
     });
   }
 
   /**
-   * Checks if a plan can be safely deleted (fails if active licenses exist)
+   * Checks if a plan can be safely deleted or if active tenants/licenses depend on it
    */
   static async canDelete(id: string): Promise<{ canDelete: boolean; activeLicensesCount: number; reason?: string }> {
-    const activeLicensesCount = await prisma.license.count({
-      where: {
-        planId: id,
-        status: 'ACTIVE'
-      }
-    });
+    if (isPostgresConfigured() && prisma?.license?.count) {
+      const activeLicensesCount = await prisma.license.count({
+        where: {
+          planId: id,
+          status: { in: ['ACTIVE', 'TRIAL'] }
+        }
+      });
 
-    if (activeLicensesCount > 0) {
-      return {
-        canDelete: false,
-        activeLicensesCount,
-        reason: `No se puede eliminar el plan porque cuenta con ${activeLicensesCount} licencia(s) activa(s) asociada(s). Suspende o reasigna las licencias antes de eliminar este plan.`
-      };
+      if (activeLicensesCount > 0) {
+        return {
+          canDelete: false,
+          activeLicensesCount,
+          reason: `No se puede eliminar el plan porque existen ${activeLicensesCount} licencias activas asociadas.`
+        };
+      }
+
+      return { canDelete: true, activeLicensesCount: 0 };
     }
 
-    return {
-      canDelete: true,
-      activeLicensesCount: 0
-    };
+    return { canDelete: true, activeLicensesCount: 0 };
   }
 
   /**
-   * Deletes a plan from PostgreSQL strictly if it has no active licenses
+   * Updates status of a plan
    */
-  static async delete(id: string): Promise<{ success: boolean; deletedId: string; message: string }> {
-    const check = await this.canDelete(id);
-    if (!check.canDelete) {
-      throw new Error(check.reason || 'Restricción de integridad: Este plan tiene licencias activas.');
+  static async setStatus(id: string, status: string): Promise<SaaSPlan | null> {
+    return this.update(id, { status: status as any });
+  }
+
+  /**
+   * Deactivates or archives a SaaS plan in PostgreSQL
+   */
+  static async delete(id: string): Promise<boolean> {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
     }
 
-    // Cascade delete entitlements then plan
-    await prisma.$transaction(async (tx: any) => {
-      await tx.planEntitlement.deleteMany({
-        where: { planId: id }
-      });
-      await tx.plan.delete({
+    if (isPostgresConfigured() && prisma?.plan?.delete) {
+      await prisma.plan.delete({
         where: { id }
       });
-    });
-
-    return {
-      success: true,
-      deletedId: id,
-      message: 'Plan eliminado de PostgreSQL con éxito.'
-    };
-  }
-
-  /**
-   * Automatically initializes default plans in PostgreSQL if the table is empty
-   */
-  static async ensureSeedPlans(): Promise<void> {
-    try {
-      if (!process.env.DATABASE_URL || !prisma?.plan) return;
-      const count = await prisma.plan.count();
-      if (count > 0) return;
-
-      const app = await prisma.application.findFirst();
-      const defaultAppId = app ? app.id : await this.resolveApplicationId('ECOMMERCE');
-
-      const starterPlan = await prisma.plan.create({
-        data: {
-          id: 'plan_starter',
-          applicationId: defaultAppId,
-          name: 'Starter Merchant',
-          slug: 'starter-merchant',
-          badge: 'Para Emprendedores',
-          monthlyPrice: 29,
-          yearlyPrice: 290,
-          description: 'Ideal para lanzar tu primera tienda online con todas las funciones esenciales.',
-          status: 'ACTIVE',
-          trialDays: 14,
-          features: [
-            'Hasta 100 productos activos',
-            'Pasarelas: PayPal, Stripe y Transferencia',
-            'Plugin de Envíos Correos Express',
-            'Importador Fenix All Import Pro',
-            'Soporte multi-idioma (6 idiomas)'
-          ],
-          entitlements: {
-            create: [
-              { key: 'products.max', value: '100', type: 'NUMBER' },
-              { key: 'storage.max_mb', value: '1000', type: 'NUMBER' },
-              { key: 'domains.max', value: '1', type: 'NUMBER' },
-              { key: 'users.max', value: '2', type: 'NUMBER' },
-              { key: 'ai.enabled', value: 'false', type: 'BOOLEAN' }
-            ]
-          }
-        }
-      });
-
-      const proPlan = await prisma.plan.create({
-        data: {
-          id: 'plan_pro',
-          applicationId: defaultAppId,
-          name: 'Professional Business',
-          slug: 'pro-business',
-          badge: 'Más Popular',
-          monthlyPrice: 79,
-          yearlyPrice: 790,
-          description: 'La solución definitiva para tiendas en crecimiento con alto volumen de pedidos y analítica.',
-          status: 'ACTIVE',
-          popular: true,
-          trialDays: 14,
-          features: [
-            'Catálogo de hasta 2.500 productos',
-            'IA Gemini: Generación de fichas y SEO',
-            'Cupones avanzados y descuentos por volumen',
-            'Plugins de Marketplace Ilimitados',
-            'Soporte prioritario 24/7'
-          ],
-          entitlements: {
-            create: [
-              { key: 'products.max', value: '2500', type: 'NUMBER' },
-              { key: 'storage.max_mb', value: '5000', type: 'NUMBER' },
-              { key: 'domains.max', value: '3', type: 'NUMBER' },
-              { key: 'users.max', value: '10', type: 'NUMBER' },
-              { key: 'ai.enabled', value: 'true', type: 'BOOLEAN' }
-            ]
-          }
-        }
-      });
-
-      const enterprisePlan = await prisma.plan.create({
-        data: {
-          id: 'plan_enterprise',
-          applicationId: defaultAppId,
-          name: 'Enterprise Ultra',
-          slug: 'enterprise-ultra',
-          badge: 'Máximo Rendimiento',
-          monthlyPrice: 199,
-          yearlyPrice: 1990,
-          description: 'Capacidad sin límites, CDN dedicada, múltiples dominios y personalización completa.',
-          status: 'ACTIVE',
-          trialDays: 30,
-          features: [
-            'Productos y transacciones ilimitadas',
-            'Múltiples dominios y subdominios personalizados',
-            'Acceso a todos los plugins y temas de pago',
-            'Backups automáticos diarios en Cloud Storage',
-            'Gestor de cuenta y SLA del 99.99%'
-          ],
-          entitlements: {
-            create: [
-              { key: 'products.max', value: '999999', type: 'NUMBER' },
-              { key: 'storage.max_mb', value: '50000', type: 'NUMBER' },
-              { key: 'domains.max', value: '10', type: 'NUMBER' },
-              { key: 'users.max', value: '100', type: 'NUMBER' },
-              { key: 'ai.enabled', value: 'true', type: 'BOOLEAN' }
-            ]
-          }
-        }
-      });
-
-      console.log('✅ Planes por defecto inicializados en PostgreSQL con éxito.');
-    } catch (e) {
-      console.warn('Advertencia al asegurar seed de planes:', e);
+      return true;
     }
+
+    return false;
   }
 }

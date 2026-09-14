@@ -4,6 +4,7 @@ import { PlanService } from '@/lib/services/plan.service';
 import { ApplicationService } from '@/lib/services/application.service';
 import { AuditService } from '@/lib/services/audit.service';
 import { AuthService } from '@/lib/services/auth.service';
+import { TenantService } from '@/lib/services/tenant.service';
 import { TenantStore } from '@/types';
 
 export async function POST(req: NextRequest) {
@@ -48,19 +49,23 @@ export async function POST(req: NextRequest) {
     expiry.setMonth(expiry.getMonth() + (billingPeriod === 'yearly' ? 12 : 1));
 
     // 2. Register user if password provided
+    let registeredUserId: string | undefined;
     if (customerPassword) {
-      await AuthService.register({
+      const reg = await AuthService.register({
         name: customerName || storeName || 'Propietario',
         email: customerEmail,
         password: customerPassword,
-        role: 'TENANT_OWNER',
+        role: 'OWNER',
         tenantId,
         tenantSlug: cleanSlug
       });
+      if (reg.success && reg.user) {
+        registeredUserId = reg.user.id;
+      }
     }
 
     // 3. Create License
-    const license = LicenseService.create({
+    const license = await LicenseService.create({
       tenantId,
       applicationId: app.key || 'ECOMMERCE',
       planId: plan.id,
@@ -84,26 +89,26 @@ export async function POST(req: NextRequest) {
 
     // 4. Activate License for default subdomain
     const defaultSubdomain = `${cleanSlug}.fenixcms.es`;
-    LicenseService.activate({
+    await LicenseService.activate({
       licenseKey: displayKey,
       tenantId,
       domain: defaultSubdomain,
       environment: 'production'
     });
 
-    // 5. Build Initial Provisioned Tenant
-    const provisionedTenant: TenantStore = {
+    // 5. Create Tenant in PostgreSQL with atomic transaction
+    const provisionedTenant = await TenantService.createTenant({
       id: tenantId,
       name: storeName || 'Mi Tienda Fenix',
       slug: cleanSlug,
       domain: defaultSubdomain,
       status: 'active',
       applicationId: app.key || 'ECOMMERCE',
-      enabledApplications: [app.key as any || 'ECOMMERCE'],
       planId: plan.id,
       licenseKey: displayKey,
       ownerEmail: customerEmail,
       ownerName: customerName || 'Propietario',
+      ownerUserId: registeredUserId,
       themeId: 'theme_modern_luxe',
       currency,
       defaultLocale: 'es',
@@ -130,9 +135,8 @@ export async function POST(req: NextRequest) {
         'plugin_stripe_connect',
         'plugin_seo_pro',
         'plugin_fenix_all_import'
-      ],
-      createdAt: now.toISOString()
-    };
+      ]
+    });
 
     // 6. Audit Logging
     AuditService.log({

@@ -9,7 +9,7 @@ import {
   ClassifiedAdItem, 
   SupportedLocale 
 } from '@/types';
-import { INITIAL_TENANTS, INITIAL_PRODUCTS, INITIAL_BLOG_POSTS, INITIAL_CLASSIFIED_ADS } from '@/lib/initialData';
+import { INITIAL_TENANTS } from '@/lib/initialData';
 
 export interface StorefrontPageItem {
   id: string;
@@ -376,24 +376,34 @@ export class StorefrontService {
           }));
         }
       } catch (err) {
-        console.warn('PostgreSQL content query warning, falling back to memory tenant slice:', err);
+        console.warn('PostgreSQL content query warning:', err);
       }
     }
 
-    // Memory fallback if no products found in DB for this tenant
-    if (products.length === 0) {
-      products = INITIAL_PRODUCTS.filter(p => p.tenantId === tenantId);
-    }
-    if (blogPosts.length === 0) {
-      blogPosts = INITIAL_BLOG_POSTS.filter(b => b.tenantId === tenantId);
-    }
-    if (classifiedAds.length === 0) {
-      classifiedAds = INITIAL_CLASSIFIED_ADS.filter(a => a.tenantId === tenantId);
-    }
-
-    // 5. Resolve Theme & Visual Branding
-    const activeThemeId = tenantRecord.themeId || 'theme_modern_luxe';
-    const baseTheme = ThemeService.getThemeById(activeThemeId) || ThemeService.getAllThemes()[0];
+    // 5. Resolve Theme & Visual Branding from PostgreSQL
+    const activeTheme = await ThemeService.getActiveTheme(tenantId);
+    const baseTheme = activeTheme || (await ThemeService.getThemeById(tenantRecord.themeId || 'theme_modern_luxe')) || (await ThemeService.getAllThemes())[0];
+    const resolvedTheme = baseTheme || {
+      id: 'theme_modern_luxe',
+      name: 'Modern Luxe',
+      key: 'theme_modern_luxe',
+      description: 'Default Luxe Theme',
+      version: '1.0.0',
+      author: 'FenixCMS',
+      sections: [],
+      palette: {
+        primary: '#f59e0b',
+        secondary: '#1e293b',
+        background: '#0f172a',
+        surface: '#1e293b',
+        accent: '#10b981',
+        text: '#ffffff'
+      },
+      typography: {
+        headingFont: 'Playfair Display, serif',
+        bodyFont: 'Inter, sans-serif'
+      }
+    };
 
     const branding = tenantRecord.branding || {};
     const settings = {
@@ -447,19 +457,19 @@ export class StorefrontService {
       resolvedVia,
       tenant: tenantStoreFormatted,
       theme: {
-        id: baseTheme.id,
-        name: baseTheme.name,
-        key: baseTheme.key,
+        id: resolvedTheme.id,
+        name: resolvedTheme.name,
+        key: resolvedTheme.key,
         palette: {
-          ...baseTheme.palette,
-          primary: branding.primaryColor || baseTheme.palette.primary,
-          accent: branding.accentColor || baseTheme.palette.accent
+          ...resolvedTheme.palette,
+          primary: branding.primaryColor || resolvedTheme.palette.primary,
+          accent: branding.accentColor || resolvedTheme.palette.accent
         },
         typography: {
-          headingFont: branding.fontFamily || baseTheme.typography.headingFont,
-          bodyFont: branding.fontFamily || baseTheme.typography.bodyFont
+          headingFont: branding.fontFamily || resolvedTheme.typography.headingFont,
+          bodyFont: branding.fontFamily || resolvedTheme.typography.bodyFont
         },
-        sections: baseTheme.sections
+        sections: resolvedTheme.sections
       },
       settings,
       language: {

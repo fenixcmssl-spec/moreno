@@ -402,6 +402,7 @@ export interface ProductItem {
   reviewsCount: number;
   images: string[];
   isFeatured?: boolean;
+  featured?: boolean;
   isBestSeller?: boolean;
   isDeal?: boolean;
   dealDiscountPercent?: number;
@@ -549,6 +550,7 @@ export interface ClassifiedAdItem {
   viewsCount: number;
   favoritesCount: number;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface ClassifiedCategoryItem {
@@ -604,10 +606,12 @@ export interface PluginDefinition {
 export interface ThemeBlockSection {
   id: string;
   type: 'header' | 'hero' | 'featured_grid' | 'product_grid' | 'post_grid' | 'ad_grid' | 'cta' | 'testimonials' | 'footer' | 'productGrid' | 'postGrid' | 'adGrid' | 'text' | string;
+  name?: string;
   title?: string;
   subtitle?: string;
   content?: string;
   enabled?: boolean;
+  isEnabled?: boolean;
   order?: number;
   settings?: Record<string, any>;
 }

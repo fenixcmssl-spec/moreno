@@ -614,9 +614,229 @@ export async function main() {
     }
   });
 
+  // 8. Themes & ThemeInstallations (Phase 20-D.5)
+  console.log('\n🎨 8. Sembrando Temas y Asignaciones...');
+  const seedThemes = [
+    {
+      id: 'theme_fenix_market',
+      key: 'theme_fenix_market',
+      name: 'Fenix Market Pro (Amazon Style)',
+      slug: 'fenix-market-pro',
+      description: 'Tema de alta conversión inspirado en marketplaces globales con megamenú, carruseles dinámicos y checkout rápido.',
+      version: '1.2.0',
+      author: 'Fenix Studio',
+      palette: {
+        primary: '#131921',
+        secondary: '#232f3e',
+        background: '#f3f4f6',
+        surface: '#ffffff',
+        accent: '#febd69',
+        text: '#0f172a'
+      },
+      typography: {
+        headingFont: 'Plus Jakarta Sans, sans-serif',
+        bodyFont: 'Inter, sans-serif'
+      },
+      layout: {
+        previewImage: 'https://images.unsplash.com/photo-1472851294608-062f824d29cc?w=600&q=80'
+      },
+      sections: [
+        { id: 'sec_hero_1', type: 'hero_banner', name: 'Hero Banner Principal', isEnabled: true, order: 0, settings: {} },
+        { id: 'sec_feat_1', type: 'featured_products', name: 'Productos Destacados', isEnabled: true, order: 1, settings: {} },
+        { id: 'sec_cat_1', type: 'category_grid', name: 'Categorías Destacadas', isEnabled: true, order: 2, settings: {} }
+      ]
+    },
+    {
+      id: 'theme_modern_luxe',
+      key: 'theme_modern_luxe',
+      name: 'Modern Luxe (Minimal Boutique)',
+      slug: 'modern-luxe',
+      description: 'Estética minimalista con tipografías elegantes, fondos limpios y enfoque en fotografía de producto de alta gama.',
+      version: '1.1.0',
+      author: 'Milano Design Team',
+      palette: {
+        primary: '#09090b',
+        secondary: '#27272a',
+        background: '#ffffff',
+        surface: '#fafafa',
+        accent: '#d97706',
+        text: '#18181b'
+      },
+      typography: {
+        headingFont: 'Playfair Display, serif',
+        bodyFont: 'Plus Jakarta Sans, sans-serif'
+      },
+      layout: {
+        previewImage: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=600&q=80'
+      },
+      sections: [
+        { id: 'sec_hero_2', type: 'hero_banner', name: 'Editorial Lookbook Banner', isEnabled: true, order: 0, settings: {} },
+        { id: 'sec_feat_2', type: 'featured_products', name: 'Colección Milano', isEnabled: true, order: 1, settings: {} }
+      ]
+    }
+  ];
+
+  for (const th of seedThemes) {
+    await prisma.theme.upsert({
+      where: { id: th.id },
+      update: {
+        name: th.name,
+        slug: th.slug,
+        description: th.description,
+        version: th.version,
+        author: th.author,
+        palette: th.palette,
+        typography: th.typography,
+        layout: th.layout,
+        sections: th.sections,
+        isActive: true
+      },
+      create: {
+        id: th.id,
+        tenantId: tenantA.id,
+        key: th.key,
+        name: th.name,
+        slug: th.slug,
+        description: th.description,
+        version: th.version,
+        author: th.author,
+        palette: th.palette,
+        typography: th.typography,
+        layout: th.layout,
+        sections: th.sections,
+        isActive: true
+      }
+    });
+  }
+
+  // Activar tema en Tenant A y Tenant B
+  await prisma.themeInstallation.upsert({
+    where: { tenantId_themeId: { tenantId: tenantA.id, themeId: 'theme_fenix_market' } },
+    update: { isActive: true },
+    create: { tenantId: tenantA.id, themeId: 'theme_fenix_market', isActive: true }
+  });
+
+  await prisma.themeInstallation.upsert({
+    where: { tenantId_themeId: { tenantId: tenantB.id, themeId: 'theme_modern_luxe' } },
+    update: { isActive: true },
+    create: { tenantId: tenantB.id, themeId: 'theme_modern_luxe', isActive: true }
+  });
+
+  // 9. Plugins & PluginInstallations (Phase 20-D.5)
+  console.log('\n🔌 9. Sembrando Plugins y Extensiones...');
+  const seedPlugins = [
+    {
+      id: 'plg_seo_pro',
+      key: 'seo_pro',
+      name: 'Fenix SEO & Meta Master',
+      version: '2.1.0',
+      category: 'seo',
+      isEnabled: true,
+      config: { autoGenerateMeta: true, canonicalEnforce: true },
+      manifest: {
+        author: 'Fenix Core Team',
+        description: 'Optimización automatizada de meta-tags, OpenGraph, Twitter Cards y Sitemap XML dinámico.',
+        applicationScope: 'ALL',
+        minCmsVersion: '2.0.0',
+        hooks: ['head.meta', 'sitemap.generate'],
+        permissions: ['read_catalog', 'write_seo']
+      }
+    },
+    {
+      id: 'plg_import_pro',
+      key: 'fenix_all_import_pro',
+      name: 'Fenix All Import Pro (CSV / XML / API)',
+      version: '3.0.0',
+      category: 'tools',
+      isEnabled: true,
+      config: { batchSize: 50, updateStockOnly: false },
+      manifest: {
+        author: 'Fenix Integrations',
+        description: 'Motor de sincronización masiva de inventarios, precios y catálogos de proveedores externos.',
+        applicationScope: 'ECOMMERCE',
+        minCmsVersion: '2.0.0',
+        hooks: ['catalog.import', 'inventory.sync'],
+        permissions: ['write_catalog', 'write_inventory']
+      }
+    }
+  ];
+
+  for (const plg of seedPlugins) {
+    await prisma.plugin.upsert({
+      where: { id: plg.id },
+      update: {
+        name: plg.name,
+        version: plg.version,
+        category: plg.category,
+        isEnabled: plg.isEnabled,
+        config: plg.config,
+        manifest: plg.manifest
+      },
+      create: {
+        id: plg.id,
+        tenantId: tenantA.id,
+        key: plg.key,
+        name: plg.name,
+        version: plg.version,
+        category: plg.category,
+        isEnabled: plg.isEnabled,
+        config: plg.config,
+        manifest: plg.manifest
+      }
+    });
+  }
+
+  // Activar plugins en Tenant A
+  await prisma.pluginInstallation.upsert({
+    where: { tenantId_pluginId: { tenantId: tenantA.id, pluginId: 'plg_seo_pro' } },
+    update: { isEnabled: true, settings: { autoGenerateMeta: true } },
+    create: { tenantId: tenantA.id, pluginId: 'plg_seo_pro', isEnabled: true, settings: { autoGenerateMeta: true } }
+  });
+
+  // 10. MediaAssets (Phase 20-D.5)
+  console.log('\n🖼️ 10. Sembrando Activos Multimedia...');
+  const seedMedia = [
+    {
+      id: 'media_a_logo',
+      tenantId: tenantA.id,
+      filename: 'fenix-market-logo.png',
+      path: 'fenix-market-logo.png',
+      url: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400&q=80',
+      mimeType: 'image/png',
+      size: 45200,
+      width: 400,
+      height: 120,
+      alt: 'Fenix Market Logo',
+      storageProvider: 'managed_local',
+      isPublic: true
+    },
+    {
+      id: 'media_b_banner',
+      tenantId: tenantB.id,
+      filename: 'milano-boutique-lookbook.webp',
+      path: 'milano-boutique-lookbook.webp',
+      url: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=800&q=80',
+      mimeType: 'image/webp',
+      size: 185400,
+      width: 1200,
+      height: 600,
+      alt: 'Milano Boutique Lookbook Banner',
+      storageProvider: 'managed_local',
+      isPublic: true
+    }
+  ];
+
+  for (const m of seedMedia) {
+    await prisma.mediaAsset.upsert({
+      where: { id: m.id },
+      update: m,
+      create: m
+    });
+  }
+
   console.log('\n========================================================');
   console.log('✨ SEED DE POSTGRESQL FINALIZADO EXITOSAMENTE');
-  console.log('✨ Tenants, Dominios, Catálogo, Páginas y Blog configurados');
+  console.log('✨ Tenants, Dominios, Catálogo, Themes, Plugins y Media configurados');
   console.log('========================================================\n');
 }
 

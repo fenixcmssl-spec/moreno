@@ -11,9 +11,12 @@ export async function GET(req: NextRequest) {
     }
 
     const { tenant } = auth.context;
-    const themes = ThemeService.getAllThemes();
-    const activeThemeId = ThemeService.getActiveThemeId(tenant.id);
-    const draft = ThemeService.getDraft(tenant.id);
+    const { searchParams } = new URL(req.url);
+    const search = searchParams.get('search') || undefined;
+
+    const themes = await ThemeService.getAllThemes({ search });
+    const activeThemeId = await ThemeService.getActiveThemeId(tenant.id);
+    const draft = await ThemeService.getDraft(tenant.id);
 
     return NextResponse.json({
       success: true,
@@ -30,7 +33,22 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { action, themeId, draft } = body;
+    const { action, themeId, draft, themeData } = body;
+
+    // Creation of a global theme in the catalog requires SUPER_ADMIN
+    if (action === 'createTheme' || themeData) {
+      const authSuper = await TenantContextHelper.requireTenantRole(req, 'SUPER_ADMIN');
+      if (!authSuper.success) {
+        return authSuper.response;
+      }
+
+      const createdTheme = await ThemeService.createTheme({
+        tenantId: authSuper.context.tenant.id,
+        ...(themeData || body)
+      });
+
+      return NextResponse.json({ success: true, theme: createdTheme }, { status: 201 });
+    }
 
     const auth = await TenantContextHelper.requireTenantRole(req, 'STAFF', {
       targetTenantId: body.tenantId
@@ -46,7 +64,11 @@ export async function POST(req: NextRequest) {
       if (!themeId) {
         return NextResponse.json({ success: false, error: 'themeId requerido' }, { status: 400 });
       }
-      const success = ThemeService.setActiveTheme(tenant.id, themeId);
+      const success = await ThemeService.setActiveTheme(tenant.id, themeId);
+      if (!success) {
+        return NextResponse.json({ success: false, error: 'No se pudo activar el tema especificado' }, { status: 404 });
+      }
+
       AuditService.log({
         tenantId: tenant.id,
         userId: session?.userId,
@@ -55,16 +77,16 @@ export async function POST(req: NextRequest) {
         entity: 'Theme',
         entityId: themeId
       });
-      return NextResponse.json({ success });
+      return NextResponse.json({ success: true, activeThemeId: themeId });
     }
 
     if (action === 'saveDraft') {
-      const saved = ThemeService.saveDraft(tenant.id, draft);
+      const saved = await ThemeService.saveDraft(tenant.id, draft || themeId);
       return NextResponse.json({ success: true, draft: saved });
     }
 
     if (action === 'publish') {
-      const result = ThemeService.publishDraft(tenant.id);
+      const result = await ThemeService.publishDraft(tenant.id, themeId);
       AuditService.log({
         tenantId: tenant.id,
         userId: session?.userId,
@@ -81,3 +103,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: error?.message }, { status: 500 });
   }
 }
+

@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { PaymentService } from '../lib/services/payment.service';
 import { InvoiceService } from '../lib/services/invoice.service';
 import { LicenseService } from '../lib/services/license.service';
@@ -147,19 +148,23 @@ async function runPaymentInvoicingTests() {
 
   const webhookEventId = `evt_test_${Date.now()}`;
   const nowSec = Math.floor(Date.now() / 1000);
-  const stripeSig = `t=${nowSec},v1=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`;
+  const webhookPayload = {
+    id: webhookEventId,
+    event_type: 'payment_intent.succeeded',
+    providerPaymentId: `pi_webhook_verified_${Date.now()}`,
+    paymentId: webhookCheckout.paymentId,
+    status: 'COMPLETED'
+  };
+  const rawPayloadString = JSON.stringify(webhookPayload);
+  const secret = process.env.STRIPE_WEBHOOK_SECRET || 'whsec_fenix_stripe_webhook_prod_default';
+  const validHash = crypto.createHmac('sha256', secret).update(`${nowSec}.${rawPayloadString}`, 'utf8').digest('hex');
+  const stripeSig = `t=${nowSec},v1=${validHash}`;
 
   const webhookResult1 = await PaymentService.handleSaaSWebhook({
     provider: 'STRIPE',
     eventId: webhookEventId,
     signature: stripeSig,
-    payload: {
-      id: webhookEventId,
-      event_type: 'payment_intent.succeeded',
-      providerPaymentId: `pi_webhook_verified_${Date.now()}`,
-      paymentId: webhookCheckout.paymentId,
-      status: 'COMPLETED'
-    }
+    payload: webhookPayload
   });
 
   assert(webhookResult1.success === true, 'Primer procesamiento del webhook debe ser exitoso');
@@ -169,13 +174,7 @@ async function runPaymentInvoicingTests() {
     provider: 'STRIPE',
     eventId: webhookEventId,
     signature: stripeSig,
-    payload: {
-      id: webhookEventId,
-      event_type: 'payment_intent.succeeded',
-      providerPaymentId: `pi_webhook_verified_${Date.now()}`,
-      paymentId: webhookCheckout.paymentId,
-      status: 'COMPLETED'
-    }
+    payload: webhookPayload
   });
 
   assert(webhookResult2.success === true, 'Llamada idempotente al webhook debe responder éxito sin duplicar');

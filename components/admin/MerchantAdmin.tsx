@@ -1389,8 +1389,7 @@ export function MerchantAdmin() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
-                      const allThemes = ThemeService.getAllThemes();
-                      setSelectedBuilderTheme(allThemes[0]);
+                      setSelectedBuilderTheme(themes[0] as any);
                       setIsThemeBuilderOpen(true);
                     }}
                     className="px-3.5 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center gap-1.5 shadow transition"
@@ -3395,7 +3394,7 @@ export function MerchantAdmin() {
       {isThemeBuilderOpen && (
         <ThemeBuilderModal
           tenantId={tenant.id}
-          theme={selectedBuilderTheme || ThemeService.getAllThemes()[0]}
+          theme={selectedBuilderTheme || (themes[0] as any)}
           isOpen={isThemeBuilderOpen}
           onClose={() => setIsThemeBuilderOpen(false)}
         />

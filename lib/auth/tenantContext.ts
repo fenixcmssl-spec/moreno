@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AuthSession, SessionService } from './session';
 import { UserRole, RbacService } from './rbac';
-import { INITIAL_TENANTS } from '../initialData';
 import { TenantStore } from '@/types';
-import prisma from '../prisma';
+import { TenantService } from '../services/tenant.service';
+import { isPostgresConfigured, isProductionMode, DatabaseConfigurationError } from '../prisma';
+import { INITIAL_TENANTS } from '../initialData';
 
 export interface TenantContext {
   tenant: TenantStore;
@@ -24,51 +25,30 @@ export type TenantAuthResult =
 
 export class TenantContextHelper {
   /**
-   * Resolves a tenant by ID or slug from PostgreSQL or fallback store
+   * Resolves a tenant by ID or slug from PostgreSQL
    */
   static async findTenantByIdOrSlug(identifier: string): Promise<TenantStore | null> {
     if (!identifier) return null;
     const clean = identifier.trim().toLowerCase();
 
-    try {
-      if (process.env.DATABASE_URL && prisma && typeof (prisma as any).tenant?.findFirst === 'function') {
-        const dbTenant = await (prisma as any).tenant.findFirst({
-          where: {
-            OR: [
-              { id: identifier },
-              { slug: clean }
-            ]
-          }
-        });
-        if (dbTenant) {
-          return {
-            id: dbTenant.id,
-            name: dbTenant.name,
-            slug: dbTenant.slug,
-            domain: dbTenant.domain || undefined,
-            customDomain: dbTenant.customDomain || undefined,
-            status: dbTenant.status as any,
-            applicationId: dbTenant.applicationId as any,
-            enabledApplications: [dbTenant.applicationId as any],
-            planId: dbTenant.planId,
-            licenseKey: dbTenant.licenseKey,
-            ownerEmail: dbTenant.ownerEmail,
-            ownerName: dbTenant.ownerName,
-            themeId: dbTenant.themeId,
-            currency: dbTenant.currency,
-            defaultLocale: dbTenant.defaultLocale,
-            supportedLocales: dbTenant.supportedLocales,
-            branding: dbTenant.branding as any,
-            settings: dbTenant.settings as any,
-            activePlugins: dbTenant.activePlugins,
-            createdAt: dbTenant.createdAt.toISOString()
-          };
-        }
-      }
-    } catch (e) {
-      // Graceful fallback
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
     }
 
+    if (isPostgresConfigured()) {
+      const byId = await TenantService.getById(identifier);
+      if (byId) return byId;
+
+      const bySlug = await TenantService.getBySlug(clean);
+      if (bySlug) return bySlug;
+
+      // In production mode, if not in PostgreSQL, return null (no fallback to demo data)
+      if (isProductionMode()) {
+        return null;
+      }
+    }
+
+    // Development/Test fallback only when postgres is not configured
     const found = INITIAL_TENANTS.find(t => t.id === identifier || t.slug.toLowerCase() === clean);
     return found || null;
   }
@@ -80,79 +60,20 @@ export class TenantContextHelper {
     if (!hostname) return null;
     const cleanHost = hostname.trim().toLowerCase().split(':')[0].replace(/[^a-z0-9.-]/g, '');
 
-    try {
-      if (process.env.DATABASE_URL && prisma && typeof (prisma as any).tenant?.findFirst === 'function') {
-        // 1. Direct domain match or verified Domain table match
-        const dbTenant = await (prisma as any).tenant.findFirst({
-          where: {
-            OR: [
-              { domain: cleanHost },
-              { customDomain: cleanHost },
-              { domains: { some: { hostname: cleanHost, status: 'active' } } }
-            ]
-          }
-        });
-        if (dbTenant) {
-          return {
-            id: dbTenant.id,
-            name: dbTenant.name,
-            slug: dbTenant.slug,
-            domain: dbTenant.domain || undefined,
-            customDomain: dbTenant.customDomain || undefined,
-            status: dbTenant.status as any,
-            applicationId: dbTenant.applicationId as any,
-            enabledApplications: [dbTenant.applicationId as any],
-            planId: dbTenant.planId,
-            licenseKey: dbTenant.licenseKey,
-            ownerEmail: dbTenant.ownerEmail,
-            ownerName: dbTenant.ownerName,
-            themeId: dbTenant.themeId,
-            currency: dbTenant.currency,
-            defaultLocale: dbTenant.defaultLocale,
-            supportedLocales: dbTenant.supportedLocales,
-            branding: dbTenant.branding as any,
-            settings: dbTenant.settings as any,
-            activePlugins: dbTenant.activePlugins,
-            createdAt: dbTenant.createdAt.toISOString()
-          };
-        }
-
-        // 2. Subdomain check (*.fenixcms.es)
-        if (cleanHost.endsWith('.fenixcms.es')) {
-          const subSlug = cleanHost.replace('.fenixcms.es', '');
-          const bySlug = await (prisma as any).tenant.findUnique({
-            where: { slug: subSlug }
-          });
-          if (bySlug) {
-            return {
-              id: bySlug.id,
-              name: bySlug.name,
-              slug: bySlug.slug,
-              domain: bySlug.domain || undefined,
-              customDomain: bySlug.customDomain || undefined,
-              status: bySlug.status as any,
-              applicationId: bySlug.applicationId as any,
-              enabledApplications: [bySlug.applicationId as any],
-              planId: bySlug.planId,
-              licenseKey: bySlug.licenseKey,
-              ownerEmail: bySlug.ownerEmail,
-              ownerName: bySlug.ownerName,
-              themeId: bySlug.themeId,
-              currency: bySlug.currency,
-              defaultLocale: bySlug.defaultLocale,
-              supportedLocales: bySlug.supportedLocales,
-              branding: bySlug.branding as any,
-              settings: bySlug.settings as any,
-              activePlugins: bySlug.activePlugins,
-              createdAt: bySlug.createdAt.toISOString()
-            };
-          }
-        }
-      }
-    } catch (e) {
-      // Graceful fallback
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('PostgreSQL is required in production.');
     }
 
+    if (isPostgresConfigured()) {
+      const byDomain = await TenantService.getByDomain(cleanHost);
+      if (byDomain) return byDomain;
+
+      if (isProductionMode()) {
+        return null;
+      }
+    }
+
+    // Development/Test fallback
     const match = INITIAL_TENANTS.find(t => {
       const d = t.domain?.toLowerCase();
       const cd = t.customDomain?.toLowerCase();
@@ -179,7 +100,7 @@ export class TenantContextHelper {
   /**
    * Resolves the active tenant context for public storefronts (Domain / Host / Slug)
    */
-  static async resolvePublicTenant(req: NextRequest): Promise<TenantContext> {
+  static async resolvePublicTenant(req: NextRequest): Promise<TenantContext | null> {
     const host = req.headers.get('x-forwarded-host') || req.headers.get('host') || '';
     const { searchParams } = new URL(req.url);
     const storeSlug = searchParams.get('store') || searchParams.get('slug') || searchParams.get('tenantId');
@@ -210,15 +131,31 @@ export class TenantContextHelper {
       }
     }
 
-    // Default demo tenant
-    const defaultTenant = INITIAL_TENANTS[0];
-    return {
-      tenant: defaultTenant,
-      isSuperAdmin: false,
-      isOwner: false,
-      isAdmin: false,
-      resolvedVia: 'default'
-    };
+    // First active tenant in database
+    if (isPostgresConfigured()) {
+      const list = await TenantService.listTenants({ status: 'active' });
+      if (list.length > 0) {
+        return {
+          tenant: list[0],
+          isSuperAdmin: false,
+          isOwner: false,
+          isAdmin: false,
+          resolvedVia: 'default'
+        };
+      }
+    }
+
+    if (!isProductionMode() && INITIAL_TENANTS.length > 0) {
+      return {
+        tenant: INITIAL_TENANTS[0],
+        isSuperAdmin: false,
+        isOwner: false,
+        isAdmin: false,
+        resolvedVia: 'default'
+      };
+    }
+
+    return null;
   }
 
   /**
@@ -236,7 +173,9 @@ export class TenantContextHelper {
     if (!session) {
       if (options?.allowPublicFallback) {
         const publicCtx = await this.resolvePublicTenant(req);
-        return { success: true, context: publicCtx };
+        if (publicCtx) {
+          return { success: true, context: publicCtx };
+        }
       }
       return {
         success: false,
@@ -252,7 +191,7 @@ export class TenantContextHelper {
     let resolvedTenantId: string | undefined;
 
     if (isSuperAdmin) {
-      resolvedTenantId = options?.targetTenantId || session.tenantId || INITIAL_TENANTS[0].id;
+      resolvedTenantId = options?.targetTenantId || session.tenantId;
     } else {
       resolvedTenantId = session.tenantId;
 
@@ -301,17 +240,42 @@ export class TenantContextHelper {
       };
     }
 
-    const isOwner = session.role === 'OWNER' || session.role === 'TENANT_OWNER' || session.role === 'SUPER_ADMIN';
-    const isAdmin = isOwner || session.role === 'ADMIN' || session.role === 'TENANT_ADMIN';
+    // Multi-tenant membership validation: For non-superadmin users, strictly check PostgreSQL TenantMembership
+    let effectiveRole: UserRole = session.role;
+    let membershipStatus = 'ACTIVE';
+
+    if (!isSuperAdmin) {
+      const membershipCheck = await TenantService.validateUserMembership(session.userId, tenant.id);
+      if (!membershipCheck.valid || !membershipCheck.membership) {
+        return {
+          success: false,
+          response: NextResponse.json(
+            {
+              error: membershipCheck.error || 'Acceso denegado: No tienes membresía activa en este comercio.',
+              code: 'MEMBERSHIP_REQUIRED'
+            },
+            { status: 403 }
+          )
+        };
+      }
+      effectiveRole = membershipCheck.membership.role;
+      membershipStatus = membershipCheck.membership.status;
+    }
+
+    const isOwner = isSuperAdmin || effectiveRole === 'OWNER' || effectiveRole === 'TENANT_OWNER';
+    const isAdmin = isOwner || effectiveRole === 'ADMIN' || effectiveRole === 'TENANT_ADMIN';
 
     return {
       success: true,
       context: {
         tenant,
-        session,
+        session: {
+          ...session,
+          role: effectiveRole
+        },
         membership: {
-          role: session.role,
-          status: 'ACTIVE'
+          role: effectiveRole,
+          status: membershipStatus
         },
         isSuperAdmin,
         isOwner,
@@ -385,7 +349,6 @@ export class TenantContextHelper {
       return { success: true, allowed: true };
     }
 
-    // Dynamic import / call to EntitlementService
     const { EntitlementService } = await import('@/lib/services/entitlement.service');
 
     const increment = typeof options === 'object' && options.increment !== undefined ? options.increment : 1;

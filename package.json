@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "tsx scripts/test-tenant-isolation.ts",
+    "test": "tsx scripts/run-all-tests.ts",
     "seed": "tsx prisma/seed.ts",
     "clean": "next clean"
   },

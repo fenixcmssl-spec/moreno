@@ -1,26 +1,38 @@
+import { prisma } from '@/lib/prisma';
 import { AuditService } from './audit.service';
+import { SecurityService } from '../security/security.service';
+import { ContentStatus } from '@prisma/client';
 
-export interface BlogPost {
+export interface BlogPostAuthor {
+  id?: string;
+  name: string;
+  email?: string;
+  avatarUrl?: string;
+  role?: string;
+}
+
+export interface BlogPostRecord {
   id: string;
   tenantId: string;
-  categoryId?: string;
-  categoryName?: string;
-  authorName: string;
-  authorAvatar?: string;
   title: string;
   slug: string;
   excerpt: string;
   content: string;
+  category: string;
+  author: BlogPostAuthor;
   featuredImage: string;
-  status: 'DRAFT' | 'REVIEW' | 'PUBLISHED' | 'ARCHIVED';
-  publishedAt: string;
-  seoTitle?: string;
-  seoDescription?: string;
-  viewsCount: number;
   tags: string[];
-  commentsCount: number;
+  status: ContentStatus;
+  viewsCount: number;
+  publishedAt: string;
+  seoTitle?: string | null;
+  seoDescription?: string | null;
   createdAt: string;
+  updatedAt: string;
 }
+
+// Retain legacy BlogPost type compatibility for frontend components
+export type BlogPost = BlogPostRecord;
 
 export interface BlogCategory {
   id: string;
@@ -31,103 +43,462 @@ export interface BlogCategory {
   postsCount: number;
 }
 
-const BLOG_POSTS: BlogPost[] = [
-  {
-    id: 'post_1',
-    tenantId: 'tenant_1',
-    categoryId: 'bcat_trends',
-    categoryName: 'Tendencias & Tecnología',
-    authorName: 'Redacción Fénix',
-    authorAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
-    title: 'Top 10 innovaciones que revolucionarán el comercio electrónico en 2026',
-    slug: 'top-10-innovaciones-ecommerce-2026',
-    excerpt: 'Descubre cómo la IA generativa, el checkout biométrico y la logística ultrarrápida están transformando las ventas online.',
-    content: 'El panorama digital está experimentando una transformación sin precedentes. Las plataformas SaaS de nueva generación permiten a los negocios escalar de forma modular...',
-    featuredImage: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800&auto=format&fit=crop&q=80',
-    status: 'PUBLISHED',
-    publishedAt: '2026-08-20T10:00:00Z',
-    seoTitle: 'Tendencias E-commerce 2026 | Blog Fénix',
-    seoDescription: 'Análisis de las mejores innovaciones tecnológicas para tiendas online en 2026.',
-    viewsCount: 1420,
-    tags: ['E-commerce', 'IA', 'SaaS', 'Logística'],
-    commentsCount: 5,
-    createdAt: '2026-08-20T09:00:00Z'
-  },
-  {
-    id: 'post_2',
-    tenantId: 'tenant_1',
-    categoryId: 'bcat_guides',
-    categoryName: 'Guías de Negocio',
-    authorName: 'Carlos Mendoza',
-    authorAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80',
-    title: 'Cómo optimizar la pasarela de pagos para reducir la tasa de abandono',
-    slug: 'optimizar-pasarela-de-pagos-reducir-abandono',
-    excerpt: 'Claves para integrar Bizum, Redsys, Stripe y PayPal ofreciendo una experiencia de compra fluida y sin fricciones.',
-    content: 'Uno de los puntos críticos de conversión es el proceso de pago. Contar con múltiples métodos locales como Bizum e internacionales como PayPal asegura la máxima confianza...',
-    featuredImage: 'https://images.unsplash.com/photo-1556742049-0a67e557b683?w=800&auto=format&fit=crop&q=80',
-    status: 'PUBLISHED',
-    publishedAt: '2026-08-28T14:30:00Z',
-    seoTitle: 'Optimización de Pagos y Conversión | Fénix Blog',
-    seoDescription: 'Guía práctica para reducir el abandono de carrito con pasarelas modernas.',
-    viewsCount: 890,
-    tags: ['Pagos', 'Bizum', 'Conversión'],
-    commentsCount: 2,
-    createdAt: '2026-08-28T12:00:00Z'
-  }
-];
+export interface CreateBlogPostInput {
+  title: string;
+  slug?: string;
+  excerpt?: string;
+  content: string;
+  category?: string;
+  featuredImage?: string;
+  tags?: string[];
+  status?: ContentStatus | string;
+  publishedAt?: string | Date;
+  seoTitle?: string;
+  seoDescription?: string;
+  authorName?: string;
+  authorAvatar?: string;
+}
 
-const BLOG_CATEGORIES: BlogCategory[] = [
-  { id: 'bcat_trends', tenantId: 'tenant_1', name: 'Tendencias & Tecnología', slug: 'tendencias-tecnologia', postsCount: 1 },
-  { id: 'bcat_guides', tenantId: 'tenant_1', name: 'Guías de Negocio', slug: 'guias-negocio', postsCount: 1 },
-  { id: 'bcat_news', tenantId: 'tenant_1', name: 'Noticias Corporativas', slug: 'noticias-corporativas', postsCount: 0 }
-];
+export interface UpdateBlogPostInput {
+  title?: string;
+  slug?: string;
+  excerpt?: string;
+  content?: string;
+  category?: string;
+  featuredImage?: string;
+  tags?: string[];
+  status?: ContentStatus | string;
+  publishedAt?: string | Date;
+  seoTitle?: string;
+  seoDescription?: string;
+  authorName?: string;
+  authorAvatar?: string;
+}
+
+export interface BlogQueryOptions {
+  status?: ContentStatus | string;
+  category?: string;
+  search?: string;
+  tag?: string;
+  skip?: number;
+  take?: number;
+  allowDraft?: boolean;
+}
+
+function normalizeSlug(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9-_]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+function normalizeStatus(raw?: string | ContentStatus): ContentStatus {
+  if (!raw) return ContentStatus.PUBLISHED;
+  const upper = String(raw).toUpperCase();
+  if (upper === 'DRAFT') return ContentStatus.DRAFT;
+  if (upper === 'ARCHIVED') return ContentStatus.ARCHIVED;
+  return ContentStatus.PUBLISHED;
+}
+
+function sanitizeHtmlContent(html: string): string {
+  if (!html || typeof html !== 'string') return '';
+  return SecurityService.sanitizeString(html);
+}
+
+function mapDbToBlogPost(p: any): BlogPostRecord {
+  const authorData: BlogPostAuthor = (p.author && typeof p.author === 'object')
+    ? p.author
+    : { name: 'Redacción Fénix', role: 'Staff' };
+
+  return {
+    id: p.id,
+    tenantId: p.tenantId,
+    title: p.title,
+    slug: p.slug,
+    excerpt: p.excerpt || '',
+    content: p.content,
+    category: p.category || 'Noticias',
+    author: authorData,
+    featuredImage: p.featuredImage || 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800&q=80',
+    tags: Array.isArray(p.tags) ? p.tags : [],
+    status: p.status,
+    viewsCount: p.viewsCount || 0,
+    publishedAt: p.publishedAt instanceof Date ? p.publishedAt.toISOString() : p.publishedAt,
+    seoTitle: p.seoTitle || null,
+    seoDescription: p.seoDescription || null,
+    createdAt: p.createdAt instanceof Date ? p.createdAt.toISOString() : p.createdAt,
+    updatedAt: p.updatedAt instanceof Date ? p.updatedAt.toISOString() : p.updatedAt
+  };
+}
 
 export class BlogService {
-  static getPosts(tenantId: string): BlogPost[] {
-    return BLOG_POSTS.filter(p => p.tenantId === tenantId);
+  /**
+   * List blog posts strictly scoped by tenantId with optional filters and pagination
+   */
+  static async getPosts(
+    tenantId: string,
+    options?: BlogQueryOptions
+  ): Promise<{ posts: BlogPostRecord[]; total: number }> {
+    if (!tenantId) throw new Error('Tenant ID is required');
+
+    const whereClause: any = { tenantId };
+
+    if (options?.status) {
+      whereClause.status = normalizeStatus(options.status);
+    } else if (!options?.allowDraft) {
+      whereClause.status = ContentStatus.PUBLISHED;
+    }
+
+    if (options?.category && options.category.trim().length > 0) {
+      whereClause.category = options.category.trim();
+    }
+
+    if (options?.tag && options.tag.trim().length > 0) {
+      whereClause.tags = { has: options.tag.trim() };
+    }
+
+    if (options?.search && options.search.trim().length > 0) {
+      const term = options.search.trim();
+      whereClause.OR = [
+        { title: { contains: term, mode: 'insensitive' } },
+        { slug: { contains: term, mode: 'insensitive' } },
+        { excerpt: { contains: term, mode: 'insensitive' } },
+        { content: { contains: term, mode: 'insensitive' } }
+      ];
+    }
+
+    const [dbPosts, total] = await Promise.all([
+      prisma.blogPost.findMany({
+        where: whereClause,
+        orderBy: { publishedAt: 'desc' },
+        skip: options?.skip ?? 0,
+        take: options?.take ?? 50
+      }),
+      prisma.blogPost.count({ where: whereClause })
+    ]);
+
+    const posts = dbPosts.map(mapDbToBlogPost);
+    return { posts, total };
   }
 
-  static getPostBySlug(tenantId: string, slug: string): BlogPost | undefined {
-    return BLOG_POSTS.find(p => p.tenantId === tenantId && p.slug === slug);
+  /**
+   * Get blog post by ID strictly scoped by tenantId
+   */
+  static async getPostById(tenantId: string, id: string): Promise<BlogPostRecord | null> {
+    if (!tenantId || !id) return null;
+
+    const post = await prisma.blogPost.findFirst({
+      where: { id, tenantId }
+    });
+
+    if (!post) return null;
+    return mapDbToBlogPost(post);
   }
 
-  static getCategories(tenantId: string): BlogCategory[] {
-    return BLOG_CATEGORIES.filter(c => c.tenantId === tenantId);
+  /**
+   * Get blog post by slug strictly scoped by tenantId
+   */
+  static async getPostBySlug(
+    tenantId: string,
+    rawSlug: string,
+    options?: { allowDraft?: boolean }
+  ): Promise<BlogPostRecord | null> {
+    if (!tenantId || !rawSlug) return null;
+    const slug = normalizeSlug(rawSlug);
+
+    const whereClause: any = { tenantId, slug };
+    if (!options?.allowDraft) {
+      whereClause.status = ContentStatus.PUBLISHED;
+    }
+
+    const post = await prisma.blogPost.findFirst({
+      where: whereClause
+    });
+
+    if (!post) return null;
+    return mapDbToBlogPost(post);
   }
 
-  static createPost(tenantId: string, post: Omit<BlogPost, 'id' | 'tenantId' | 'viewsCount' | 'commentsCount' | 'createdAt'>): BlogPost {
-    const newPost: BlogPost = {
-      ...post,
-      id: `post_${Date.now()}`,
-      tenantId,
-      viewsCount: 0,
-      commentsCount: 0,
-      createdAt: new Date().toISOString()
+  /**
+   * Create blog post in PostgreSQL with authoritative author resolution and XSS sanitization
+   */
+  static async createPost(
+    tenantId: string,
+    data: CreateBlogPostInput,
+    actor?: { id?: string; email?: string; name?: string; role?: string }
+  ): Promise<BlogPostRecord> {
+    if (!tenantId) throw new Error('Tenant ID is required');
+    if (!data.title || data.title.trim().length === 0) {
+      throw new Error('El título del artículo es obligatorio');
+    }
+
+    const rawSlug = data.slug && data.slug.trim().length > 0 ? data.slug : data.title;
+    const slug = normalizeSlug(rawSlug);
+
+    if (!slug) {
+      throw new Error('El slug generado para el artículo no es válido');
+    }
+
+    // Uniqueness validation within tenant
+    const existing = await prisma.blogPost.findUnique({
+      where: { tenantId_slug: { tenantId, slug } }
+    });
+
+    if (existing) {
+      const err: any = new Error(`Ya existe un artículo con el slug "${slug}" en este comercio.`);
+      err.code = 'SLUG_CONFLICT';
+      err.statusCode = 409;
+      throw err;
+    }
+
+    const cleanTitle = SecurityService.sanitizeString(data.title);
+    const cleanExcerpt = data.excerpt ? SecurityService.sanitizeString(data.excerpt) : '';
+    const cleanContent = sanitizeHtmlContent(data.content || '');
+    const cleanCategory = data.category ? SecurityService.sanitizeString(data.category) : 'Noticias';
+    const cleanFeaturedImage = data.featuredImage?.trim() || 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800&q=80';
+    const cleanTags = Array.isArray(data.tags)
+      ? data.tags.map(t => SecurityService.sanitizeString(t)).filter(Boolean)
+      : [];
+    const status = normalizeStatus(data.status);
+    const publishedAt = data.publishedAt ? new Date(data.publishedAt) : new Date();
+
+    // Author identity is strictly derived from the authenticated actor to prevent author spoofing
+    const authorPayload: BlogPostAuthor = {
+      id: actor?.id || 'sys_staff',
+      name: actor?.name || data.authorName || 'Redacción Fénix',
+      email: actor?.email || undefined,
+      avatarUrl: data.authorAvatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&q=80',
+      role: actor?.role || 'STAFF'
     };
-    BLOG_POSTS.unshift(newPost);
+
+    const created = await prisma.blogPost.create({
+      data: {
+        tenantId,
+        title: cleanTitle,
+        slug,
+        excerpt: cleanExcerpt,
+        content: cleanContent,
+        category: cleanCategory,
+        author: authorPayload as any,
+        featuredImage: cleanFeaturedImage,
+        tags: cleanTags,
+        status,
+        viewsCount: 0,
+        publishedAt,
+        seoTitle: data.seoTitle ? SecurityService.sanitizeString(data.seoTitle) : null,
+        seoDescription: data.seoDescription ? SecurityService.sanitizeString(data.seoDescription) : null
+      }
+    });
 
     AuditService.log({
       tenantId,
+      actorId: actor?.id,
       action: 'BLOG_POST_CREATED',
-      entity: 'Post',
-      entityId: newPost.id,
-      details: { title: newPost.title, status: newPost.status }
+      resourceType: 'BlogPost',
+      resourceId: created.id,
+      metadata: { title: created.title, slug: created.slug, status: created.status }
     });
 
-    return newPost;
+    return mapDbToBlogPost(created);
   }
 
-  static updatePost(tenantId: string, id: string, updates: Partial<BlogPost>): BlogPost | null {
-    const index = BLOG_POSTS.findIndex(p => p.id === id && p.tenantId === tenantId);
-    if (index === -1) return null;
-    BLOG_POSTS[index] = { ...BLOG_POSTS[index], ...updates };
-    return BLOG_POSTS[index];
+  /**
+   * Update blog post in PostgreSQL
+   */
+  static async updatePost(
+    tenantId: string,
+    id: string,
+    data: UpdateBlogPostInput,
+    actor?: { id?: string; email?: string }
+  ): Promise<BlogPostRecord> {
+    if (!tenantId || !id) throw new Error('Tenant ID and Post ID are required');
+
+    const existing = await prisma.blogPost.findFirst({
+      where: { id, tenantId }
+    });
+
+    if (!existing) {
+      const err: any = new Error('Artículo no encontrado');
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const updateData: any = {};
+
+    if (data.title !== undefined) {
+      updateData.title = SecurityService.sanitizeString(data.title);
+    }
+    if (data.excerpt !== undefined) {
+      updateData.excerpt = SecurityService.sanitizeString(data.excerpt);
+    }
+    if (data.content !== undefined) {
+      updateData.content = sanitizeHtmlContent(data.content);
+    }
+    if (data.category !== undefined) {
+      updateData.category = SecurityService.sanitizeString(data.category);
+    }
+    if (data.featuredImage !== undefined) {
+      updateData.featuredImage = data.featuredImage.trim();
+    }
+    if (data.tags !== undefined) {
+      updateData.tags = Array.isArray(data.tags)
+        ? data.tags.map(t => SecurityService.sanitizeString(t)).filter(Boolean)
+        : [];
+    }
+    if (data.status !== undefined) {
+      updateData.status = normalizeStatus(data.status);
+    }
+    if (data.publishedAt !== undefined) {
+      updateData.publishedAt = new Date(data.publishedAt);
+    }
+    if (data.seoTitle !== undefined) {
+      updateData.seoTitle = data.seoTitle ? SecurityService.sanitizeString(data.seoTitle) : null;
+    }
+    if (data.seoDescription !== undefined) {
+      updateData.seoDescription = data.seoDescription ? SecurityService.sanitizeString(data.seoDescription) : null;
+    }
+
+    if (data.slug !== undefined) {
+      const newSlug = normalizeSlug(data.slug);
+      if (!newSlug) throw new Error('El slug no puede estar vacío');
+
+      if (newSlug !== existing.slug) {
+        const slugConflict = await prisma.blogPost.findUnique({
+          where: { tenantId_slug: { tenantId, slug: newSlug } }
+        });
+        if (slugConflict && slugConflict.id !== id) {
+          const err: any = new Error(`El slug "${newSlug}" ya está en uso por otro artículo en este comercio.`);
+          err.code = 'SLUG_CONFLICT';
+          err.statusCode = 409;
+          throw err;
+        }
+        updateData.slug = newSlug;
+      }
+    }
+
+    const updated = await prisma.blogPost.update({
+      where: { id },
+      data: updateData
+    });
+
+    AuditService.log({
+      tenantId,
+      actorId: actor?.id,
+      action: 'BLOG_POST_UPDATED',
+      resourceType: 'BlogPost',
+      resourceId: updated.id,
+      metadata: { title: updated.title, slug: updated.slug, status: updated.status }
+    });
+
+    return mapDbToBlogPost(updated);
   }
 
-  static deletePost(tenantId: string, id: string): boolean {
-    const index = BLOG_POSTS.findIndex(p => p.id === id && p.tenantId === tenantId);
-    if (index === -1) return false;
-    BLOG_POSTS.splice(index, 1);
+  /**
+   * Delete blog post from PostgreSQL
+   */
+  static async deletePost(
+    tenantId: string,
+    id: string,
+    actor?: { id?: string; email?: string }
+  ): Promise<boolean> {
+    if (!tenantId || !id) throw new Error('Tenant ID and Post ID are required');
+
+    const existing = await prisma.blogPost.findFirst({
+      where: { id, tenantId }
+    });
+
+    if (!existing) {
+      const err: any = new Error('Artículo no encontrado');
+      err.statusCode = 404;
+      throw err;
+    }
+
+    await prisma.blogPost.delete({
+      where: { id }
+    });
+
+    AuditService.log({
+      tenantId,
+      actorId: actor?.id,
+      action: 'BLOG_POST_DELETED',
+      resourceType: 'BlogPost',
+      resourceId: id,
+      metadata: { title: existing.title, slug: existing.slug }
+    });
+
     return true;
+  }
+
+  /**
+   * Publish blog post
+   */
+  static async publishPost(
+    tenantId: string,
+    id: string,
+    actor?: { id?: string; email?: string }
+  ): Promise<BlogPostRecord> {
+    return this.updatePost(tenantId, id, { status: ContentStatus.PUBLISHED, publishedAt: new Date() }, actor);
+  }
+
+  /**
+   * Unpublish blog post (Set to DRAFT)
+   */
+  static async unpublishPost(
+    tenantId: string,
+    id: string,
+    actor?: { id?: string; email?: string }
+  ): Promise<BlogPostRecord> {
+    return this.updatePost(tenantId, id, { status: ContentStatus.DRAFT }, actor);
+  }
+
+  /**
+   * Increment view counter atomically in PostgreSQL
+   */
+  static async incrementViews(tenantId: string, id: string): Promise<number> {
+    if (!tenantId || !id) return 0;
+    try {
+      const updated = await prisma.blogPost.update({
+        where: { id },
+        data: { viewsCount: { increment: 1 } }
+      });
+      return updated.viewsCount;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * Get distinct categories with count for the tenant
+   */
+  static async getCategories(tenantId: string): Promise<BlogCategory[]> {
+    if (!tenantId) return [];
+
+    const posts = await prisma.blogPost.findMany({
+      where: { tenantId, status: ContentStatus.PUBLISHED },
+      select: { category: true }
+    });
+
+    const counts = new Map<string, number>();
+    for (const p of posts) {
+      const cat = p.category || 'General';
+      counts.set(cat, (counts.get(cat) || 0) + 1);
+    }
+
+    const categories: BlogCategory[] = [];
+    for (const [name, count] of counts.entries()) {
+      categories.push({
+        id: `cat_${normalizeSlug(name)}`,
+        tenantId,
+        name,
+        slug: normalizeSlug(name),
+        postsCount: count
+      });
+    }
+
+    return categories;
   }
 }

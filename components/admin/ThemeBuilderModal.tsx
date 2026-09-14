@@ -99,25 +99,72 @@ export function ThemeBuilderModal({ tenantId, theme, isOpen, onClose, onThemeUpd
     setSections(newArr);
   };
 
-  const handleSaveDraft = () => {
-    ThemeService.saveDraft(tenantId, {
-      themeId: theme.id,
-      sections,
-      palette,
-      typography
-    });
+  const handleSaveDraft = async () => {
+    try {
+      await fetch('/api/themes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'saveDraft',
+          tenantId,
+          themeId: theme.id,
+          draft: {
+            themeId: theme.id,
+            sections,
+            palette,
+            typography
+          }
+        })
+      });
+    } catch {
+      await ThemeService.saveDraft(tenantId, {
+        themeId: theme.id,
+        sections,
+        palette,
+        typography
+      });
+    }
     setSaveStatus('Borrador guardado con éxito');
     setTimeout(() => setSaveStatus(null), 3000);
   };
 
-  const handlePublish = () => {
-    ThemeService.saveDraft(tenantId, {
-      themeId: theme.id,
-      sections,
-      palette,
-      typography
-    });
-    ThemeService.publishDraft(tenantId);
+  const handlePublish = async () => {
+    try {
+      await fetch('/api/themes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'saveDraft',
+          tenantId,
+          themeId: theme.id,
+          draft: {
+            themeId: theme.id,
+            sections,
+            palette,
+            typography
+          }
+        })
+      });
+
+      await fetch('/api/themes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'publish',
+          tenantId,
+          themeId: theme.id
+        })
+      });
+    } catch {
+      await ThemeService.saveDraft(tenantId, {
+        themeId: theme.id,
+        sections,
+        palette,
+        typography
+      });
+      await ThemeService.publishDraft(tenantId, theme.id);
+    }
+
     onThemeUpdated?.();
     setSaveStatus('¡Tema publicado en producción con éxito!');
     setTimeout(() => {
