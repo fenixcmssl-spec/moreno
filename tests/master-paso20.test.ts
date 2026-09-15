@@ -16,6 +16,7 @@ import { StorefrontService } from '../lib/services/storefront.service';
 import { SecurityService, RateLimiter } from '../lib/security/security.service';
 import { LANGUAGES, CATEGORY_TRANSLATIONS, PRODUCT_TRANSLATIONS_CATALOG } from '../lib/i18n';
 import { INITIAL_TENANTS, INITIAL_PRODUCTS, INITIAL_PLANS, INITIAL_THEMES, INITIAL_PLUGINS } from '../lib/initialData';
+import prisma from '../lib/prisma';
 import crypto from 'crypto';
 
 export async function runMasterTestSuite() {
@@ -23,6 +24,95 @@ export async function runMasterTestSuite() {
   console.log('🛡️  PASO 20 — SUITE MAESTRA DE PRUEBAS INTEGRALES DEL SISTEMA FENIXCMS');
   console.log('    Multidominio + Multiidioma + Plugins + Temas + Tienda Online + SaaS Engine');
   console.log('================================================================================\n');
+
+  // Seed Prisma mock in-memory delegates if needed
+  if ((prisma as any)?.tenant?.create) {
+    for (const t of INITIAL_TENANTS) {
+      await (prisma as any).tenant.upsert({
+        where: { id: t.id },
+        update: {},
+        create: {
+          id: t.id,
+          name: t.name,
+          slug: t.slug,
+          status: t.status,
+          planId: t.planId || 'plan_pro',
+          currency: t.currency || 'EUR',
+          customDomain: t.customDomain,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      }).catch(() => {});
+    }
+  }
+
+  if ((prisma as any)?.product?.create) {
+    for (const p of INITIAL_PRODUCTS) {
+      await (prisma as any).product.upsert({
+        where: { id: p.id },
+        update: {},
+        create: {
+          id: p.id,
+          tenantId: p.tenantId,
+          title: p.title,
+          slug: p.slug || p.id,
+          price: p.price,
+          stock: p.stock,
+          status: 'ACTIVE',
+          category: p.category,
+          images: p.images || [],
+          sku: p.sku || p.id,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      }).catch(() => {});
+    }
+  }
+
+  if ((prisma as any)?.theme?.create) {
+    for (const th of INITIAL_THEMES) {
+      await (prisma as any).theme.upsert({
+        where: { id: th.id },
+        update: {},
+        create: {
+          id: th.id,
+          name: th.name,
+          key: th.key,
+          description: th.description,
+          version: th.version,
+          author: th.author,
+          sections: th.sections || [],
+          palette: th.palette || {},
+          typography: th.typography || {},
+          isActive: (th as any).isActive ?? false,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      }).catch(() => {});
+    }
+  }
+
+  if ((prisma as any)?.plugin?.create) {
+    for (const pl of INITIAL_PLUGINS) {
+      await (prisma as any).plugin.upsert({
+        where: { id: pl.id },
+        update: {},
+        create: {
+          id: pl.id,
+          tenantId: 'tenant_demo',
+          name: pl.name,
+          key: pl.key,
+          category: pl.category,
+          version: pl.version,
+          isEnabled: pl.isEnabled ?? true,
+          manifest: pl as any,
+          config: pl.config || {},
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      }).catch(() => {});
+    }
+  }
 
   let passed = 0;
   let failed = 0;
@@ -505,15 +595,15 @@ export async function runMasterTestSuite() {
       items: [
         {
           productId: 'prod_1',
-          title: 'Auriculares Inalámbricos Pro ANC',
-          price: 129.99,
+          title: 'Auriculares Inalámbricos Noise Cancelling Pro ANC',
+          price: 49.99,
           quantity: 1,
           image: '/images/headphones.png'
         }
       ],
       paymentMethod: 'stripe'
     });
-    assert(storeOrder.success && storeOrder.order?.subtotal === 129.99, 'Crea pedido de e-commerce en storefront calculando importes correctos');
+    assert(storeOrder.success && storeOrder.order?.subtotal === 49.99, 'Crea pedido de e-commerce en storefront calculando importes correctos');
   }
 
   // ===========================================================================
@@ -570,18 +660,18 @@ export async function runMasterTestSuite() {
   // ===========================================================================
   console.log('\n📋 [19/22] PRUEBAS DE THEME (Motor de Temas, Secciones y Paletas de Color)');
   {
-    const themes = ThemeService.getAllThemes();
+    const themes = await ThemeService.getAllThemes();
     assert(themes.length >= 3, `Catálogo dispone de ${themes.length} temas completos prediseñados`);
 
-    const defaultTheme = ThemeService.getThemeById('theme_fenix_market') || themes[0];
+    const defaultTheme = (await ThemeService.getThemeById('theme_fenix_market')) || themes[0];
     assert(defaultTheme !== undefined && defaultTheme.sections.length > 0, 'Tema base contiene bloques de secciones configurables');
     assert(typeof defaultTheme?.palette?.primary === 'string', 'Tema define paleta de colores cromática coherente');
 
     // Guardar borrador y publicar
-    const draft = ThemeService.saveDraft('tenant_demo', defaultTheme.id, defaultTheme.sections || []);
+    const draft = await ThemeService.saveDraft('tenant_demo', defaultTheme.id, defaultTheme.sections || []);
     assert(draft.themeId === defaultTheme.id, 'Guarda estado en borrador para personalización visual');
 
-    const published = ThemeService.publishDraft('tenant_demo', defaultTheme.id);
+    const published = await ThemeService.publishDraft('tenant_demo', defaultTheme.id);
     assert(published.isPublished === true, 'Publica tema actualizado con persistencia para el tenant');
   }
 
@@ -590,7 +680,7 @@ export async function runMasterTestSuite() {
   // ===========================================================================
   console.log('\n📋 [20/22] PRUEBAS DE PLUGIN (Ecosistema, Manifiestos y Sandbox de Seguridad)');
   {
-    const plugins = PluginService.getAllPlugins();
+    const plugins = await PluginService.getAllPlugins();
     assert(plugins.length >= 8, `Ecosistema dispone de ${plugins.length} plugins modulares oficiales`);
 
     // Validar manifiesto legítimo

@@ -6,6 +6,7 @@ async function main() {
   const { execSync } = await import('child_process');
   execSync('npx tsx tests/fase20-d1-persistence.test.ts', { stdio: 'inherit' });
   execSync('npx tsx tests/classifieds.test.ts', { stdio: 'inherit' });
+  execSync('npx tsx tests/production-readiness.test.ts', { stdio: 'inherit' });
 }
 
 main().catch((err) => {

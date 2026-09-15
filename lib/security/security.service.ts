@@ -251,8 +251,9 @@ export class SecurityService {
       return { valid: false, errors: ['Manifiesto de plugin inválido o no es un objeto JSON.'] };
     }
 
-    if (!manifest.id || typeof manifest.id !== 'string' || !/^[a-z0-9_-]+$/i.test(manifest.id)) {
-      errors.push('El campo id del plugin debe contener solo caracteres alfanuméricos, guiones o guiones bajos.');
+    const pluginId = (manifest as any).id || (manifest as any).key;
+    if (!pluginId || typeof pluginId !== 'string' || !/^[a-z0-9_-]+$/i.test(pluginId)) {
+      errors.push('El campo id/key del plugin debe contener solo caracteres alfanuméricos, guiones o guiones bajos.');
     }
 
     if (!manifest.name || typeof manifest.name !== 'string' || manifest.name.length < 2) {

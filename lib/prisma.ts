@@ -190,8 +190,16 @@ class InMemoryTestPrisma {
         return res;
       },
       findFirst: async (args: any) => {
-        const items = Array.from(table.values());
-        const found = items.find(i => matchesWhere(i, args?.where));
+        let items = Array.from(table.values()).filter(i => matchesWhere(i, args?.where));
+        if (args?.orderBy) {
+          const [field, dir] = Object.entries(args.orderBy)[0] as [string, string];
+          items.sort((a, b) => {
+            const aVal = a[field] || '';
+            const bVal = b[field] || '';
+            return dir === 'desc' ? (bVal > aVal ? 1 : -1) : (aVal > bVal ? 1 : -1);
+          });
+        }
+        const found = items[0];
         if (!found) return null;
         const res = { ...found };
         if (args?.include?.orderItems) {

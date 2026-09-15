@@ -4,6 +4,8 @@ import { InvoiceService } from '../lib/services/invoice.service';
 import { LicenseService } from '../lib/services/license.service';
 import { SubscriptionService } from '../lib/services/subscription.service';
 
+process.env.STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || 'whsec_test_secret_for_fenix_cms_tests_2026';
+
 function assert(condition: boolean, message: string) {
   if (!condition) {
     console.error(`❌ [FAIL] ${message}`);

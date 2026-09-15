@@ -36,6 +36,22 @@ const INITIAL_AUDIT_LOGS: AuditLogItem[] = [
   }
 ];
 
+function redactSensitiveDetails(details?: Record<string, any>): Record<string, any> | undefined {
+  if (!details || typeof details !== 'object') return details;
+  const SENSITIVE_KEYS = /password|token|secret|authorization|cookie|apikey|card|cvv|hash|passwordHash|tokenHash/i;
+  const redacted: Record<string, any> = {};
+  for (const [key, value] of Object.entries(details)) {
+    if (SENSITIVE_KEYS.test(key)) {
+      redacted[key] = '[REDACTED]';
+    } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      redacted[key] = redactSensitiveDetails(value);
+    } else {
+      redacted[key] = value;
+    }
+  }
+  return redacted;
+}
+
 export class AuditService {
   private static logs: AuditLogItem[] = [...INITIAL_AUDIT_LOGS];
 
@@ -102,7 +118,7 @@ export class AuditService {
       action: finalAction,
       entity: finalEntity,
       entityId: finalEntityId,
-      details: finalDetails,
+      details: redactSensitiveDetails(finalDetails),
       ipAddress: '127.0.0.1',
       createdAt: new Date().toISOString()
     };

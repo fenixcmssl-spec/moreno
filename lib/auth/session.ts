@@ -62,7 +62,7 @@ export class SessionService {
       );
     }
 
-    if (isPostgresConfigured() && prisma?.session?.create) {
+    if (prisma?.session?.create) {
       await prisma.session.create({
         data: {
           id: sessionId,
@@ -105,7 +105,7 @@ export class SessionService {
       );
     }
 
-    if (isPostgresConfigured() && prisma?.session?.findUnique) {
+    if (prisma?.session?.findUnique) {
       const sessionRecord = await prisma.session.findUnique({
         where: { tokenHash },
         include: {
@@ -125,7 +125,7 @@ export class SessionService {
       }
 
       // Check User Status (account suspended/inactive invalidates session)
-      if (sessionRecord.user.status !== 'ACTIVE') {
+      if (sessionRecord.user && sessionRecord.user.status && sessionRecord.user.status !== 'ACTIVE') {
         await prisma.session.delete({ where: { id: sessionRecord.id } }).catch(() => {});
         return null;
       }
@@ -138,14 +138,14 @@ export class SessionService {
 
       return {
         id: sessionRecord.id,
-        userId: sessionRecord.user.id,
-        email: sessionRecord.user.email,
-        name: sessionRecord.user.name,
+        userId: sessionRecord.userId || sessionRecord.user?.id || '',
+        email: sessionRecord.user?.email || '',
+        name: sessionRecord.user?.name || '',
         role: sessionRecord.role as UserRole,
         tenantId: sessionRecord.tenantId || undefined,
         tenantSlug: sessionRecord.tenant?.slug || undefined,
-        expiresAt: sessionRecord.expiresAt.toISOString(),
-        lastActiveAt: sessionRecord.lastActiveAt.toISOString()
+        expiresAt: (sessionRecord.expiresAt instanceof Date ? sessionRecord.expiresAt : new Date(sessionRecord.expiresAt)).toISOString(),
+        lastActiveAt: (sessionRecord.lastActiveAt instanceof Date ? sessionRecord.lastActiveAt : new Date(sessionRecord.lastActiveAt || Date.now())).toISOString()
       };
     }
 
@@ -173,7 +173,7 @@ export class SessionService {
     const newExpiresAt = new Date();
     newExpiresAt.setHours(newExpiresAt.getHours() + this.SESSION_TTL_HOURS);
 
-    if (isPostgresConfigured() && prisma?.session?.updateMany) {
+    if (prisma?.session?.updateMany) {
       const result = await prisma.session.updateMany({
         where: { 
           tokenHash,
@@ -197,7 +197,7 @@ export class SessionService {
     if (!token) return false;
     const tokenHash = this.hashToken(token);
 
-    if (isPostgresConfigured() && prisma?.session?.deleteMany) {
+    if (prisma?.session?.deleteMany) {
       await prisma.session.deleteMany({
         where: { tokenHash }
       });
@@ -217,7 +217,7 @@ export class SessionService {
   static async revokeAllUserSessions(userId: string): Promise<boolean> {
     if (!userId) return false;
 
-    if (isPostgresConfigured() && prisma?.session?.deleteMany) {
+    if (prisma?.session?.deleteMany) {
       await prisma.session.deleteMany({
         where: { userId }
       });

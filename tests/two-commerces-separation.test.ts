@@ -209,7 +209,7 @@ async function runTwoCommercesSeparationTests() {
   const tenantOrders = await StorefrontCheckoutService.getOrdersByTenant('tenant_boutiquevalencia');
   assert(tenantOrders.length >= 1, `Pedidos de la tienda recuperados para boutiquevalencia: ${tenantOrders.length}`);
   const foundOrder = await StorefrontCheckoutService.getOrderById(order.orderNumber, 'tenant_boutiquevalencia');
-  assert(foundOrder !== undefined && foundOrder.customerEmail === 'anabelen@cliente.com', 'Pedido del comprador recuperado íntegro por orderNumber');
+  assert(foundOrder !== null && foundOrder !== undefined && foundOrder.customerEmail === 'anabelen@cliente.com', 'Pedido del comprador recuperado íntegro por orderNumber');
 
   // =========================================================================
   // SUITE 3: ABSOLUTE LOGICAL SEPARATION & BOUNDARY TESTS

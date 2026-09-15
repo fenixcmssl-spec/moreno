@@ -1,6 +1,7 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { 
   getFirestore, 
+  initializeFirestore,
   doc, 
   getDoc,
   getDocFromServer, 
@@ -19,8 +20,16 @@ import firebaseConfig from '../firebase-applet-config.json';
 // Initialize Firebase App
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-// Initialize Firestore with explicit database ID
-export const db: Firestore = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// Initialize Firestore with long polling enabled for robust connectivity in container/iframe environments
+export const db: Firestore = (() => {
+  try {
+    return initializeFirestore(app, {
+      experimentalAutoDetectLongPolling: true,
+    }, firebaseConfig.firestoreDatabaseId);
+  } catch {
+    return getFirestore(app, firebaseConfig.firestoreDatabaseId);
+  }
+})();
 
 export enum OperationType {
   CREATE = 'create',

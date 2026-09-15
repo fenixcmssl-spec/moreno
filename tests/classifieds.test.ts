@@ -96,14 +96,14 @@ export async function runClassifiedsTestSuite() {
   console.log('\n📋 [4/8] AISLAMIENTO MULTI-TENANT');
   {
     // Simulation of Tenant A vs Tenant B
-    const tenantA = 'tenant_motor_espana';
-    const tenantB = 'tenant_inmo_bcn';
+    const tenantA: string = 'tenant_motor_espana';
+    const tenantB: string = 'tenant_inmo_bcn';
 
     assert(tenantA !== tenantB, 'Tenants independientes identificados');
     // Ensure slug scoping is per-tenant: same slug can exist in both tenants
     const slug = 'volkswagen-golf-2023';
-    const keyA = `${tenantA}:${slug}`;
-    const keyB = `${tenantB}:${slug}`;
+    const keyA: string = `${tenantA}:${slug}`;
+    const keyB: string = `${tenantB}:${slug}`;
     assert(keyA !== keyB, 'Compound index [tenantId, slug] permite coexistencia entre diferentes tenants');
   }
 

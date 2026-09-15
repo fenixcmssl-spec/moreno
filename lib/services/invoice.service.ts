@@ -57,24 +57,41 @@ const INVOICES_FALLBACK: InvoiceItem[] = [
 
 export class InvoiceService {
   /**
-   * Generates a unique sequential invoice number (e.g., FNX-2026-0042)
+   * Generates a unique sequential invoice number based on max existing record (e.g., FNX-2026-0042)
    */
   static async generateInvoiceNumber(): Promise<string> {
     const currentYear = new Date().getFullYear();
-    let count = 0;
+    const prefix = `FNX-${currentYear}-`;
+    let nextSeq = 1;
 
     if (process.env.DATABASE_URL && prisma?.invoice) {
       try {
-        count = await prisma.invoice.count();
+        const lastInvoice = await prisma.invoice.findFirst({
+          where: {
+            invoiceNumber: {
+              startsWith: prefix
+            }
+          },
+          orderBy: {
+            invoiceNumber: 'desc'
+          }
+        });
+
+        if (lastInvoice && lastInvoice.invoiceNumber) {
+          const parts = lastInvoice.invoiceNumber.split('-');
+          const lastNum = parseInt(parts[parts.length - 1], 10);
+          if (!isNaN(lastNum)) {
+            nextSeq = lastNum + 1;
+          }
+        }
       } catch {
-        count = INVOICES_FALLBACK.length;
+        nextSeq = INVOICES_FALLBACK.length + 1;
       }
     } else {
-      count = INVOICES_FALLBACK.length;
+      nextSeq = INVOICES_FALLBACK.length + 1;
     }
 
-    const nextSeq = count + 1;
-    return `FNX-${currentYear}-${String(nextSeq).padStart(4, '0')}`;
+    return `${prefix}${String(nextSeq).padStart(4, '0')}`;
   }
 
   /**

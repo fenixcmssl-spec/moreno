@@ -259,8 +259,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     async function syncFromCloud() {
       try {
         const tenantRef = doc(db, 'tenants', 'tenant_demo');
-        const snap = await getDoc(tenantRef);
-        if (snap.exists()) {
+        // Add a 3-second timeout guard to prevent Firestore connection stall
+        const docPromise = getDoc(tenantRef);
+        const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000));
+        const snap = await Promise.race([docPromise, timeoutPromise]);
+        if (snap && snap.exists && snap.exists()) {
           setTenant(prev => ({ ...prev, ...(snap.data() as Partial<TenantStore>) }));
         }
       } catch (err) {
