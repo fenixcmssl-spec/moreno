@@ -60,7 +60,7 @@ export async function runProductionReadinessTests() {
 
     try {
       // Test missing DATABASE_URL in production
-      process.env.NODE_ENV = 'production';
+      (process.env as any).NODE_ENV = 'production';
       delete process.env.DATABASE_URL;
 
       let caught = false;
@@ -73,7 +73,7 @@ export async function runProductionReadinessTests() {
       }
       testAssert(caught, 'Lanza DatabaseConfigurationError explícito cuando DATABASE_URL falta en producción');
     } finally {
-      process.env.NODE_ENV = prevEnv;
+      (process.env as any).NODE_ENV = prevEnv;
       if (prevDbUrl) process.env.DATABASE_URL = prevDbUrl;
     }
   }

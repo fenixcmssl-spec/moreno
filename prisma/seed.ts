@@ -387,14 +387,14 @@ export async function main() {
   // Categorías Tenant A
   const catTechA = await prisma.category.upsert({
     where: { tenantId_slug: { tenantId: tenantA.id, slug: 'electronica' } },
-    update: { name: 'Electrónica & Audio' },
-    create: { id: 'cat_tech_audio', tenantId: tenantA.id, name: 'Electrónica & Audio', slug: 'electronica' }
+    update: { name: 'Electrónica & Audio', status: 'ACTIVE' },
+    create: { id: 'cat_tech_audio', tenantId: tenantA.id, name: 'Electrónica & Audio', slug: 'electronica', status: 'ACTIVE' }
   });
 
   const catGamingA = await prisma.category.upsert({
     where: { tenantId_slug: { tenantId: tenantA.id, slug: 'informatica' } },
-    update: { name: 'Informática & Gaming' },
-    create: { id: 'cat_tech_gaming', tenantId: tenantA.id, name: 'Informática & Gaming', slug: 'informatica' }
+    update: { name: 'Informática & Gaming', status: 'ACTIVE' },
+    create: { id: 'cat_tech_gaming', tenantId: tenantA.id, name: 'Informática & Gaming', slug: 'informatica', status: 'ACTIVE' }
   });
 
   // Productos Tenant A
@@ -484,14 +484,14 @@ export async function main() {
   // Categorías Tenant B
   const catFashionB = await prisma.category.upsert({
     where: { tenantId_slug: { tenantId: tenantB.id, slug: 'abbigliamento' } },
-    update: { name: 'Abbigliamento & Sartoria' },
-    create: { id: 'cat_milan_fashion', tenantId: tenantB.id, name: 'Abbigliamento & Sartoria', slug: 'abbigliamento' }
+    update: { name: 'Abbigliamento & Sartoria', status: 'ACTIVE' },
+    create: { id: 'cat_milan_fashion', tenantId: tenantB.id, name: 'Abbigliamento & Sartoria', slug: 'abbigliamento', status: 'ACTIVE' }
   });
 
   const catLeatherB = await prisma.category.upsert({
     where: { tenantId_slug: { tenantId: tenantB.id, slug: 'pelletteria' } },
-    update: { name: 'Pelletteria & Borse' },
-    create: { id: 'cat_milan_leather', tenantId: tenantB.id, name: 'Pelletteria & Borse', slug: 'pelletteria' }
+    update: { name: 'Pelletteria & Borse', status: 'ACTIVE' },
+    create: { id: 'cat_milan_leather', tenantId: tenantB.id, name: 'Pelletteria & Borse', slug: 'pelletteria', status: 'ACTIVE' }
   });
 
   // Productos Tenant B (Moda Italiana)
