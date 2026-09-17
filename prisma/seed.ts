@@ -800,29 +800,25 @@ export async function main() {
       id: 'media_a_logo',
       tenantId: tenantA.id,
       filename: 'fenix-market-logo.png',
-      path: 'fenix-market-logo.png',
       url: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400&q=80',
+      storageKey: 'managed_local/fenix-market-logo.png',
       mimeType: 'image/png',
       size: 45200,
       width: 400,
       height: 120,
-      alt: 'Fenix Market Logo',
-      storageProvider: 'managed_local',
-      isPublic: true
+      alt: 'Fenix Market Logo'
     },
     {
       id: 'media_b_banner',
       tenantId: tenantB.id,
       filename: 'milano-boutique-lookbook.webp',
-      path: 'milano-boutique-lookbook.webp',
       url: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=800&q=80',
+      storageKey: 'managed_local/milano-boutique-lookbook.webp',
       mimeType: 'image/webp',
       size: 185400,
       width: 1200,
       height: 600,
-      alt: 'Milano Boutique Lookbook Banner',
-      storageProvider: 'managed_local',
-      isPublic: true
+      alt: 'Milano Boutique Lookbook Banner'
     }
   ];
 
