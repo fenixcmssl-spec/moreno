@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/prisma';
+import { prisma, isPostgresConfigured, isProductionMode, DatabaseConfigurationError } from '@/lib/prisma';
 import { AuditService } from './audit.service';
 import { InvoiceItem } from '@/types';
 
@@ -64,7 +64,7 @@ export class InvoiceService {
     const prefix = `FNX-${currentYear}-`;
     let nextSeq = 1;
 
-    if (process.env.DATABASE_URL && prisma?.invoice) {
+    if (isPostgresConfigured() && prisma?.invoice) {
       try {
         const lastInvoice = await prisma.invoice.findFirst({
           where: {
@@ -84,10 +84,14 @@ export class InvoiceService {
             nextSeq = lastNum + 1;
           }
         }
-      } catch {
+      } catch (err: any) {
+        if (isProductionMode()) throw err;
         nextSeq = INVOICES_FALLBACK.length + 1;
       }
     } else {
+      if (isProductionMode()) {
+        throw new DatabaseConfigurationError('Invoice number generation requires DATABASE_URL in production mode.');
+      }
       nextSeq = INVOICES_FALLBACK.length + 1;
     }
 
@@ -98,6 +102,10 @@ export class InvoiceService {
    * Creates and persists an invoice in PostgreSQL
    */
   static async createInvoice(params: CreateInvoiceParams): Promise<InvoiceItem> {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('Invoice creation requires DATABASE_URL in production mode.');
+    }
+
     const id = params.id || `inv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const invoiceNumber = params.invoiceNumber || await this.generateInvoiceNumber();
     
@@ -115,7 +123,7 @@ export class InvoiceService {
     const issuedAt = params.issuedAt ? new Date(params.issuedAt) : new Date();
     const paidAt = status === 'PAID' ? (params.paidAt ? new Date(params.paidAt) : new Date()) : null;
 
-    if (process.env.DATABASE_URL && prisma?.invoice) {
+    if (isPostgresConfigured() && prisma?.invoice) {
       try {
         const created = await prisma.invoice.create({
           data: {
@@ -150,8 +158,13 @@ export class InvoiceService {
 
         return this.mapPrismaToInvoice(created);
       } catch (err: any) {
-        console.warn('Prisma invoice creation failed, falling back to local store:', err?.message);
+        if (isProductionMode()) throw err;
+        console.warn('Prisma invoice creation failed, falling back to local store in dev:', err?.message);
       }
+    }
+
+    if (isProductionMode()) {
+      throw new DatabaseConfigurationError('Invoice creation failed: database not configured.');
     }
 
     const fallbackInvoice: InvoiceItem = {
@@ -190,7 +203,11 @@ export class InvoiceService {
    * Retrieves invoices from PostgreSQL with optional tenant filter
    */
   static async getInvoices(filters?: { tenantId?: string; status?: string }): Promise<InvoiceItem[]> {
-    if (process.env.DATABASE_URL && prisma?.invoice) {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('Invoice retrieval requires DATABASE_URL in production mode.');
+    }
+
+    if (isPostgresConfigured() && prisma?.invoice) {
       try {
         const where: any = {};
         if (filters?.tenantId) where.tenantId = filters.tenantId;
@@ -201,12 +218,17 @@ export class InvoiceService {
           orderBy: { issuedAt: 'desc' }
         });
 
-        if (dbInvoices && dbInvoices.length > 0) {
+        if (dbInvoices) {
           return dbInvoices.map((inv: any) => this.mapPrismaToInvoice(inv));
         }
       } catch (err: any) {
-        console.warn('Prisma getInvoices failed, using fallback:', err?.message);
+        if (isProductionMode()) throw err;
+        console.warn('Prisma getInvoices failed, using fallback in dev:', err?.message);
       }
+    }
+
+    if (isProductionMode()) {
+      return [];
     }
 
     let results = [...INVOICES_FALLBACK];
@@ -230,7 +252,11 @@ export class InvoiceService {
    * Retrieves single invoice by ID
    */
   static async getInvoiceById(id: string): Promise<InvoiceItem | null> {
-    if (process.env.DATABASE_URL && prisma?.invoice) {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('Invoice lookup requires DATABASE_URL in production mode.');
+    }
+
+    if (isPostgresConfigured() && prisma?.invoice) {
       try {
         const dbInvoice = await prisma.invoice.findUnique({
           where: { id }
@@ -239,8 +265,13 @@ export class InvoiceService {
           return this.mapPrismaToInvoice(dbInvoice);
         }
       } catch (err: any) {
-        console.warn('Prisma getInvoiceById error:', err?.message);
+        if (isProductionMode()) throw err;
+        console.warn('Prisma getInvoiceById error in dev:', err?.message);
       }
+    }
+
+    if (isProductionMode()) {
+      return null;
     }
 
     return INVOICES_FALLBACK.find(i => i.id === id) || null;
@@ -250,7 +281,11 @@ export class InvoiceService {
    * Retrieves single invoice by Invoice Number
    */
   static async getInvoiceByNumber(invoiceNumber: string): Promise<InvoiceItem | null> {
-    if (process.env.DATABASE_URL && prisma?.invoice) {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('Invoice lookup requires DATABASE_URL in production mode.');
+    }
+
+    if (isPostgresConfigured() && prisma?.invoice) {
       try {
         const dbInvoice = await prisma.invoice.findUnique({
           where: { invoiceNumber }
@@ -259,8 +294,13 @@ export class InvoiceService {
           return this.mapPrismaToInvoice(dbInvoice);
         }
       } catch (err: any) {
-        console.warn('Prisma getInvoiceByNumber error:', err?.message);
+        if (isProductionMode()) throw err;
+        console.warn('Prisma getInvoiceByNumber error in dev:', err?.message);
       }
+    }
+
+    if (isProductionMode()) {
+      return null;
     }
 
     return INVOICES_FALLBACK.find(i => i.invoiceNumber === invoiceNumber) || null;
@@ -270,9 +310,13 @@ export class InvoiceService {
    * Marks an invoice as PAID
    */
   static async markAsPaid(invoiceId: string, paymentId?: string): Promise<InvoiceItem | null> {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('Invoice update requires DATABASE_URL in production mode.');
+    }
+
     const paidAt = new Date();
 
-    if (process.env.DATABASE_URL && prisma?.invoice) {
+    if (isPostgresConfigured() && prisma?.invoice) {
       try {
         const updated = await prisma.invoice.update({
           where: { id: invoiceId },
@@ -284,8 +328,13 @@ export class InvoiceService {
         });
         return this.mapPrismaToInvoice(updated);
       } catch (err: any) {
-        console.warn('Prisma markAsPaid error:', err?.message);
+        if (isProductionMode()) throw err;
+        console.warn('Prisma markAsPaid error in dev:', err?.message);
       }
+    }
+
+    if (isProductionMode()) {
+      return null;
     }
 
     const idx = INVOICES_FALLBACK.findIndex(i => i.id === invoiceId);

@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { prisma } from '@/lib/prisma';
+import { prisma, isPostgresConfigured, isProductionMode, DatabaseConfigurationError } from '@/lib/prisma';
 import { AuditService } from './audit.service';
 import { LicenseService } from './license.service';
 import { SubscriptionService } from './subscription.service';
@@ -190,12 +190,17 @@ export class PaymentService {
       paidAt: null
     };
 
-    if (process.env.DATABASE_URL && prisma?.payment) {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('SaaS Checkout requires DATABASE_URL in production mode.');
+    }
+
+    if (isPostgresConfigured() && prisma?.payment) {
       try {
         await prisma.payment.create({
           data: paymentRecord as any
         });
       } catch (err: any) {
+        if (isProductionMode()) throw err;
         console.warn('Prisma payment creation failed, storing in fallback:', err?.message);
         FALLBACK_PAYMENTS.push(paymentRecord);
       }
@@ -542,7 +547,11 @@ export class PaymentService {
    * Retrieves SaaS Platform Payments
    */
   static async getSaaSPayments(filters?: { tenantId?: string; status?: PlatformPaymentStatus }): Promise<any[]> {
-    if (process.env.DATABASE_URL && prisma?.payment) {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('SaaS payments retrieval requires DATABASE_URL in production mode.');
+    }
+
+    if (isPostgresConfigured() && prisma?.payment) {
       try {
         const where: any = { paymentType: 'SAAS_LICENSE' };
         if (filters?.tenantId) where.tenantId = filters.tenantId;
@@ -557,12 +566,17 @@ export class PaymentService {
           orderBy: { createdAt: 'desc' }
         });
 
-        if (dbPayments && dbPayments.length > 0) {
+        if (dbPayments) {
           return dbPayments.map((p: any) => this.mapPrismaToPayment(p));
         }
       } catch (err: any) {
-        console.warn('Prisma getSaaSPayments error:', err?.message);
+        if (isProductionMode()) throw err;
+        console.warn('Prisma getSaaSPayments error in dev:', err?.message);
       }
+    }
+
+    if (isProductionMode()) {
+      return [];
     }
 
     let results = [...FALLBACK_PAYMENTS];

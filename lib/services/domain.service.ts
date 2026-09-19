@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/prisma';
+import { prisma, isPostgresConfigured, isProductionMode, DatabaseConfigurationError } from '@/lib/prisma';
 import { DomainItem, TenantStore } from '@/types';
 import { INITIAL_TENANTS } from '@/lib/initialData';
 import { EntitlementService } from './entitlement.service';
@@ -94,6 +94,10 @@ export class DomainService {
    * Strictly avoids simplistic slug assumptions (e.g. NEVER assumes a.b.com => a-b-com)
    */
   static async resolveHostname(rawHostname: string): Promise<DomainResolutionResult> {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('Domain resolution requires DATABASE_URL in production mode.');
+    }
+
     const hostname = this.normalizeHostname(rawHostname);
     if (!hostname) {
       return { found: false, hostname: '', resolutionType: 'not_found' };
@@ -101,7 +105,7 @@ export class DomainService {
 
     // 1. Try resolving via PostgreSQL if available
     try {
-      if (process.env.DATABASE_URL && prisma?.domain) {
+      if (isPostgresConfigured() && prisma?.domain) {
         // Query verified & active domains
         const dbDomain = await prisma.domain.findFirst({
           where: {
@@ -200,11 +204,22 @@ export class DomainService {
           };
         }
       }
-    } catch {
-      // Fall through to memory store
+    } catch (err: any) {
+      if (isProductionMode()) {
+        throw err;
+      }
+      // Fall through to memory store in non-production
     }
 
-    // 2. Memory domains resolution
+    if (isProductionMode()) {
+      return {
+        found: false,
+        hostname,
+        resolutionType: 'not_found'
+      };
+    }
+
+    // 2. Memory domains resolution (Development / Isolated unit tests only)
     const matchedDomain = memoryDomains.find(d => d.hostname.toLowerCase() === hostname);
     if (matchedDomain) {
       const tenant = INITIAL_TENANTS.find(t => t.id === matchedDomain.tenantId);
@@ -247,13 +262,17 @@ export class DomainService {
    * Retrieves all domains for a tenant
    */
   static async getDomainsByTenant(tenantId: string): Promise<DomainItem[]> {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('Domain retrieval requires DATABASE_URL in production mode.');
+    }
+
     try {
-      if (process.env.DATABASE_URL && prisma?.domain) {
+      if (isPostgresConfigured() && prisma?.domain) {
         const dbDomains = await prisma.domain.findMany({
           where: { tenantId },
           orderBy: { createdAt: 'asc' }
         });
-        if (dbDomains && dbDomains.length > 0) {
+        if (dbDomains) {
           return dbDomains.map((d: any) => ({
             id: d.id,
             tenantId: d.tenantId,
@@ -266,9 +285,17 @@ export class DomainService {
           }));
         }
       }
-    } catch {
-      // Fallback to memory
+    } catch (err: any) {
+      if (isProductionMode()) {
+        throw err;
+      }
+      // Fallback to memory in dev/test
     }
+
+    if (isProductionMode()) {
+      return [];
+    }
+
     return memoryDomains.filter(d => d.tenantId === tenantId);
   }
 
@@ -281,6 +308,10 @@ export class DomainService {
     type?: 'subdomain' | 'custom';
     primary?: boolean;
   }): Promise<{ success: boolean; domain?: DomainItem; error?: string }> {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('Domain creation requires DATABASE_URL in production mode.');
+    }
+
     const cleanHost = this.normalizeHostname(params.hostname);
     if (!cleanHost) {
       return { success: false, error: 'Hostname no puede estar vacío' };
@@ -295,8 +326,8 @@ export class DomainService {
           error: check.reason || `Has alcanzado el límite de dominios permitidos (${check.current}/${check.limit}) para tu plan.`
         };
       }
-    } catch {
-      // Pass if evaluation allows
+    } catch (err: any) {
+      if (isProductionMode()) throw err;
     }
 
     // 2. Check Domain Uniqueness
@@ -319,7 +350,7 @@ export class DomainService {
 
     // 3. Persist to DB or Memory
     try {
-      if (process.env.DATABASE_URL && prisma?.domain) {
+      if (isPostgresConfigured() && prisma?.domain) {
         const created = await prisma.domain.create({
           data: {
             id: newDomain.id,
@@ -333,9 +364,14 @@ export class DomainService {
           }
         });
         newDomain.id = created.id;
+        return { success: true, domain: newDomain };
       }
-    } catch {
-      // Memory fallback
+    } catch (err: any) {
+      if (isProductionMode()) throw err;
+    }
+
+    if (isProductionMode()) {
+      return { success: false, error: 'Base de datos no disponible para registrar dominio' };
     }
 
     memoryDomains.push(newDomain);
@@ -346,8 +382,12 @@ export class DomainService {
    * Verifies a domain (e.g. DNS TXT record check simulation)
    */
   static async verifyDomain(id: string, tenantId: string): Promise<{ success: boolean; domain?: DomainItem; error?: string }> {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('Domain verification requires DATABASE_URL in production mode.');
+    }
+
     try {
-      if (process.env.DATABASE_URL && prisma?.domain) {
+      if (isPostgresConfigured() && prisma?.domain) {
         const updated = await prisma.domain.updateMany({
           where: { id, tenantId },
           data: { verified: true, status: 'active', sslStatus: 'active' }
@@ -370,9 +410,14 @@ export class DomainService {
             };
           }
         }
+        return { success: false, error: 'Dominio no encontrado o no autorizado' };
       }
-    } catch {
-      // Fallback
+    } catch (err: any) {
+      if (isProductionMode()) throw err;
+    }
+
+    if (isProductionMode()) {
+      return { success: false, error: 'Dominio no encontrado' };
     }
 
     const found = memoryDomains.find(d => d.id === id && d.tenantId === tenantId);
@@ -386,14 +431,23 @@ export class DomainService {
    * Deletes a domain
    */
   static async deleteDomain(id: string, tenantId: string): Promise<{ success: boolean; error?: string }> {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('Domain deletion requires DATABASE_URL in production mode.');
+    }
+
     try {
-      if (process.env.DATABASE_URL && prisma?.domain) {
+      if (isPostgresConfigured() && prisma?.domain) {
         await prisma.domain.deleteMany({
           where: { id, tenantId }
         });
+        return { success: true };
       }
-    } catch {
-      // Fallback
+    } catch (err: any) {
+      if (isProductionMode()) throw err;
+    }
+
+    if (isProductionMode()) {
+      return { success: true };
     }
 
     const idx = memoryDomains.findIndex(d => d.id === id && d.tenantId === tenantId);

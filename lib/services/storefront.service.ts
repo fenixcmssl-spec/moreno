@@ -1,4 +1,4 @@
-import prisma from '@/lib/prisma';
+import prisma, { isPostgresConfigured, isProductionMode, DatabaseConfigurationError } from '@/lib/prisma';
 import { DomainResolutionResult, DomainService } from './domain.service';
 import { LicenseService } from './license.service';
 import { ThemeService, ThemeRecord } from './theme.service';
@@ -138,11 +138,15 @@ export class StorefrontService {
       }
     }
 
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('Storefront resolution requires DATABASE_URL in production mode.');
+    }
+
     // 2. Resolve Tenant from PostgreSQL
     let tenantRecord: any = null;
     let resolvedVia: StorefrontResolutionPayload['resolvedVia'] = 'postgresql_domain';
 
-    if (process.env.DATABASE_URL && prisma) {
+    if (isPostgresConfigured() && prisma) {
       try {
         // Step 2a: Lookup in Domain table by verified hostname (Custom Domain or Subdomain)
         if (hostname) {
@@ -199,36 +203,43 @@ export class StorefrontService {
           if (tenantRecord) resolvedVia = 'postgresql_tenant';
         }
       } catch (err) {
-        console.warn('PostgreSQL storefront resolution lookup error, checking memory:', err);
+        if (isProductionMode()) throw err;
+        console.warn('PostgreSQL storefront resolution lookup error, checking memory in dev:', err);
       }
     }
 
-    // 3. Fallback to memory store if database is empty or not configured
-    if (!tenantRecord) {
-      // Memory Domain check
-      const memRes = await DomainService.resolveHostname(hostname || fallbackSlug || '');
-      if (memRes.found && memRes.tenant) {
-        tenantRecord = memRes.tenant;
-        resolvedVia = memRes.resolutionType === 'database_custom_domain' ? 'memory_domain' : 'memory_fallback';
-      } else if (fallbackSlug) {
-        tenantRecord = INITIAL_TENANTS.find(t => t.slug === fallbackSlug || t.id === fallbackSlug) || null;
-        if (tenantRecord) resolvedVia = 'memory_fallback';
-      }
-    }
-
-    // If still not resolved and in localhost/dev, resolve default demo tenant
-    if (!tenantRecord && (hostname.includes('localhost') || hostname.includes('127.0.0.1') || hostname === '' || hostname.includes('run.app'))) {
-      if (process.env.DATABASE_URL && prisma) {
-        try {
-          tenantRecord = await (prisma as any).tenant.findFirst({
-            where: { status: 'active' },
-            orderBy: { createdAt: 'asc' }
-          });
-        } catch {}
-      }
+    if (isProductionMode()) {
       if (!tenantRecord) {
-        tenantRecord = INITIAL_TENANTS[0];
-        resolvedVia = 'memory_fallback';
+        return null;
+      }
+    } else {
+      // 3. Fallback to memory store if database is empty or not configured (dev only)
+      if (!tenantRecord) {
+        // Memory Domain check
+        const memRes = await DomainService.resolveHostname(hostname || fallbackSlug || '');
+        if (memRes.found && memRes.tenant) {
+          tenantRecord = memRes.tenant;
+          resolvedVia = memRes.resolutionType === 'database_custom_domain' ? 'memory_domain' : 'memory_fallback';
+        } else if (fallbackSlug) {
+          tenantRecord = INITIAL_TENANTS.find(t => t.slug === fallbackSlug || t.id === fallbackSlug) || null;
+          if (tenantRecord) resolvedVia = 'memory_fallback';
+        }
+      }
+
+      // If still not resolved and in localhost/dev, resolve default demo tenant
+      if (!tenantRecord && (hostname.includes('localhost') || hostname.includes('127.0.0.1') || hostname === '' || hostname.includes('run.app'))) {
+        if (isPostgresConfigured() && prisma) {
+          try {
+            tenantRecord = await (prisma as any).tenant.findFirst({
+              where: { status: 'active' },
+              orderBy: { createdAt: 'asc' }
+            });
+          } catch {}
+        }
+        if (!tenantRecord) {
+          tenantRecord = INITIAL_TENANTS[0];
+          resolvedVia = 'memory_fallback';
+        }
       }
     }
 
@@ -245,7 +256,7 @@ export class StorefrontService {
     let blogPosts: BlogPost[] = [];
     let classifiedAds: ClassifiedAdItem[] = [];
 
-    if (process.env.DATABASE_URL && prisma) {
+    if (isPostgresConfigured() && prisma) {
       try {
         // Fetch products strictly by tenantId
         const dbProducts = await (prisma as any).product.findMany({
@@ -376,7 +387,8 @@ export class StorefrontService {
           }));
         }
       } catch (err) {
-        console.warn('PostgreSQL content query warning:', err);
+        if (isProductionMode()) throw err;
+        console.warn('PostgreSQL content query warning in dev:', err);
       }
     }
 

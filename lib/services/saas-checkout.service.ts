@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { prisma } from '@/lib/prisma';
+import { prisma, isPostgresConfigured, isProductionMode, DatabaseConfigurationError } from '@/lib/prisma';
 import { AuditService } from './audit.service';
 import { LicenseService } from './license.service';
 import { SubscriptionService } from './subscription.service';
@@ -61,7 +61,11 @@ export class SaaSCheckoutService {
     const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString(); // 30 minutes
 
     // Persist pending SaaS Payment
-    if (process.env.DATABASE_URL && prisma?.payment) {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('SaaS checkout requires DATABASE_URL in production mode.');
+    }
+
+    if (isPostgresConfigured() && prisma?.payment) {
       try {
         await this.ensureTenantExists({
           id: tenantId,
@@ -95,6 +99,7 @@ export class SaaSCheckoutService {
           }
         });
       } catch (err: any) {
+        if (isProductionMode()) throw err;
         console.warn('Prisma SaaS payment creation error, falling back to memory ledger:', err?.message);
         FALLBACK_SAAS_PAYMENTS.push({
           id: paymentId,
@@ -379,13 +384,24 @@ export class SaaSCheckoutService {
    * Retrieves SaaS Payments history
    */
   static async getPayments(tenantId?: string) {
-    if (process.env.DATABASE_URL && prisma?.payment) {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('SaaS payments lookup requires DATABASE_URL in production mode.');
+    }
+
+    if (isPostgresConfigured() && prisma?.payment) {
       try {
         const where: any = { paymentType: 'SAAS_LICENSE' };
         if (tenantId) where.tenantId = tenantId;
         return await prisma.payment.findMany({ where, orderBy: { createdAt: 'desc' } });
-      } catch {}
+      } catch (err: any) {
+        if (isProductionMode()) throw err;
+      }
     }
+
+    if (isProductionMode()) {
+      return [];
+    }
+
     let list = [...FALLBACK_SAAS_PAYMENTS];
     if (tenantId) list = list.filter(p => p.tenantId === tenantId);
     return list;
