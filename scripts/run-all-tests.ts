@@ -4,9 +4,9 @@ async function main() {
   await runMasterTestSuite();
   // Run Fase 20-D.1 Persistence Tests
   const { execSync } = await import('child_process');
-  execSync('npx tsx tests/fase20-d1-persistence.test.ts', { stdio: 'inherit' });
-  execSync('npx tsx tests/classifieds.test.ts', { stdio: 'inherit' });
-  execSync('npx tsx tests/production-readiness.test.ts', { stdio: 'inherit' });
+  execSync('bunx tsx tests/fase20-d1-persistence.test.ts', { stdio: 'inherit' });
+  execSync('bunx tsx tests/classifieds.test.ts', { stdio: 'inherit' });
+  execSync('bunx tsx tests/production-readiness.test.ts', { stdio: 'inherit' });
 }
 
 main().catch((err) => {
