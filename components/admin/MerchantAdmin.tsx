@@ -74,6 +74,7 @@ import { CouponsManager } from '@/components/admin/CouponsManager';
 import { BillingCustomerManager } from '@/components/admin/BillingCustomerManager';
 import { TenantUsersManager } from '@/components/admin/TenantUsersManager';
 import { TenantDomainsManager } from '@/components/admin/TenantDomainsManager';
+import { SeoOptimizerModal } from '@/components/admin/SeoOptimizerModal';
 import { ThemeService, ThemeRecord } from '@/lib/services/theme.service';
 
 export function MerchantAdmin() {
@@ -265,6 +266,7 @@ export function MerchantAdmin() {
   });
   const [isImportRunning, setIsImportRunning] = useState(false);
   const [importResult, setImportResult] = useState<{ total: number; categoriesCount: number } | null>(null);
+  const [isSeoModalOpen, setIsSeoModalOpen] = useState(false);
 
   // Parsing functions for Fenix All Import Pro
   const parseCSVContent = (csvText: string) => {
@@ -862,6 +864,20 @@ export function MerchantAdmin() {
               </button>
             )}
 
+            {/* Auto-SEO 1-Click Button */}
+            <button
+              onClick={() => setIsSeoModalOpen(true)}
+              className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-emerald-950/50 hover:bg-emerald-900/60 text-emerald-300 border border-emerald-800/60 transition group cursor-pointer"
+            >
+              <div className="flex items-center gap-2.5">
+                <Search className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition" />
+                <span className="font-bold text-xs">Auto-SEO Google</span>
+              </div>
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold uppercase">
+                1-Click
+              </span>
+            </button>
+
             {/* 13. Domains (Gated by customDomain.enabled) */}
             {hasCustomDomain && (
               <button
@@ -1358,7 +1374,15 @@ export function MerchantAdmin() {
                         {plug.isEnabled ? 'Desactivar' : 'Activar Plugin'}
                       </button>
 
-                      {plug.settingsFields && (
+                      {plug.category === 'seo' || plug.id === 'plugin_seo' ? (
+                        <button
+                          onClick={() => setIsSeoModalOpen(true)}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow"
+                        >
+                          <Search className="w-3.5 h-3.5" />
+                          <span>Panel Auto-SEO</span>
+                        </button>
+                      ) : plug.settingsFields ? (
                         <button
                           onClick={() => {
                             setConfigPlugin(plug);
@@ -1369,7 +1393,7 @@ export function MerchantAdmin() {
                           <Sliders className="w-3 h-3" />
                           <span>Configurar</span>
                         </button>
-                      )}
+                      ) : null}
                     </div>
                   </div>
                 ))}
@@ -3406,6 +3430,24 @@ export function MerchantAdmin() {
           tenantId={tenant.id}
           isOpen={isMediaLibraryOpen}
           onClose={() => setIsMediaLibraryOpen(false)}
+        />
+      )}
+
+      {/* SEO OPTIMIZER MODAL */}
+      {isSeoModalOpen && (
+        <SeoOptimizerModal
+          isOpen={isSeoModalOpen}
+          onClose={() => setIsSeoModalOpen(false)}
+          tenant={tenant}
+          products={products}
+          onSaveSettings={async (seoSettings) => {
+            await updateTenant({
+              settings: {
+                ...tenant.settings,
+                seo: seoSettings
+              } as any
+            });
+          }}
         />
       )}
 

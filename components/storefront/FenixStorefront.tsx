@@ -11,6 +11,7 @@ import {
   getProductAttribute, 
   LANGUAGES 
 } from '@/lib/i18n';
+import { SeoAutomationService } from '@/lib/services/seo-automation.service';
 import { 
   Search, 
   ShoppingCart, 
@@ -75,8 +76,19 @@ export function FenixStorefront() {
   const cartSubtotal = cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
   const freeShippingNeeded = Math.max(0, tenant.settings.freeShippingThreshold - cartSubtotal);
 
+  const siteBaseUrl = typeof window !== 'undefined' ? window.location.origin : `https://${tenant.customDomain || tenant.slug + '.fenixcms.es'}`;
+  const dynamicSchema = selectedProductForModal 
+    ? SeoAutomationService.generateProductSchema(selectedProductForModal, tenant, siteBaseUrl)
+    : SeoAutomationService.generateStoreSchema(tenant, siteBaseUrl);
+
   return (
     <div className="min-h-screen bg-[#eaeded] text-slate-900 font-sans">
+      
+      {/* Dynamic Schema.org JSON-LD for Google Rich Snippets */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(dynamicSchema) }}
+      />
       
       {/* 1. FENIX STOREFRONT TOP HEADER */}
       <header className="bg-[#131921] text-white sticky top-0 z-40 shadow-md">
