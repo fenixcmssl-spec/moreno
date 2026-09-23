@@ -80,6 +80,7 @@ import { ThemeService, ThemeRecord } from '@/lib/services/theme.service';
 export function MerchantAdmin() {
   const { 
     tenant, 
+    updateTenant,
     products, 
     orders, 
     plugins, 
