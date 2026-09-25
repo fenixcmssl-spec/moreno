@@ -29,6 +29,8 @@ export function BlogManager({ tenantId }: BlogManagerProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingPost, setEditingPost] = useState<BlogPostRecord | null>(null);
+  const [generatingAi, setGeneratingAi] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     title: '',
@@ -43,6 +45,50 @@ export function BlogManager({ tenantId }: BlogManagerProps) {
     seoDescription: '',
     tags: 'E-commerce, SaaS, Innovación'
   });
+
+  const handleAiGenerate = async () => {
+    if (!form.title.trim()) {
+      alert('Por favor, escribe un título o tema base para que Gemini pueda redactar el artículo.');
+      return;
+    }
+
+    setGeneratingAi(true);
+    setAiError(null);
+
+    try {
+      const res = await fetch('/api/blog/ai-generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId,
+          title: form.title,
+          category: form.categoryName,
+          keywords: form.tags,
+          tone: 'persuasivo, experto y educativo',
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success && data.article) {
+        const { article } = data;
+        setForm(prev => ({
+          ...prev,
+          title: article.title || prev.title,
+          excerpt: article.excerpt || prev.excerpt,
+          content: article.content || prev.content,
+          seoTitle: article.seoTitle || prev.seoTitle,
+          seoDescription: article.seoDesc || prev.seoDescription,
+          tags: Array.isArray(article.tags) ? article.tags.join(', ') : prev.tags,
+        }));
+      } else {
+        setAiError(data.error || 'Error al generar artículo con IA');
+      }
+    } catch (err: any) {
+      setAiError(err.message || 'Error de conexión con el servicio de IA');
+    } finally {
+      setGeneratingAi(false);
+    }
+  };
 
   const loadPosts = useCallback(async () => {
     try {
@@ -353,19 +399,52 @@ export function BlogManager({ tenantId }: BlogManagerProps) {
                 <FileText className="w-5 h-5 text-emerald-400" />
                 {editingPost ? 'Editar Artículo' : 'Nuevo Artículo Editorial'}
               </h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleAiGenerate}
+                  disabled={generatingAi || !form.title.trim()}
+                  className="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow transition disabled:opacity-50 cursor-pointer"
+                  title="Redactar artículo completo con Gemini AI"
+                >
+                  {generatingAi ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Redactando con Gemini...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Redactar con IA (Gemini)</span>
+                    </>
+                  )}
+                </button>
+                <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white p-1">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
+
+            {aiError && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-300 flex items-center justify-between mb-4">
+                <span>{aiError}</span>
+                <button onClick={() => setAiError(null)} className="text-rose-400 hover:text-white">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
 
             <div className="space-y-4 text-xs">
               <div>
-                <label className="text-slate-400 block mb-1">Título del Artículo:</label>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-slate-400 block">Título o Tema del Artículo:</label>
+                  <span className="text-[10px] text-amber-400 font-semibold">✨ Escribe un tema y pulsa &quot;Redactar con IA&quot;</span>
+                </div>
                 <input
                   type="text"
                   value={form.title}
                   onChange={(e) => setForm({ ...form, title: e.target.value })}
-                  placeholder="Ej. Las claves para escalar tu tienda en 2026"
+                  placeholder="Ej. Las 10 tendencias de moda sostenible que arrasan este 2026"
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white"
                 />
               </div>

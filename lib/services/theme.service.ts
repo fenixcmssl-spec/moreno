@@ -119,7 +119,7 @@ export class ThemeService {
         orderBy: { createdAt: 'asc' }
       });
 
-      return themes.map(t => this.mapToRecord(t));
+      return (themes || []).map((t: any) => this.mapToRecord(t));
     } catch (error) {
       console.error('[ThemeService] Error fetching themes from PostgreSQL:', error);
       return [];

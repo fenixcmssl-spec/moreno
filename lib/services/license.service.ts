@@ -137,7 +137,7 @@ export class LicenseService {
         },
         orderBy: { createdAt: 'desc' }
       });
-      return list.map(l => this.mapPrismaToSaaSLicense(l));
+      return list.map((l: any) => this.mapPrismaToSaaSLicense(l));
     }
 
     return this.memoryLicenses;
@@ -444,7 +444,7 @@ export class LicenseService {
 
       if (params.domain) {
         const cleanDomain = params.domain.toLowerCase().trim();
-        isDomainActive = activations.some(a => a.domain.toLowerCase() === cleanDomain);
+        isDomainActive = activations.some((a: any) => a.domain.toLowerCase() === cleanDomain);
 
         if (!isDomainActive && activations.length >= activationLimit) {
           return {
@@ -470,7 +470,7 @@ export class LicenseService {
         expiresAt: dbLicense.expiresAt.toISOString(),
         activationLimit,
         activationCount: activations.length,
-        activations: activations.map(a => ({
+        activations: activations.map((a: any) => ({
           id: a.id,
           licenseId: a.licenseId,
           tenantId: a.tenantId,
@@ -606,7 +606,7 @@ export class LicenseService {
     }
 
     if (isPostgresConfigured() && prisma?.license) {
-      return await prisma.$transaction(async (tx) => {
+      return await prisma.$transaction(async (tx: any) => {
         const dbLicense = await tx.license.findFirst({
           where: {
             OR: [
@@ -635,7 +635,7 @@ export class LicenseService {
           return { success: false, error: 'Licencia expirada' };
         }
 
-        const existing = dbLicense.activations.find(a => a.domain.toLowerCase() === cleanDomain);
+        const existing = dbLicense.activations.find((a: any) => a.domain.toLowerCase() === cleanDomain);
         if (existing) {
           return {
             success: true,

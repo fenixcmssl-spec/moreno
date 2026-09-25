@@ -267,7 +267,7 @@ export class ClassifiedService {
     prisma.classifiedAd.update({
       where: { id: dbAd.id },
       data: { viewsCount: { increment: 1 } }
-    }).catch(err => console.warn('Failed to increment viewsCount on ClassifiedAd:', err));
+    }).catch((err: any) => console.warn('Failed to increment viewsCount on ClassifiedAd:', err));
 
     return mapDbToClassifiedAd(dbAd);
   }
@@ -630,13 +630,13 @@ export class ClassifiedService {
       _count: { id: true }
     });
 
-    return dbCategories.map((c, idx) => ({
+    return dbCategories.map((c: any, idx: number) => ({
       id: `cat_${idx + 1}`,
       tenantId,
       name: c.category || 'General',
       slug: normalizeSlug(c.category || 'general'),
       icon: 'Tag',
-      count: c._count.id
+      count: c._count?.id || 0
     }));
   }
 }

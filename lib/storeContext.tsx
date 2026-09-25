@@ -35,7 +35,6 @@ import {
   INITIAL_MEDIA_ITEMS,
   INITIAL_APPLICATIONS
 } from './initialData';
-import { ApplicationService } from './services/application.service';
 import { AuditService } from './services/audit.service';
 import { db } from './firebase';
 import { doc, getDoc } from 'firebase/firestore';
@@ -179,9 +178,29 @@ interface StoreContextType {
 
 const StoreContext = createContext<StoreContextType | null>(null);
 
-export function StoreProvider({ children }: { children: React.ReactNode }) {
-  const [currentRoute, setCurrentRoute] = useState<DomainRoute>('saas_landing');
-  const [currentLocale, setCurrentLocale] = useState<SupportedLocale>('es');
+export interface StoreProviderProps {
+  children: React.ReactNode;
+  initialRoute?: DomainRoute;
+  initialTenant?: TenantStore;
+  initialProducts?: ProductItem[];
+  initialBlogPosts?: BlogPost[];
+  initialClassifiedAds?: ClassifiedAdItem[];
+  initialLocale?: SupportedLocale;
+  initialActiveThemeId?: string;
+}
+
+export function StoreProvider({
+  children,
+  initialRoute = 'saas_landing',
+  initialTenant = INITIAL_TENANT,
+  initialProducts = INITIAL_PRODUCTS,
+  initialBlogPosts = INITIAL_BLOG_POSTS,
+  initialClassifiedAds = INITIAL_CLASSIFIED_ADS,
+  initialLocale = 'es',
+  initialActiveThemeId = 'theme_fenix_market',
+}: StoreProviderProps) {
+  const [currentRoute, setCurrentRoute] = useState<DomainRoute>(initialRoute);
+  const [currentLocale, setCurrentLocale] = useState<SupportedLocale>(initialLocale);
 
   // Backend Authentication State synced via useSyncExternalStore
   const authRaw = useSyncExternalStore(subscribeAuthStore, getAuthSnapshot, getAuthServerSnapshot);
@@ -200,19 +219,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [applications, setApplications] = useState<ApplicationDefinition[]>(INITIAL_APPLICATIONS);
   const [plans, setPlans] = useState<SaaSPlan[]>(INITIAL_PLANS);
   const [licenses, setLicenses] = useState<SaaSLicense[]>(INITIAL_LICENSES);
-  const [tenant, setTenant] = useState<TenantStore>(INITIAL_TENANT);
-  const [products, setProducts] = useState<ProductItem[]>(INITIAL_PRODUCTS);
+  const [tenant, setTenant] = useState<TenantStore>(initialTenant);
+  const [products, setProducts] = useState<ProductItem[]>(initialProducts);
   const [orders, setOrders] = useState<StoreOrder[]>(INITIAL_ORDERS);
-  const [blogPosts, setBlogPosts] = useState<BlogPost[]>(INITIAL_BLOG_POSTS);
-  const [classifiedAds, setClassifiedAds] = useState<ClassifiedAdItem[]>(INITIAL_CLASSIFIED_ADS);
+  const [blogPosts, setBlogPosts] = useState<BlogPost[]>(initialBlogPosts);
+  const [classifiedAds, setClassifiedAds] = useState<ClassifiedAdItem[]>(initialClassifiedAds);
   const [mediaItems, setMediaItems] = useState<MediaItem[]>(INITIAL_MEDIA_ITEMS);
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>(AuditService.getAll());
   
   const [plugins, setPlugins] = useState<PluginDefinition[]>(INITIAL_PLUGINS);
   const [themes, setThemes] = useState<ThemeDefinition[]>(INITIAL_THEMES);
   const [marketplaceItems, setMarketplaceItems] = useState<MarketplaceItem[]>(INITIAL_MARKETPLACE_ITEMS);
-  const [activeThemeId, setActiveThemeIdState] = useState<string>('theme_fenix_market');
-  const [activeStoreHost, setActiveStoreHost] = useState<string>('tienda-demo.es');
+  const [activeThemeId, setActiveThemeIdState] = useState<string>(initialActiveThemeId);
+  const [activeStoreHost, setActiveStoreHost] = useState<string>(initialTenant.domain || `${initialTenant.slug}.es`);
   
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
@@ -420,7 +439,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return created;
       }
     } catch {}
-    const newApp = await ApplicationService.create(appData);
+    const newApp: ApplicationDefinition = {
+      ...appData,
+      id: `app_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      createdAt: new Date().toISOString()
+    };
     setApplications(prev => [...prev, newApp]);
     logAction('APPLICATION_CREATED', 'Application', { key: newApp.key, name: newApp.name });
     return newApp;

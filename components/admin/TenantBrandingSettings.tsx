@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Image from 'next/image';
 import { useStore } from '@/lib/storeContext';
 import { MediaLibraryModal } from './MediaLibraryModal';
 import { 
@@ -119,7 +120,16 @@ export function TenantBrandingSettings() {
           <div>
             <label className="text-xs text-slate-400 block mb-1.5 font-medium">Logotipo Principal (PNG / WebP / SVG):</label>
             <div className="flex gap-3 items-center">
-              <img src={logoUrl} alt="Logo Preview" className="w-12 h-12 rounded-xl object-contain bg-slate-950 border border-slate-800 p-1" />
+              <div className="relative w-12 h-12 rounded-xl overflow-hidden bg-slate-950 border border-slate-800 p-1 flex-shrink-0">
+                <Image
+                  src={logoUrl || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&q=80'}
+                  alt="Logo Preview"
+                  fill
+                  sizes="48px"
+                  referrerPolicy="no-referrer"
+                  className="object-contain"
+                />
+              </div>
               <input
                 type="text"
                 value={logoUrl}
@@ -128,7 +138,7 @@ export function TenantBrandingSettings() {
               />
               <button
                 onClick={() => handleOpenMediaFor('logo')}
-                className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition"
+                className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
               >
                 <Upload className="w-3.5 h-3.5 text-blue-400" /> Mediateca
               </button>
@@ -138,7 +148,16 @@ export function TenantBrandingSettings() {
           <div>
             <label className="text-xs text-slate-400 block mb-1.5 font-medium">Favicon del Navegador (ICO / PNG):</label>
             <div className="flex gap-3 items-center">
-              <img src={faviconUrl} alt="Favicon Preview" className="w-8 h-8 rounded-lg object-contain bg-slate-950 border border-slate-800 p-1" />
+              <div className="relative w-8 h-8 rounded-lg overflow-hidden bg-slate-950 border border-slate-800 p-1 flex-shrink-0">
+                <Image
+                  src={faviconUrl || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=100&q=80'}
+                  alt="Favicon Preview"
+                  fill
+                  sizes="32px"
+                  referrerPolicy="no-referrer"
+                  className="object-contain"
+                />
+              </div>
               <input
                 type="text"
                 value={faviconUrl}
@@ -147,7 +166,7 @@ export function TenantBrandingSettings() {
               />
               <button
                 onClick={() => handleOpenMediaFor('favicon')}
-                className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition"
+                className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
               >
                 <Upload className="w-3.5 h-3.5 text-blue-400" /> Mediateca
               </button>

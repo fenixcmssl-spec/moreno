@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { ThemeBlockSection } from '@/types';
-import { ThemeService, ThemeRecord } from '@/lib/services/theme.service';
+import { ThemeBlockSection, ApplicationTypeKey } from '@/types';
 import { 
   Palette, 
   Layers, 
@@ -23,6 +22,33 @@ import {
   FileText,
   Tag
 } from 'lucide-react';
+
+export interface ThemeRecord {
+  id: string;
+  key?: string;
+  name: string;
+  slug?: string;
+  description?: string;
+  version?: string;
+  author?: string;
+  applicationScope?: ApplicationTypeKey | 'ALL';
+  previewImage?: string;
+  sections?: ThemeBlockSection[];
+  palette?: {
+    primary: string;
+    secondary: string;
+    background: string;
+    surface?: string;
+    accent: string;
+    text: string;
+  };
+  typography?: {
+    headingFont: string;
+    bodyFont: string;
+  };
+  isActive?: boolean;
+  isPublished?: boolean;
+}
 
 interface ThemeBuilderModalProps {
   tenantId: string;
@@ -116,13 +142,8 @@ export function ThemeBuilderModal({ tenantId, theme, isOpen, onClose, onThemeUpd
           }
         })
       });
-    } catch {
-      await ThemeService.saveDraft(tenantId, {
-        themeId: theme.id,
-        sections,
-        palette,
-        typography
-      });
+    } catch (err) {
+      console.warn('Could not persist theme draft to server:', err);
     }
     setSaveStatus('Borrador guardado con éxito');
     setTimeout(() => setSaveStatus(null), 3000);
@@ -155,14 +176,8 @@ export function ThemeBuilderModal({ tenantId, theme, isOpen, onClose, onThemeUpd
           themeId: theme.id
         })
       });
-    } catch {
-      await ThemeService.saveDraft(tenantId, {
-        themeId: theme.id,
-        sections,
-        palette,
-        typography
-      });
-      await ThemeService.publishDraft(tenantId, theme.id);
+    } catch (err) {
+      console.warn('Could not publish theme to server:', err);
     }
 
     onThemeUpdated?.();

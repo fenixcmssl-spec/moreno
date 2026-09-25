@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, Suspense, useMemo } from 'react';
+import Image from 'next/image';
 import { useStore } from '@/lib/storeContext';
 import { ProductItem, SupportedLocale } from '@/types';
 import { 
@@ -19,23 +20,30 @@ import {
   ChevronDown, 
   Star, 
   Truck, 
-  Zap, 
-  Clock, 
-  ShieldCheck, 
   X, 
   Plus, 
   Minus, 
   Trash2, 
-  Menu, 
   Check, 
   Globe 
 } from 'lucide-react';
 import { StorefrontCheckout } from './StorefrontCheckout';
+import { StorefrontProductGrid } from './StorefrontProductGrid';
+import { StorefrontCategoriesMenu } from './StorefrontCategoriesMenu';
+import { StorefrontHeroBanner } from './StorefrontHeroBanner';
+import { StorefrontBlogFeed } from './StorefrontBlogFeed';
+import { 
+  HeroBannerSkeleton, 
+  CategoriesMenuSkeleton, 
+  ProductGridSkeleton, 
+  BlogFeedSkeleton 
+} from './StorefrontSkeletons';
 
 export function FenixStorefront() {
   const { 
     tenant, 
     products, 
+    blogPosts,
     cart, 
     isCartOpen, 
     setIsCartOpen, 
@@ -54,23 +62,25 @@ export function FenixStorefront() {
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [sortBy, setSortBy] = useState<string>('featured');
 
-  const baseCategories = ['all', 'Electrónica', 'Hogar y Cocina', 'Informática', 'Moda y Ropa'];
+  const baseCategories = useMemo(() => ['all', 'Electrónica', 'Hogar y Cocina', 'Informática', 'Moda y Ropa'], []);
 
-  const filteredProducts = products.filter(p => {
-    const locTitle = getProductTitle(p, currentLocale).toLowerCase();
-    const locDesc = getProductDescription(p, currentLocale).toLowerCase();
-    const locCat = getProductCategory(p.category, currentLocale).toLowerCase();
-    const q = searchQuery.toLowerCase();
+  const filteredProducts = useMemo(() => {
+    return products.filter(p => {
+      const locTitle = getProductTitle(p, currentLocale).toLowerCase();
+      const locDesc = getProductDescription(p, currentLocale).toLowerCase();
+      const locCat = getProductCategory(p.category, currentLocale).toLowerCase();
+      const q = searchQuery.toLowerCase().trim();
 
-    const matchesSearch = locTitle.includes(q) || locDesc.includes(q) || locCat.includes(q) || p.title.toLowerCase().includes(q) || p.description.toLowerCase().includes(q);
-    const matchesCategory = selectedCategory === 'all' || p.category === selectedCategory;
-    return matchesSearch && matchesCategory;
-  }).sort((a, b) => {
-    if (sortBy === 'price_asc') return a.price - b.price;
-    if (sortBy === 'price_desc') return b.price - a.price;
-    if (sortBy === 'rating') return b.rating - a.rating;
-    return 0; // default featured
-  });
+      const matchesSearch = !q || locTitle.includes(q) || locDesc.includes(q) || locCat.includes(q) || p.title.toLowerCase().includes(q) || p.description.toLowerCase().includes(q);
+      const matchesCategory = selectedCategory === 'all' || p.category === selectedCategory;
+      return matchesSearch && matchesCategory;
+    }).sort((a, b) => {
+      if (sortBy === 'price_asc') return a.price - b.price;
+      if (sortBy === 'price_desc') return b.price - a.price;
+      if (sortBy === 'rating') return b.rating - a.rating;
+      return 0; // default featured
+    });
+  }, [products, currentLocale, searchQuery, selectedCategory, sortBy]);
 
   const cartItemsCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const cartSubtotal = cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
@@ -80,6 +90,11 @@ export function FenixStorefront() {
   const dynamicSchema = selectedProductForModal 
     ? SeoAutomationService.generateProductSchema(selectedProductForModal, tenant, siteBaseUrl)
     : SeoAutomationService.generateStoreSchema(tenant, siteBaseUrl);
+
+  const handleBuyNow = (prod: ProductItem) => {
+    addToCart(prod, 1);
+    setIsCheckoutOpen(true);
+  };
 
   return (
     <div className="min-h-screen bg-[#eaeded] text-slate-900 font-sans">
@@ -143,7 +158,7 @@ export function FenixStorefront() {
 
             <button
               onClick={() => {}}
-              className="h-full px-5 bg-[#febd69] hover:bg-[#f3a847] text-slate-950 flex items-center justify-center transition"
+              className="h-full px-5 bg-[#febd69] hover:bg-[#f3a847] text-slate-950 flex items-center justify-center transition cursor-pointer"
               title="Buscar"
             >
               <Search className="w-5 h-5" />
@@ -197,90 +212,28 @@ export function FenixStorefront() {
 
         </div>
 
-        {/* 2. SECONDARY DEPARTMENTS SUB-NAV BAR (Dark Blue #232f3e) */}
-        <div className="bg-[#232f3e] px-4 py-1.5 border-t border-slate-700/60 overflow-x-auto scrollbar-none">
-          <div className="max-w-[1500px] mx-auto flex items-center justify-between text-xs min-w-max gap-4">
-            <div className="flex items-center gap-4 text-slate-200 font-medium">
-              <button 
-                onClick={() => setSelectedCategory('all')}
-                className="flex items-center gap-1 font-bold text-white hover:text-amber-400 transition"
-              >
-                <Menu className="w-4 h-4" />
-                <span>{getTranslation(currentLocale, 'store.all_menu')}</span>
-              </button>
-
-              <button 
-                onClick={() => setSelectedCategory('all')}
-                className="hover:text-amber-400 text-amber-300 font-semibold flex items-center gap-1"
-              >
-                <Zap className="w-3.5 h-3.5 text-amber-400" />
-                <span>{getTranslation(currentLocale, 'store.flash_deals_nav')}</span>
-              </button>
-
-              {baseCategories.filter(c => c !== 'all').map(cat => (
-                <button
-                  key={cat}
-                  onClick={() => setSelectedCategory(cat)}
-                  className={`hover:text-white transition ${selectedCategory === cat ? 'text-amber-400 font-bold' : 'text-slate-300'}`}
-                >
-                  {getProductCategory(cat, currentLocale)}
-                </button>
-              ))}
-
-              <span className="text-slate-400 flex items-center gap-1 text-[11px]">
-                <Truck className="w-3.5 h-3.5 text-amber-400" />
-                <span>{getTranslation(currentLocale, 'store.correos_badge')}</span>
-              </span>
-            </div>
-
-            {/* Direct jump to Merchant Backoffice */}
-            <button
-              onClick={() => setCurrentRoute('store_admin')}
-              className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded text-[11px] shadow transition flex items-center gap-1"
-            >
-              <span>{getTranslation(currentLocale, 'store.manage_store_btn')} ({tenant.slug}.com/admin)</span>
-            </button>
-          </div>
-        </div>
+        {/* 2. SECONDARY DEPARTMENTS SUB-NAV BAR (Wrapped in Suspense) */}
+        <Suspense fallback={<CategoriesMenuSkeleton />}>
+          <StorefrontCategoriesMenu
+            categories={baseCategories}
+            selectedCategory={selectedCategory}
+            onSelectCategory={setSelectedCategory}
+            currentLocale={currentLocale}
+            onOpenAdmin={() => setCurrentRoute('store_admin')}
+            tenantSlug={tenant.slug}
+          />
+        </Suspense>
       </header>
 
-      {/* 3. HERO / FLASH DEALS BANNER */}
-      <section className="relative bg-gradient-to-r from-slate-900 via-[#232f3e] to-slate-900 text-white py-8 px-4 border-b border-slate-300">
-        <div className="max-w-[1500px] mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6 items-center">
-          
-          <div className="lg:col-span-2 space-y-3">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow">
-              <Zap className="w-3.5 h-3.5" />
-              <span>{getTranslation(currentLocale, 'store.hero_badge')}</span>
-            </div>
-            <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight leading-tight">
-              {getTranslation(currentLocale, 'store.hero_title')}
-            </h1>
-            <p className="text-xs sm:text-sm text-slate-300 max-w-2xl">
-              {getTranslation(currentLocale, 'store.hero_desc')}
-            </p>
-          </div>
+      {/* 3. HERO / FLASH DEALS BANNER (Wrapped in Suspense) */}
+      <Suspense fallback={<HeroBannerSkeleton />}>
+        <StorefrontHeroBanner
+          currentLocale={currentLocale}
+          freeShippingThreshold={tenant.settings.freeShippingThreshold}
+        />
+      </Suspense>
 
-          <div className="bg-white/10 backdrop-blur-md p-4 rounded-xl border border-white/20 text-center space-y-2">
-            <div className="text-xs text-amber-300 font-bold uppercase tracking-wider flex items-center justify-center gap-1">
-              <Clock className="w-4 h-4" /> {getTranslation(currentLocale, 'store.countdown_label')}
-            </div>
-            <div className="flex justify-center gap-2 font-mono text-xl font-black text-white">
-              <span className="bg-black/50 px-2 py-1 rounded">08h</span>
-              <span>:</span>
-              <span className="bg-black/50 px-2 py-1 rounded">42m</span>
-              <span>:</span>
-              <span className="bg-black/50 px-2 py-1 rounded">19s</span>
-            </div>
-            <div className="text-[11px] text-slate-300">
-              {getTranslation(currentLocale, 'store.free_shipping_notice')} {tenant.settings.freeShippingThreshold}€
-            </div>
-          </div>
-
-        </div>
-      </section>
-
-      {/* 4. MAIN PRODUCT CATALOG (FENIX HIGH CONVERSION DENSE GRID) */}
+      {/* 4. MAIN PRODUCT CATALOG (FENIX HIGH CONVERSION DENSE GRID with React Suspense) */}
       <main className="max-w-[1500px] mx-auto px-4 py-8">
         
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 border-b border-slate-300 pb-3">
@@ -310,104 +263,25 @@ export function FenixStorefront() {
           </div>
         </div>
 
-        {/* Product Cards Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-          {filteredProducts.map((prod) => {
-            const locTitle = getProductTitle(prod, currentLocale);
-            const locDesc = getProductDescription(prod, currentLocale);
+        {/* Product Cards Grid wrapped in Suspense with Skeleton Fallback */}
+        <Suspense fallback={<ProductGridSkeleton count={12} />}>
+          <StorefrontProductGrid
+            products={filteredProducts}
+            currentLocale={currentLocale}
+            onSelectProduct={setSelectedProductForModal}
+            onAddToCart={addToCart}
+            onBuyNow={handleBuyNow}
+          />
+        </Suspense>
 
-            return (
-              <div
-                key={prod.id}
-                className="bg-white rounded-lg p-3.5 border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col justify-between group"
-              >
-                <div>
-                  {/* Product Image */}
-                  <div 
-                    onClick={() => setSelectedProductForModal(prod)}
-                    className="relative w-full aspect-square mb-3 bg-slate-50 rounded overflow-hidden cursor-pointer flex items-center justify-center group-hover:opacity-95"
-                  >
-                    <img
-                      src={prod.images[0]}
-                      alt={locTitle}
-                      className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                    />
-                    {prod.isDeal && prod.dealDiscountPercent && (
-                      <span className="absolute top-2 left-2 bg-[#cc0c39] text-white text-[10px] font-black px-2 py-0.5 rounded shadow">
-                        -{prod.dealDiscountPercent}%
-                      </span>
-                    )}
-                    {prod.isBestSeller && (
-                      <span className="absolute bottom-2 left-2 bg-[#e67a00] text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow">
-                        {getTranslation(currentLocale, 'store.bestseller_badge')}
-                      </span>
-                    )}
-                  </div>
+        {/* Blog & Content Feed Section wrapped in Suspense */}
+        <Suspense fallback={<BlogFeedSkeleton />}>
+          <StorefrontBlogFeed
+            posts={blogPosts || []}
+            currentLocale={currentLocale}
+          />
+        </Suspense>
 
-                  {/* Title */}
-                  <h3 
-                    onClick={() => setSelectedProductForModal(prod)}
-                    className="text-xs font-semibold text-slate-900 line-clamp-2 hover:text-[#c45500] cursor-pointer mb-1 leading-snug"
-                    title={locTitle}
-                  >
-                    {locTitle}
-                  </h3>
-
-                  {/* Rating & Reviews */}
-                  <div className="flex items-center gap-1 mb-2">
-                    <div className="flex text-amber-500">
-                      {[...Array(5)].map((_, i) => (
-                        <Star
-                          key={i}
-                          className={`w-3 h-3 ${i < Math.floor(prod.rating) ? 'fill-amber-400 text-amber-400' : 'text-slate-300'}`}
-                        />
-                      ))}
-                    </div>
-                    <span className="text-[11px] font-medium text-blue-700 hover:underline cursor-pointer">
-                      {prod.reviewsCount}
-                    </span>
-                  </div>
-
-                  {/* Price */}
-                  <div className="mb-2">
-                    <div className="flex items-baseline gap-1.5">
-                      <span className="text-lg font-black text-slate-900">{prod.price.toFixed(2)}€</span>
-                      {prod.compareAtPrice && (
-                        <span className="text-xs text-slate-500 line-through">
-                          {prod.compareAtPrice.toFixed(2)}€
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-[10px] text-emerald-700 font-semibold flex items-center gap-1 mt-0.5">
-                      <Truck className="w-3 h-3 text-emerald-600" />
-                      <span>{getTranslation(currentLocale, 'store.correos_shipping')}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Action Buttons */}
-                <div className="space-y-1.5 pt-2 border-t border-slate-100 mt-2">
-                  <button
-                    onClick={() => addToCart(prod, 1)}
-                    className="w-full py-1.5 rounded-full bg-[#ffd814] hover:bg-[#f7ca00] text-slate-950 font-bold text-xs shadow-sm transition active:scale-95"
-                  >
-                    {getTranslation(currentLocale, 'store.add_to_cart')}
-                  </button>
-                  <button
-                    onClick={() => {
-                      addToCart(prod, 1);
-                      setIsCheckoutOpen(true);
-                    }}
-                    className="w-full py-1.5 rounded-full bg-[#ffa41c] hover:bg-[#fa8900] text-slate-950 font-bold text-xs shadow-sm transition active:scale-95"
-                  >
-                    {getTranslation(currentLocale, 'store.buy_now')}
-                  </button>
-                </div>
-
-              </div>
-            );
-          })}
-        </div>
       </main>
 
       {/* 5. PRODUCT DETAILS MODAL (FULL LOCALIZED TITLE, DESCRIPTION, SPECS & ATTRIBUTES) */}
@@ -416,19 +290,23 @@ export function FenixStorefront() {
           <div className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-2xl relative text-left">
             <button
               onClick={() => setSelectedProductForModal(null)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-800 p-1.5 rounded-full bg-slate-100 transition hover:bg-slate-200"
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-800 p-1.5 rounded-full bg-slate-100 transition hover:bg-slate-200 cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Product Gallery */}
+              {/* Product Gallery with Next.js Image */}
               <div className="space-y-3">
-                <div className="aspect-square rounded-xl bg-slate-100 overflow-hidden border border-slate-200">
-                  <img
-                    src={selectedProductForModal.images[0]}
+                <div className="relative aspect-square rounded-xl bg-slate-100 overflow-hidden border border-slate-200">
+                  <Image
+                    src={selectedProductForModal.images[0] || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&q=80'}
                     alt={getProductTitle(selectedProductForModal, currentLocale)}
-                    className="w-full h-full object-cover"
+                    fill
+                    sizes="(max-width: 768px) 100vw, 50vw"
+                    priority
+                    referrerPolicy="no-referrer"
+                    className="object-cover"
                   />
                 </div>
               </div>
@@ -513,7 +391,7 @@ export function FenixStorefront() {
                       addToCart(selectedProductForModal, 1);
                       setSelectedProductForModal(null);
                     }}
-                    className="flex-1 py-2.5 rounded-xl bg-[#ffd814] hover:bg-[#f7ca00] text-slate-950 font-bold text-xs transition shadow"
+                    className="flex-1 py-2.5 rounded-xl bg-[#ffd814] hover:bg-[#f7ca00] text-slate-950 font-bold text-xs transition shadow cursor-pointer"
                   >
                     {getTranslation(currentLocale, 'store.add_to_cart')}
                   </button>
@@ -523,7 +401,7 @@ export function FenixStorefront() {
                       setSelectedProductForModal(null);
                       setIsCheckoutOpen(true);
                     }}
-                    className="flex-1 py-2.5 rounded-xl bg-[#ffa41c] hover:bg-[#fa8900] text-slate-950 font-bold text-xs transition shadow"
+                    className="flex-1 py-2.5 rounded-xl bg-[#ffa41c] hover:bg-[#fa8900] text-slate-950 font-bold text-xs transition shadow cursor-pointer"
                   >
                     {getTranslation(currentLocale, 'store.buy_now')}
                   </button>
@@ -534,7 +412,7 @@ export function FenixStorefront() {
         </div>
       )}
 
-      {/* 6. SLIDE-OUT CART DRAWER */}
+      {/* 6. SLIDE-OUT CART DRAWER with Next.js Image Optimization */}
       {isCartOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex justify-end">
           <div className="w-full max-w-md bg-white h-full shadow-2xl flex flex-col justify-between p-5 text-left">
@@ -548,7 +426,7 @@ export function FenixStorefront() {
                 </div>
                 <button 
                   onClick={() => setIsCartOpen(false)}
-                  className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-800"
+                  className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-800 cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -580,11 +458,17 @@ export function FenixStorefront() {
                     const locTitle = getProductTitle(item.product, currentLocale);
                     return (
                       <div key={item.product.id} className="flex gap-3 p-2.5 bg-slate-50 rounded-xl border border-slate-200">
-                        <img
-                          src={item.product.images[0]}
-                          alt={locTitle}
-                          className="w-16 h-16 object-cover rounded-lg bg-white border border-slate-200"
-                        />
+                        <div className="relative w-16 h-16 flex-shrink-0 rounded-lg overflow-hidden bg-white border border-slate-200">
+                          <Image
+                            src={item.product.images[0] || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&q=80'}
+                            alt={locTitle}
+                            fill
+                            sizes="64px"
+                            loading="lazy"
+                            referrerPolicy="no-referrer"
+                            className="object-cover"
+                          />
+                        </div>
                         <div className="flex-1 min-w-0">
                           <h4 className="text-xs font-bold text-slate-900 truncate" title={locTitle}>{locTitle}</h4>
                           <div className="text-xs font-extrabold text-amber-600 mt-0.5">
@@ -595,14 +479,14 @@ export function FenixStorefront() {
                             <div className="flex items-center border border-slate-300 rounded bg-white">
                               <button
                                 onClick={() => updateCartQuantity(item.product.id, item.quantity - 1)}
-                                className="px-2 py-0.5 text-slate-600 hover:bg-slate-100"
+                                className="px-2 py-0.5 text-slate-600 hover:bg-slate-100 cursor-pointer"
                               >
                                 <Minus className="w-3 h-3" />
                               </button>
                               <span className="px-2 font-bold text-xs text-slate-800">{item.quantity}</span>
                               <button
                                 onClick={() => updateCartQuantity(item.product.id, item.quantity + 1)}
-                                className="px-2 py-0.5 text-slate-600 hover:bg-slate-100"
+                                className="px-2 py-0.5 text-slate-600 hover:bg-slate-100 cursor-pointer"
                               >
                                 <Plus className="w-3 h-3" />
                               </button>
@@ -610,7 +494,7 @@ export function FenixStorefront() {
 
                             <button
                               onClick={() => removeFromCart(item.product.id)}
-                              className="text-slate-400 hover:text-rose-600 p-1"
+                              className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer"
                               title="Eliminar artículo"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -637,7 +521,7 @@ export function FenixStorefront() {
                     setIsCartOpen(false);
                     setIsCheckoutOpen(true);
                   }}
-                  className="w-full py-3 rounded-full bg-[#ffd814] hover:bg-[#f7ca00] text-slate-950 font-bold text-xs uppercase tracking-wider shadow-md transition"
+                  className="w-full py-3 rounded-full bg-[#ffd814] hover:bg-[#f7ca00] text-slate-950 font-bold text-xs uppercase tracking-wider shadow-md transition cursor-pointer"
                 >
                   {getTranslation(currentLocale, 'store.checkout_cta')} ({cartSubtotal.toFixed(2)}€)
                 </button>

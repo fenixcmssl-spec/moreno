@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'async_hooks';
 import { NextRequest, NextResponse } from 'next/server';
 import { AuthSession, SessionService } from './session';
 import { UserRole, RbacService } from './rbac';
@@ -5,6 +6,115 @@ import { TenantStore } from '@/types';
 import { TenantService } from '../services/tenant.service';
 import { isPostgresConfigured, isProductionMode, DatabaseConfigurationError } from '../prisma';
 import { INITIAL_TENANTS } from '../initialData';
+
+/**
+ * =========================================================================
+ * FenixCMS SaaS Engine — Multitenant Async Execution Context
+ * =========================================================================
+ * Utilizes native AsyncLocalStorage to carry tenant context across
+ * async execution trees and Prisma query interceptors.
+ * =========================================================================
+ */
+
+export interface TenantAsyncContext {
+  tenantId?: string;
+  tenantSlug?: string;
+  isSuperAdmin?: boolean;
+  bypassTenantFilter?: boolean;
+  source?: 'domain' | 'subdomain' | 'session' | 'header' | 'manual' | 'system';
+  userId?: string;
+  role?: UserRole;
+}
+
+class UniversalContextStorage<T> {
+  private als = new AsyncLocalStorage<T>();
+
+  getStore(): T | undefined {
+    return this.als.getStore();
+  }
+
+  run<R>(store: T, fn: () => R): R {
+    return this.als.run(store, fn);
+  }
+}
+
+export const tenantContextStorage = new UniversalContextStorage<TenantAsyncContext>();
+
+/**
+ * Retrieve the active tenant context for the current async execution stack
+ */
+export function getTenantContext(): TenantAsyncContext | undefined {
+  return tenantContextStorage.getStore();
+}
+
+/**
+ * Returns the currently active tenant ID if present
+ */
+export function getCurrentTenantId(): string | undefined {
+  return tenantContextStorage.getStore()?.tenantId;
+}
+
+/**
+ * Checks if tenant filtering is bypassed (e.g., SaaS Super Admin or System background jobs)
+ */
+export function isTenantContextBypassed(): boolean {
+  const store = tenantContextStorage.getStore();
+  return Boolean(store?.isSuperAdmin || store?.bypassTenantFilter);
+}
+
+/**
+ * Executes a function within an explicit Tenant context
+ */
+export function runWithTenantContext<T>(
+  context: TenantAsyncContext,
+  fn: () => Promise<T> | T
+): Promise<T> | T {
+  return tenantContextStorage.run(context, fn);
+}
+
+/**
+ * Helper to run a callback strictly bound to a tenant ID
+ */
+export function runWithTenant<T>(
+  tenantId: string,
+  fn: () => Promise<T> | T
+): Promise<T> | T {
+  return tenantContextStorage.run(
+    {
+      tenantId,
+      bypassTenantFilter: false,
+      isSuperAdmin: false,
+      source: 'manual',
+    },
+    fn
+  );
+}
+
+/**
+ * Alias for runWithTenant
+ */
+export function withTenantContext<T>(
+  tenantId: string,
+  fn: () => Promise<T> | T
+): Promise<T> | T {
+  return runWithTenant(tenantId, fn);
+}
+
+/**
+ * Executes a function with SaaS System / SuperAdmin privileges (bypassing tenant isolation)
+ */
+export function runWithSystemContext<T>(
+  fn: () => Promise<T> | T
+): Promise<T> | T {
+  return tenantContextStorage.run(
+    {
+      bypassTenantFilter: true,
+      isSuperAdmin: true,
+      source: 'system',
+    },
+    fn
+  );
+}
 
 export interface TenantContext {
   tenant: TenantStore;
@@ -101,7 +211,24 @@ export class TenantContextHelper {
    * Resolves the active tenant context for public storefronts (Domain / Host / Slug)
    */
   static async resolvePublicTenant(req: NextRequest): Promise<TenantContext | null> {
-    const host = req.headers.get('x-forwarded-host') || req.headers.get('host') || '';
+    // 1. Check custom headers from Edge Middleware
+    const middlewareSlug = req.headers.get('x-tenant-slug');
+    const middlewareHostname = req.headers.get('x-resolved-hostname');
+
+    if (middlewareSlug) {
+      const bySlug = await this.findTenantByIdOrSlug(middlewareSlug);
+      if (bySlug) {
+        return {
+          tenant: bySlug,
+          isSuperAdmin: false,
+          isOwner: false,
+          isAdmin: false,
+          resolvedVia: 'domain'
+        };
+      }
+    }
+
+    const host = middlewareHostname || req.headers.get('x-forwarded-host') || req.headers.get('host') || '';
     const { searchParams } = new URL(req.url);
     const storeSlug = searchParams.get('store') || searchParams.get('slug') || searchParams.get('tenantId');
 
@@ -160,6 +287,7 @@ export class TenantContextHelper {
 
   /**
    * STRICT MULTI-TENANT GATEWAY
+   * Authenticates user session, enforces tenant boundary, and establishes AsyncLocalStorage context
    */
   static async requireTenant(
     req: NextRequest,

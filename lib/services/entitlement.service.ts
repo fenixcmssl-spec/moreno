@@ -56,7 +56,10 @@ export class EntitlementService {
     webhooks: 'webhooks.max',
     'webhooks.max': 'webhooks.max',
     api_requests: 'api.requests_per_day',
-    'api.requests_per_day': 'api.requests_per_day'
+    'api.requests_per_day': 'api.requests_per_day',
+    ai_credits: 'ai.credits_max',
+    'ai.credits_max': 'ai.credits_max',
+    'ai.credits_per_month': 'ai.credits_max'
   };
 
   /**
@@ -571,6 +574,22 @@ export class EntitlementService {
       error.statusCode = 403;
       error.code = 'ENTITLEMENT_FORBIDDEN';
       error.feature = feature;
+      throw error;
+    }
+  }
+
+  /**
+   * Asserts that AI capabilities are allowed for the tenant (validates 'ai.enabled' and active license)
+   */
+  static async assertCanUseAi(tenantIdOrSlug: string | any): Promise<void> {
+    const isAllowed = await this.can(tenantIdOrSlug, 'ai.enabled');
+    if (!isAllowed) {
+      const error: any = new Error(
+        'Acceso denegado a Inteligencia Artificial (Gemini): Las herramientas de IA no están habilitadas o no tienes créditos disponibles en tu plan actual. Por favor, actualiza tu plan a Pro o Enterprise para desbloquear la generación de contenido y visión artificial.'
+      );
+      error.statusCode = 403;
+      error.code = 'AI_ENTITLEMENT_REQUIRED';
+      error.upgradeRequired = true;
       throw error;
     }
   }

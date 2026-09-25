@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { Suspense } from 'react';
 import { StoreProvider, useStore } from '@/lib/storeContext';
 import { DomainNavbar } from '@/components/DomainNavbar';
 import { SaasLanding } from '@/components/saas/SaasLanding';
@@ -9,6 +9,7 @@ import { MerchantLoginPortal } from '@/components/saas/MerchantLoginPortal';
 import { FenixStorefront } from '@/components/storefront/FenixStorefront';
 import { MerchantAdmin } from '@/components/admin/MerchantAdmin';
 import { ShopperLoginPortal } from '@/components/storefront/ShopperLoginPortal';
+import { StorefrontFullSkeleton } from '@/components/storefront/StorefrontSkeletons';
 
 function AppContent() {
   const { currentRoute } = useStore();
@@ -21,7 +22,11 @@ function AppContent() {
         {currentRoute === 'saas_landing' && <SaasLanding />}
         {currentRoute === 'saas_admin' && <SuperAdminPortal />}
         {currentRoute === 'saas_login' && <MerchantLoginPortal />}
-        {currentRoute === 'store_front' && <FenixStorefront />}
+        {currentRoute === 'store_front' && (
+          <Suspense fallback={<StorefrontFullSkeleton />}>
+            <FenixStorefront />
+          </Suspense>
+        )}
         {currentRoute === 'store_admin' && <MerchantAdmin />}
         {currentRoute === 'store_login' && <ShopperLoginPortal />}
       </main>

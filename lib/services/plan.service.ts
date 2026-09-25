@@ -143,7 +143,7 @@ export class PlanService {
       });
 
       if (dbPlans && dbPlans.length > 0) {
-        return dbPlans.map(p => this.mapPrismaToSaaSPlan(p));
+        return dbPlans.map((p: any) => this.mapPrismaToSaaSPlan(p));
       }
 
       if (isProductionMode()) {

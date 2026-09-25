@@ -91,7 +91,7 @@ export class PluginService {
         orderBy: { createdAt: 'asc' }
       });
 
-      return plugins.map(p => this.mapToDefinition(p));
+      return (plugins || []).map((p: any) => this.mapToDefinition(p));
     } catch (error) {
       console.error('[PluginService] Error fetching plugins from PostgreSQL:', error);
       return [];
@@ -224,7 +224,7 @@ export class PluginService {
         include: { plugin: true }
       });
 
-      return installations.map(inst => ({
+      return (installations || []).map((inst: any) => ({
         id: inst.id,
         tenantId: inst.tenantId,
         pluginId: inst.pluginId,

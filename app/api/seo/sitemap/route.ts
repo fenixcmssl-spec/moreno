@@ -11,20 +11,20 @@ export async function GET(req: NextRequest) {
     const proto = req.headers.get('x-forwarded-proto') || 'https';
     const tenantResolution = await DomainService.resolveHostname(host);
 
-    const tenantId = tenantResolution?.tenantId || 'tenant_1';
+    const tenantId = tenantResolution?.tenant?.id || tenantResolution?.domain?.tenantId || 'tenant_1';
     const baseUrl = `${proto}://${host}`;
 
     // Fetch products, categories, blog posts for sitemap
-    const [productsResult, categories, blogResult] = await Promise.all([
+    const [productsResult, categoriesResult, blogResult] = await Promise.all([
       ProductService.listProducts(tenantId, { status: 'active' }).catch(() => ({ products: [], total: 0 })),
-      CategoryService.getCategories(tenantId).catch(() => []),
+      CategoryService.listCategories(tenantId, { status: 'ACTIVE' }).catch(() => ({ categories: [], total: 0 })),
       BlogService.getPosts(tenantId, { status: 'PUBLISHED' }).catch(() => ({ posts: [], total: 0 }))
     ]);
 
     const xml = SeoAutomationService.generateSitemapXml({
       baseUrl,
       products: productsResult.products.map(p => ({ slug: p.slug || p.id, updatedAt: p.createdAt })),
-      categories: categories.map(c => ({ slug: c.slug || c.name.toLowerCase() })),
+      categories: (categoriesResult.categories || []).map(c => ({ slug: c.slug || c.name.toLowerCase() })),
       blogPosts: blogResult.posts.map(b => ({ slug: b.slug, updatedAt: b.updatedAt }))
     });
 

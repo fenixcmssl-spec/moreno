@@ -101,7 +101,7 @@ export class PageService {
       prisma.page.count({ where: whereClause })
     ]);
 
-    const pages: PageRecord[] = dbPages.map(p => ({
+    const pages: PageRecord[] = (dbPages || []).map((p: any) => ({
       id: p.id,
       tenantId: p.tenantId,
       title: p.title,

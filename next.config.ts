@@ -1,29 +1,57 @@
+import path from 'path';
 import type {NextConfig} from 'next';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
   typescript: {
     ignoreBuildErrors: false,
   },
-  // Allow access to remote image placeholder.
+  turbopack: {
+    resolveAlias: {
+      '@/*': ['./*'],
+    },
+  },
+  // Allow access to remote image placeholders and media CDN
   images: {
+    formats: ['image/avif', 'image/webp'],
+    deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048],
+    imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
     remotePatterns: [
       {
         protocol: 'https',
         hostname: 'picsum.photos',
-        port: '',
-        pathname: '/**', // This allows any path under the hostname
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'images.unsplash.com',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'via.placeholder.com',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.googleusercontent.com',
+        pathname: '/**',
       },
     ],
   },
   output: 'standalone',
-  transpilePackages: ['motion'],
+  transpilePackages: ['motion', 'lucide-react'],
   webpack: (config, {dev}) => {
+    config.resolve = config.resolve || {};
+    config.resolve.alias = config.resolve.alias || {};
+    config.resolve.alias['@'] = path.resolve(__dirname);
+    config.resolve.modules = [
+      path.resolve(__dirname, 'node_modules'),
+      'node_modules',
+      ...(config.resolve.modules || [])
+    ];
+    
     // HMR is disabled in AI Studio via DISABLE_HMR env var.
-    // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
     if (dev && process.env.DISABLE_HMR === 'true') {
       config.watchOptions = {
         ignored: /.*/,

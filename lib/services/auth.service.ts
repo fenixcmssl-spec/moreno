@@ -601,8 +601,8 @@ export class AuthService {
           orderBy: { createdAt: 'desc' }
         });
 
-        if (users.length > 0) {
-          return users.map(u => {
+        if (users && users.length > 0) {
+          return users.map((u: any) => {
             const firstMembership = u.memberships?.[0];
             return {
               id: u.id,

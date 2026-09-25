@@ -88,7 +88,7 @@ export class TenantService {
 
     if (isPostgresConfigured() && prisma?.tenant) {
       // Execute atomically in a transaction
-      return await prisma.$transaction(async (tx) => {
+      return await prisma.$transaction(async (tx: any) => {
         const existing = await tx.tenant.findFirst({
           where: {
             OR: [
@@ -288,7 +288,7 @@ export class TenantService {
         orderBy: { createdAt: 'desc' }
       });
 
-      return tenants.map(t => this.mapPrismaToTenantStore(t));
+      return (tenants || []).map((t: any) => this.mapPrismaToTenantStore(t));
     }
 
     return [];
@@ -511,7 +511,7 @@ export class TenantService {
         orderBy: { createdAt: 'asc' }
       });
 
-      return members.map(m => ({
+      return (members || []).map((m: any) => ({
         id: m.id,
         tenantId: m.tenantId,
         userId: m.userId,

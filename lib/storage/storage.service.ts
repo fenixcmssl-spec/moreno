@@ -231,7 +231,7 @@ export class StorageService {
         skip: options?.offset || 0
       });
 
-      return records.map(r => ({
+      return (records || []).map((r: any) => ({
         id: r.id,
         tenantId: r.tenantId,
         filename: r.filename,
