@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths-ignore:
       - "docs/PLAN_MAESTRO_MODIFICACIONES_FENIXCMS.pdf"
+      - "docs/PLAN_MEJORAS_ADICIONALES_FENIXCMS_V2.pdf"
   workflow_dispatch:
 
 permissions:
@@ -128,14 +129,109 @@ jobs:
           print(f"Generated {out} ({out.stat().st_size} bytes)")
           PY
 
+      - name: Generate PDF from the additional improvements document
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          from reportlab.pdfgen import canvas
+          from reportlab.lib.pagesizes import A4
+          from reportlab.pdfbase.pdfmetrics import stringWidth
+          import re
+
+          src = Path("docs/PLAN_MEJORAS_ADICIONALES_FENIXCMS_V2.md")
+          out = Path("docs/PLAN_MEJORAS_ADICIONALES_FENIXCMS_V2.pdf")
+          text = src.read_text(encoding="utf-8")
+          replacements = {
+              "●": "-", "•": "-", "→": "->", "←": "<-",
+              "—": "-", "–": "-", "“": '"', "”": '"',
+              "’": "'", "‘": "'", "…": "...", "\\u00a0": " "
+          }
+          for a, b in replacements.items():
+              text = text.replace(a, b)
+
+          lines = []
+          for raw in text.splitlines():
+              line = re.sub(r"^#{1,6}\\s*", "", raw)
+              line = line.replace("**", "").replace("__", "").replace("\`", "")
+              if line.startswith("> "):
+                  line = line[2:]
+              lines.append(line.rstrip())
+
+          PAGE_W, PAGE_H = A4
+          left, right = 44, 44
+          top, bottom = PAGE_H - 50, 48
+          max_width = PAGE_W - left - right
+          body_font, body_size, body_leading = "Helvetica", 8.4, 11.2
+          heading_font, heading_size, heading_leading = "Helvetica-Bold", 11, 15
+          title_font, title_size, title_leading = "Helvetica-Bold", 17, 20
+          state = {"y": top, "page": 1}
+          c = canvas.Canvas(str(out), pagesize=A4)
+
+          def footer():
+              c.setFont("Helvetica", 7)
+              c.drawCentredString(PAGE_W / 2, 22,
+                  f"FenixCMS - Mejoras adicionales FASES 24-44 | Pagina {state['page']}")
+
+          def new_page():
+              footer()
+              c.showPage()
+              state["page"] += 1
+              state["y"] = top
+
+          for stripped in lines:
+              text_line = stripped.strip()
+              if not text_line:
+                  state["y"] -= body_leading * 0.55
+                  if state["y"] < bottom + 20:
+                      new_page()
+                  continue
+
+              is_title = text_line.startswith("FenixCMS SaaS") or text_line.startswith("Plan de mejoras adicionales")
+              is_phase = text_line.startswith("FASE ")
+              is_section = bool(re.match(r"^\\d+(\\.\\d+)?\\.", text_line))
+              if is_title:
+                  font, size, leading = title_font, title_size, title_leading
+              elif is_phase:
+                  font, size, leading = heading_font, heading_size, heading_leading
+              elif is_section:
+                  font, size, leading = heading_font, 10, 13
+              else:
+                  font, size, leading = body_font, body_size, body_leading
+
+              words = text_line.split()
+              current = ""
+              wrapped = []
+              for word in words:
+                  candidate = (current + " " + word).strip()
+                  if stringWidth(candidate, font, size) <= max_width:
+                      current = candidate
+                  else:
+                      if current:
+                          wrapped.append(current)
+                      current = word
+              if current:
+                  wrapped.append(current)
+
+              for chunk in wrapped:
+                  if state["y"] < bottom + leading:
+                      new_page()
+                  c.setFont(font, size)
+                  c.drawString(left, state["y"], chunk)
+                  state["y"] -= leading
+
+          footer()
+          c.save()
+          print(f"Generated {out} ({out.stat().st_size} bytes)")
+          PY
+
       - name: Commit generated PDF
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/PLAN_MAESTRO_MODIFICACIONES_FENIXCMS.pdf
+          git add docs/PLAN_MAESTRO_MODIFICACIONES_FENIXCMS.pdf docs/PLAN_MEJORAS_ADICIONALES_FENIXCMS_V2.pdf
           if git diff --cached --quiet; then
             echo "PDF sin cambios."
             exit 0
           fi
-          git commit -m "docs: generar PDF del plan maestro FenixCMS"
+          git commit -m "docs: generar PDFs de los planes FenixCMS"
           git push
