@@ -267,6 +267,10 @@ export class WebhookService {
     }
   }
 
+  static async markEventProcessed(eventId: string, error?: string): Promise<void> {
+    return this.markProcessed(eventId, error);
+  }
+
   /**
    * Securely processes Stripe event actions after signature verification:
    * Updates Payment, Subscription, License and Invoice in database.
@@ -361,9 +365,9 @@ export class WebhookService {
     const providerPaymentId = resource.id || `pp_${event.id}`;
 
     switch (eventType) {
+      case 'PAYMENT.CAPTURE.COMPLETED':
       case 'PAYMENT.SALE.COMPLETED':
-      case 'BILLING.SUBSCRIPTION.PAYMENT.SUCCEEDED':
-      case 'CHECKOUT.ORDER.APPROVED': {
+      case 'BILLING.SUBSCRIPTION.PAYMENT.SUCCEEDED': {
         if (licenseKey) {
           const lic = LicenseService.getByLicenseKey(licenseKey);
           if (lic) {
@@ -377,13 +381,47 @@ export class WebhookService {
           }
         }
 
+        // Process full SaaS checkout provisioning upon confirmed capture
+        if (customId) {
+          await PaymentService.verifyAndProcessSaaSPayment({
+            provider: 'PAYPAL',
+            providerPaymentId,
+            sessionId: customId,
+            rawPayload: resource
+          });
+        }
+
         AuditService.log({
           tenantId: customId || 'saas_platform',
-          action: 'PAYPAL_WEBHOOK_PROCESSED',
+          action: 'PAYPAL_CAPTURE_COMPLETED',
           entity: 'Payment',
           entityId: providerPaymentId,
-          details: { eventType, amount: resource.amount?.total || resource.amount?.value }
+          details: { eventType, licenseKey }
         });
+        break;
+      }
+
+      case 'CHECKOUT.ORDER.APPROVED': {
+        // Buyer has approved the order, but funds are not yet captured (pending server capture)
+        AuditService.log({
+          tenantId: customId || 'saas_platform',
+          action: 'PAYPAL_ORDER_APPROVED_PENDING_CAPTURE',
+          entity: 'Payment',
+          entityId: providerPaymentId,
+          details: { eventType, status: 'PENDING_CAPTURE' }
+        });
+        break;
+      }
+
+      case 'PAYMENT.CAPTURE.DENIED':
+      case 'PAYMENT.CAPTURE.DECLINED':
+      case 'PAYMENT-APPROVAL.REVERSED': {
+        if (customId) {
+          const sub = await SubscriptionService.getByTenantId(customId);
+          if (sub) {
+            await SubscriptionService.handlePaymentFailed(sub.id, `Fallo en captura PayPal (${eventType})`);
+          }
+        }
         break;
       }
 

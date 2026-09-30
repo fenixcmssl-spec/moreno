@@ -59,7 +59,7 @@ export const CATEGORY_TRANSLATIONS: Record<string, Record<SupportedLocale, strin
 };
 
 // Rich product translation catalogue for instant dynamic switching
-export const PRODUCT_TRANSLATIONS_CATALOG: Record<string, Record<SupportedLocale, { title: string; description: string; attributes?: Record<string, string> }>> = {
+export const PRODUCT_TRANSLATIONS_CATALOG: Record<string, Partial<Record<SupportedLocale, { title: string; description: string; attributes?: Record<string, string> }>>> = {
   'prod_1': {
     es: {
       title: 'Auriculares Inalámbricos Noise Cancelling Pro ANC',
@@ -1289,8 +1289,9 @@ export function getProductTitle(product: ProductItem, locale: SupportedLocale): 
     return product.translations[locale]!.title;
   }
   // Check global product translation catalogue
-  if (PRODUCT_TRANSLATIONS_CATALOG[product.id]?.[locale]?.title) {
-    return PRODUCT_TRANSLATIONS_CATALOG[product.id][locale].title;
+  const catTitle = PRODUCT_TRANSLATIONS_CATALOG[product.id]?.[locale]?.title;
+  if (catTitle) {
+    return catTitle;
   }
   return product.title;
 }
@@ -1302,8 +1303,9 @@ export function getProductDescription(product: ProductItem, locale: SupportedLoc
     return product.translations[locale]!.description;
   }
   // Check global product translation catalogue
-  if (PRODUCT_TRANSLATIONS_CATALOG[product.id]?.[locale]?.description) {
-    return PRODUCT_TRANSLATIONS_CATALOG[product.id][locale].description;
+  const catDesc = PRODUCT_TRANSLATIONS_CATALOG[product.id]?.[locale]?.description;
+  if (catDesc) {
+    return catDesc;
   }
   return product.description;
 }
@@ -1317,8 +1319,9 @@ export function getProductCategory(category: string, locale: SupportedLocale): s
 }
 
 export function getProductAttribute(productId: string, attrKey: string, defaultValue: string, locale: SupportedLocale): string {
-  if (PRODUCT_TRANSLATIONS_CATALOG[productId]?.[locale]?.attributes?.[attrKey]) {
-    return PRODUCT_TRANSLATIONS_CATALOG[productId][locale].attributes![attrKey];
+  const catAttr = PRODUCT_TRANSLATIONS_CATALOG[productId]?.[locale]?.attributes?.[attrKey];
+  if (catAttr) {
+    return catAttr;
   }
   return defaultValue;
 }

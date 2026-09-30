@@ -115,9 +115,10 @@ export function middleware(request: NextRequest) {
   
   let cleanHost = sanitizeHostHeader(rawHost);
 
-  // Check navbar simulated host header for live tenant switching / developer sandbox
+  // Allow simulated host switching ONLY in development when explicitly enabled
+  const allowDevSimulation = process.env.NODE_ENV !== 'production' && process.env.ALLOW_DEV_TENANT_SIMULATION === 'true';
   const simulatedHost = request.headers.get('x-simulated-host');
-  if (simulatedHost) {
+  if (allowDevSimulation && simulatedHost) {
     cleanHost = sanitizeHostHeader(simulatedHost);
   }
 
@@ -145,19 +146,21 @@ export function middleware(request: NextRequest) {
     requestHeaders.set('x-is-tenant-storefront', 'false');
   }
 
-  // Check URL query-based tenant parameter override (e.g. ?store=demo or ?tenant=demo)
-  const url = request.nextUrl;
-  const rawQueryTenant =
-    url.searchParams.get('tenant') ||
-    url.searchParams.get('store') ||
-    url.searchParams.get('slug');
+  // Check URL query-based tenant parameter override ONLY in development
+  if (allowDevSimulation) {
+    const url = request.nextUrl;
+    const rawQueryTenant =
+      url.searchParams.get('tenant') ||
+      url.searchParams.get('store') ||
+      url.searchParams.get('slug');
 
-  if (rawQueryTenant) {
-    const cleanSlug = rawQueryTenant.toLowerCase().trim().replace(/[^a-z0-9_-]/g, '');
-    if (cleanSlug) {
-      requestHeaders.set('x-tenant-slug', cleanSlug);
-      requestHeaders.set('x-is-tenant-storefront', 'true');
-      targetTenantSlug = cleanSlug;
+    if (rawQueryTenant) {
+      const cleanSlug = rawQueryTenant.toLowerCase().trim().replace(/[^a-z0-9_-]/g, '');
+      if (cleanSlug) {
+        requestHeaders.set('x-tenant-slug', cleanSlug);
+        requestHeaders.set('x-is-tenant-storefront', 'true');
+        targetTenantSlug = cleanSlug;
+      }
     }
   }
 

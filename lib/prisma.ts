@@ -71,6 +71,128 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
 ]);
 
 /**
+ * Core Tenant Isolation Interceptor
+ */
+export async function executeTenantIsolationGuard(params: {
+  model?: string;
+  operation: string;
+  args: any;
+  query: (args: any) => Promise<any>;
+  explicitTenantId?: string;
+}) {
+  const { model, operation, args, query, explicitTenantId } = params;
+  const modelName = model ? model.charAt(0).toUpperCase() + model.slice(1) : '';
+  const isTenantModel = TENANT_SCOPED_MODELS.has(modelName) || TENANT_SCOPED_MODELS.has(model || '');
+
+  // If not a tenant model or explicitly bypassed by System/SuperAdmin
+  if (!isTenantModel || isTenantContextBypassed()) {
+    return query(args);
+  }
+
+  // Active tenant ID from explicit parameter or AsyncLocalStorage
+  const activeTenantId = explicitTenantId || getCurrentTenantId();
+
+  // Fail-closed: If no active tenant context is established and no system bypass exists, reject tenant-scoped queries
+  if (!activeTenantId) {
+    throw new TenantIsolationViolationError(
+      `Tenant isolation violation: Model "${modelName}" is tenant-scoped, but no active tenant context or system bypass was established for operation "${operation}".`
+    );
+  }
+
+  const safeArgs: any = args ? { ...(args as any) } : {};
+
+  switch (operation) {
+    case 'findFirst':
+    case 'findMany':
+    case 'count':
+    case 'aggregate':
+    case 'groupBy': {
+      safeArgs.where = {
+        ...safeArgs.where,
+        tenantId: activeTenantId,
+      };
+      return (query as any)(safeArgs);
+    }
+
+    case 'findUnique': {
+      // Convert findUnique to scoped where or findFirst logic to prevent ID-probing attacks across tenants
+      if (safeArgs.where && typeof safeArgs.where === 'object') {
+        if (safeArgs.where.tenantId && safeArgs.where.tenantId !== activeTenantId) {
+          throw new TenantIsolationViolationError(
+            `Cross-tenant access blocked: Query tenantId does not match active context ${activeTenantId}`
+          );
+        }
+        safeArgs.where = {
+          ...safeArgs.where,
+          tenantId: activeTenantId,
+        };
+      }
+      return (query as any)(safeArgs);
+    }
+
+    case 'create': {
+      if (safeArgs.data) {
+        if (safeArgs.data.tenantId && safeArgs.data.tenantId !== activeTenantId) {
+          throw new TenantIsolationViolationError(
+            `Cross-tenant mutation blocked: Cannot insert entity with tenantId ${safeArgs.data.tenantId} under active context ${activeTenantId}`
+          );
+        }
+        safeArgs.data = {
+          ...safeArgs.data,
+          tenantId: activeTenantId,
+        };
+      }
+      return (query as any)(safeArgs);
+    }
+
+    case 'createMany': {
+      if (Array.isArray(safeArgs.data)) {
+        safeArgs.data = safeArgs.data.map((item: any) => ({
+          ...item,
+          tenantId: activeTenantId,
+        }));
+      } else if (safeArgs.data) {
+        safeArgs.data.tenantId = activeTenantId;
+      }
+      return (query as any)(safeArgs);
+    }
+
+    case 'update':
+    case 'updateMany':
+    case 'delete':
+    case 'deleteMany': {
+      safeArgs.where = {
+        ...safeArgs.where,
+        tenantId: activeTenantId,
+      };
+      return (query as any)(safeArgs);
+    }
+
+    case 'upsert': {
+      safeArgs.where = {
+        ...safeArgs.where,
+        tenantId: activeTenantId,
+      };
+      if (safeArgs.create) {
+        safeArgs.create = {
+          ...safeArgs.create,
+          tenantId: activeTenantId,
+        };
+      }
+      if (safeArgs.update) {
+        safeArgs.update = {
+          ...safeArgs.update,
+        };
+      }
+      return (query as any)(safeArgs);
+    }
+
+    default:
+      return (query as any)(safeArgs);
+  }
+}
+
+/**
  * Creates the Multitenant Security Prisma Extension
  */
 export function createTenantIsolationExtension(explicitTenantId?: string) {
@@ -79,115 +201,13 @@ export function createTenantIsolationExtension(explicitTenantId?: string) {
     query: {
       $allModels: {
         async $allOperations({ model, operation, args, query }) {
-          // Normalize model name
-          const modelName = model ? model.charAt(0).toUpperCase() + model.slice(1) : '';
-          const isTenantModel = TENANT_SCOPED_MODELS.has(modelName) || TENANT_SCOPED_MODELS.has(model || '');
-
-          // If not a tenant model or explicitly bypassed by System/SuperAdmin
-          if (!isTenantModel || isTenantContextBypassed()) {
-            return query(args);
-          }
-
-          // Active tenant ID from explicit parameter or AsyncLocalStorage
-          const activeTenantId = explicitTenantId || getCurrentTenantId();
-
-          // If no active tenant context is established, allow global query only if explicitly allowed, otherwise proceed
-          if (!activeTenantId) {
-            return query(args);
-          }
-
-          const safeArgs: any = args ? { ...(args as any) } : {};
-
-          switch (operation) {
-            case 'findFirst':
-            case 'findMany':
-            case 'count':
-            case 'aggregate':
-            case 'groupBy': {
-              safeArgs.where = {
-                ...safeArgs.where,
-                tenantId: activeTenantId,
-              };
-              return (query as any)(safeArgs);
-            }
-
-            case 'findUnique': {
-              // Convert findUnique to scoped where or findFirst logic to prevent ID-probing attacks across tenants
-              if (safeArgs.where && typeof safeArgs.where === 'object') {
-                // If it's a compound key that already includes tenantId
-                if (safeArgs.where.tenantId && safeArgs.where.tenantId !== activeTenantId) {
-                  throw new TenantIsolationViolationError(
-                    `Cross-tenant access blocked: Query tenantId does not match active context ${activeTenantId}`
-                  );
-                }
-                safeArgs.where = {
-                  ...safeArgs.where,
-                  tenantId: activeTenantId,
-                };
-              }
-              return (query as any)(safeArgs);
-            }
-
-            case 'create': {
-              if (safeArgs.data) {
-                if (safeArgs.data.tenantId && safeArgs.data.tenantId !== activeTenantId) {
-                  throw new TenantIsolationViolationError(
-                    `Cross-tenant mutation blocked: Cannot insert entity with tenantId ${safeArgs.data.tenantId} under active context ${activeTenantId}`
-                  );
-                }
-                safeArgs.data = {
-                  ...safeArgs.data,
-                  tenantId: activeTenantId,
-                };
-              }
-              return (query as any)(safeArgs);
-            }
-
-            case 'createMany': {
-              if (Array.isArray(safeArgs.data)) {
-                safeArgs.data = safeArgs.data.map((item: any) => ({
-                  ...item,
-                  tenantId: activeTenantId,
-                }));
-              } else if (safeArgs.data) {
-                safeArgs.data.tenantId = activeTenantId;
-              }
-              return (query as any)(safeArgs);
-            }
-
-            case 'update':
-            case 'updateMany':
-            case 'delete':
-            case 'deleteMany': {
-              safeArgs.where = {
-                ...safeArgs.where,
-                tenantId: activeTenantId,
-              };
-              return (query as any)(safeArgs);
-            }
-
-            case 'upsert': {
-              safeArgs.where = {
-                ...safeArgs.where,
-                tenantId: activeTenantId,
-              };
-              if (safeArgs.create) {
-                safeArgs.create = {
-                  ...safeArgs.create,
-                  tenantId: activeTenantId,
-                };
-              }
-              if (safeArgs.update) {
-                safeArgs.update = {
-                  ...safeArgs.update,
-                };
-              }
-              return (query as any)(safeArgs);
-            }
-
-            default:
-              return (query as any)(safeArgs);
-          }
+          return executeTenantIsolationGuard({
+            model,
+            operation,
+            args,
+            query,
+            explicitTenantId,
+          });
         },
       },
     },

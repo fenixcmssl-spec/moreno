@@ -126,3 +126,102 @@ export const ThemeBuilderConfigSchema = z.object({
     bodyFont: z.string()
   }).optional()
 });
+
+export const TenantCreateSchema = z.object({
+  name: z.string().min(2, 'Nombre de tienda requerido').max(100),
+  slug: z.string().regex(/^[a-z0-9-]+$/, 'Slug debe contener sólo letras minúsculas, números y guiones').min(3).max(50),
+  ownerEmail: z.string().email('Email de propietario inválido'),
+  ownerName: z.string().min(2).max(100),
+  planId: z.string().min(1, 'Plan ID requerido'),
+  applicationId: z.enum(['ECOMMERCE', 'BLOG', 'BLOG_ADS', 'CLASSIFIEDS', 'BOOKING', 'LMS', 'DIRECTORY', 'LANDING', 'BUSINESS']).default('ECOMMERCE'),
+  domain: z.string().optional(),
+  customDomain: z.string().optional(),
+  currency: z.string().length(3).default('EUR'),
+  defaultLocale: z.enum(['es', 'it', 'en', 'fr', 'de', 'pt', 'ht']).default('es'),
+  supportedLocales: z.array(z.enum(['es', 'it', 'en', 'fr', 'de', 'pt', 'ht'])).default(['es'])
+});
+
+export const DomainCreateSchema = z.object({
+  hostname: z.string().min(3).max(253).regex(/^[a-z0-9.-]+$/, 'Nombre de host inválido'),
+  type: z.enum(['SYSTEM_SUBDOMAIN', 'CUSTOM_DOMAIN']).default('CUSTOM_DOMAIN'),
+  isPrimary: z.boolean().default(false)
+});
+
+export const PlanCreateSchema = z.object({
+  name: z.string().min(2).max(100),
+  slug: z.string().min(2).max(50),
+  applicationId: z.string().min(1),
+  description: z.string().max(500).optional(),
+  monthlyPrice: z.number().min(0),
+  yearlyPrice: z.number().min(0),
+  currency: z.string().length(3).default('EUR'),
+  trialDays: z.number().int().min(0).default(0),
+  features: z.array(z.string()).default([]),
+  entitlements: z.record(z.string(), z.any()).optional()
+});
+
+export const PlanEntitlementAdminSchema = z.object({
+  planId: z.string().min(1),
+  key: z.string().min(2).max(100),
+  value: z.string(),
+  type: z.enum(['NUMBER', 'BOOLEAN', 'STRING', 'ARRAY', 'JSON']).default('STRING'),
+  description: z.string().optional()
+});
+
+export const LicenseCreateAdminSchema = z.object({
+  tenantId: z.string().min(1),
+  planId: z.string().min(1),
+  applicationId: z.string().min(1),
+  customerName: z.string().min(2),
+  customerEmail: z.string().email(),
+  validFrom: z.string().optional(),
+  validTo: z.string().optional(),
+  activationLimit: z.number().int().min(1).default(1)
+});
+
+export const PaginationQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100, 'Límite máximo es 100 por página').default(20),
+  search: z.string().max(100).optional(),
+  status: z.string().max(50).optional(),
+  sortBy: z.string().max(50).optional(),
+  sortOrder: z.enum(['asc', 'desc', 'ASC', 'DESC']).default('desc')
+});
+
+export interface ApiStandardResponse<T = any> {
+  success: boolean;
+  data?: T;
+  error?: {
+    code: string;
+    message: string;
+    details?: any;
+  };
+  requestId?: string;
+  meta?: {
+    total?: number;
+    page?: number;
+    limit?: number;
+    totalPages?: number;
+  };
+}
+
+export function formatApiSuccess<T>(data: T, meta?: any, requestId?: string): ApiStandardResponse<T> {
+  return {
+    success: true,
+    data,
+    ...(meta ? { meta } : {}),
+    ...(requestId ? { requestId } : {})
+  };
+}
+
+export function formatApiError(code: string, message: string, details?: any, requestId?: string): ApiStandardResponse {
+  return {
+    success: false,
+    error: {
+      code,
+      message,
+      ...(details ? { details } : {})
+    },
+    ...(requestId ? { requestId } : {})
+  };
+}

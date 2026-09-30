@@ -208,10 +208,13 @@ export class TenantContextHelper {
   }
 
   /**
-   * Resolves the active tenant context for public storefronts (Domain / Host / Slug)
+   * Resolves the active tenant context for public storefronts (Domain / Host)
+   * Strictly resolves by verified hostname in production; rejects query parameter hijacking.
    */
   static async resolvePublicTenant(req: NextRequest): Promise<TenantContext | null> {
-    // 1. Check custom headers from Edge Middleware
+    const allowDevSimulation = !isProductionMode() && process.env.ALLOW_DEV_TENANT_SIMULATION === 'true';
+
+    // 1. Check custom headers from Edge Middleware (set from verified host/subdomain)
     const middlewareSlug = req.headers.get('x-tenant-slug');
     const middlewareHostname = req.headers.get('x-resolved-hostname');
 
@@ -229,22 +232,8 @@ export class TenantContextHelper {
     }
 
     const host = middlewareHostname || req.headers.get('x-forwarded-host') || req.headers.get('host') || '';
-    const { searchParams } = new URL(req.url);
-    const storeSlug = searchParams.get('store') || searchParams.get('slug') || searchParams.get('tenantId');
 
-    if (storeSlug) {
-      const bySlug = await this.findTenantByIdOrSlug(storeSlug);
-      if (bySlug) {
-        return {
-          tenant: bySlug,
-          isSuperAdmin: false,
-          isOwner: false,
-          isAdmin: false,
-          resolvedVia: 'param'
-        };
-      }
-    }
-
+    // 2. Resolve via verified domain/hostname
     if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
       const byDomain = await this.findTenantByHostname(host);
       if (byDomain) {
@@ -258,12 +247,27 @@ export class TenantContextHelper {
       }
     }
 
-    // First active tenant in database
-    if (isPostgresConfigured()) {
-      const list = await TenantService.listTenants({ status: 'active' });
-      if (list.length > 0) {
+    // 3. Optional developer simulation ONLY in non-production mode with explicit flag
+    if (allowDevSimulation) {
+      const { searchParams } = new URL(req.url);
+      const storeSlug = searchParams.get('store') || searchParams.get('slug') || searchParams.get('tenantId');
+
+      if (storeSlug) {
+        const bySlug = await this.findTenantByIdOrSlug(storeSlug);
+        if (bySlug) {
+          return {
+            tenant: bySlug,
+            isSuperAdmin: false,
+            isOwner: false,
+            isAdmin: false,
+            resolvedVia: 'param'
+          };
+        }
+      }
+
+      if (INITIAL_TENANTS.length > 0) {
         return {
-          tenant: list[0],
+          tenant: INITIAL_TENANTS[0],
           isSuperAdmin: false,
           isOwner: false,
           isAdmin: false,
@@ -272,16 +276,7 @@ export class TenantContextHelper {
       }
     }
 
-    if (!isProductionMode() && INITIAL_TENANTS.length > 0) {
-      return {
-        tenant: INITIAL_TENANTS[0],
-        isSuperAdmin: false,
-        isOwner: false,
-        isAdmin: false,
-        resolvedVia: 'default'
-      };
-    }
-
+    // In production mode, if no verified domain matches, fail closed with null (yielding 404)
     return null;
   }
 

@@ -16,7 +16,7 @@ function assert(condition: boolean, message: string) {
   console.log(`  ✅ [PASS] ${message}`);
 }
 
-async function runFase20D1Tests() {
+export async function runFase20D1Tests() {
   console.log('================================================================================');
   console.log('🧪 SUITE DE PRUEBAS: FASE 20-D.1 — POSTGRESQL REAL + PRISMA + MIGRATIONS');
   console.log('================================================================================');
@@ -159,7 +159,9 @@ async function runFase20D1Tests() {
   console.log('================================================================================\n');
 }
 
-runFase20D1Tests().catch((err) => {
-  console.error('Fatal error in test suite:', err);
-  process.exit(1);
-});
+if (require.main === module) {
+  runFase20D1Tests().catch((err) => {
+    console.error('Fatal error in test suite:', err);
+    process.exit(1);
+  });
+}
