@@ -1339,3 +1339,7 @@ Al finalizar estas fases, FenixCMS deberá haber pasado de una arquitectura con 
 - Staging sea una barrera antes de producción.
 
 **IMPORTANTE:** este documento no autoriza todavía el despliegue final. El paso correcto continúa siendo ejecutar las fases una a una y validar cada una antes de pasar a la siguiente.
+
+---
+
+**Control de generación GitHub Actions:** documento preparado para generación automática del PDF en `main`.
