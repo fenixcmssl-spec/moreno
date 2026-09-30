@@ -6,8 +6,6 @@ on:
     paths:
       - "docs/PLAN_MEJORAS_ADICIONALES_FENIXCMS_V2.md"
       - ".github/workflows/generate-fenixcms-v2-plan-pdf.yml"
-    paths-ignore:
-      - "docs/PLAN_MEJORAS_ADICIONALES_FENIXCMS_V2.pdf"
   workflow_dispatch:
 
 permissions:
