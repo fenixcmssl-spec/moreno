@@ -1,0 +1,14 @@
+ALTER TABLE "BlogPost"
+ADD COLUMN IF NOT EXISTS "seoTitle" TEXT;
+
+ALTER TABLE "BlogPost"
+ADD COLUMN IF NOT EXISTS "seoDescription" TEXT;
+
+ALTER TABLE "Coupon"
+ADD COLUMN IF NOT EXISTS "maxUses" INTEGER;
+
+ALTER TABLE "Coupon"
+ADD COLUMN IF NOT EXISTS "expiresAt" TIMESTAMP(3);
+
+CREATE INDEX IF NOT EXISTS "Coupon_status_idx"
+ON "Coupon"("status");

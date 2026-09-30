@@ -1,0 +1,945 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// =========================================================================
+// ENUMS
+// =========================================================================
+
+enum UserRole {
+  SUPER_ADMIN
+  OWNER
+  ADMIN
+  MANAGER
+  EDITOR
+  STAFF
+  CUSTOMER
+  // Legacy aliases
+  TENANT_OWNER
+  TENANT_ADMIN
+}
+
+enum AccountStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING
+}
+
+enum TenantStatus {
+  active
+  suspended
+  trial
+  expired
+  archived
+}
+
+enum DomainType {
+  SYSTEM_SUBDOMAIN
+  CUSTOM_DOMAIN
+}
+
+enum LicenseStatus {
+  ACTIVE
+  TRIAL
+  SUSPENDED
+  EXPIRED
+  REVOKED
+  CANCELLED
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  PAUSED
+  CANCELLED
+  EXPIRED
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum PaymentProvider {
+  STRIPE
+  PAYPAL
+  BIZUM
+  REDSYS
+  BANK_TRANSFER
+  CASH_ON_DELIVERY
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PAID
+  VOID
+}
+
+enum OrderStatus {
+  pending
+  processing
+  completed
+  shipped
+  delivered
+  cancelled
+  refunded
+}
+
+enum FulfillmentStatus {
+  unfulfilled
+  processing
+  fulfilled
+  shipped
+  delivered
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+enum ContentStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+  PENDING
+  REJECTED
+  SOLD
+}
+
+// =========================================================================
+// 1. TENANCY, USERS, SESSIONS & ROLES / PERMISSIONS
+// =========================================================================
+
+model User {
+  id           String        @id @default(uuid())
+  email        String        @unique
+  name         String
+  passwordHash String
+  role         UserRole      @default(CUSTOMER)
+  status       AccountStatus @default(ACTIVE)
+  avatarUrl    String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  memberships TenantMembership[]
+  sessions    Session[]
+  auditLogs   AuditLog[]
+
+  @@index([email])
+  @@index([role])
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  tokenHash    String   @unique
+  userId       String
+  tenantId     String?
+  role         UserRole
+  ipAddress    String?
+  userAgent    String?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  lastActiveAt DateTime @default(now())
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tokenHash])
+  @@index([userId])
+  @@index([tenantId])
+  @@index([expiresAt])
+}
+
+model Role {
+  id          String       @id @default(uuid())
+  name        String       @unique
+  description String?
+  isSystem    Boolean      @default(true)
+  permissions Permission[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model Permission {
+  id        String   @id @default(uuid())
+  roleId    String
+  action    String // e.g. "products:create", "orders:manage", "settings:write"
+  resource  String // e.g. "product", "order", "tenant", "license"
+  createdAt DateTime @default(now())
+
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, action, resource])
+  @@index([roleId])
+}
+
+model Tenant {
+  id               String       @id @default(uuid())
+  name             String
+  slug             String       @unique
+  domain           String?
+  customDomain     String?
+  status           TenantStatus @default(active)
+  applicationId    String       @default("ECOMMERCE")
+  planId           String
+  licenseKey       String       @unique
+  ownerEmail       String
+  ownerName        String
+  themeId          String       @default("theme_modern_luxe")
+  currency         String       @default("EUR")
+  defaultLocale    String       @default("es")
+  supportedLocales String[]     @default(["es", "it", "en", "fr", "de", "pt"])
+  branding         Json?
+  settings         Json?
+  activePlugins    String[]     @default(["plugin_correos_pro", "plugin_stripe_connect", "plugin_seo_pro", "plugin_fenix_all_import"])
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  memberships         TenantMembership[]
+  sessions            Session[]
+  domains             Domain[]
+  licenses            License[]
+  subscriptions       Subscription[]
+  payments            Payment[]
+  invoices            Invoice[]
+  products            Product[]
+  categories          Category[]
+  orders              Order[]
+  customers           Customer[]
+  coupons             Coupon[]
+  themes              Theme[]
+  themeInstallations  ThemeInstallation[]
+  plugins             Plugin[]
+  pluginInstallations PluginInstallation[]
+  mediaAssets         MediaAsset[]
+  pages               Page[]
+  blogPosts           BlogPost[]
+  classifiedAds       ClassifiedAd[]
+  reviews             ProductReview[]
+  menus               CMSMenu[]
+  auditLogs           AuditLog[]
+
+  @@index([slug])
+  @@index([licenseKey])
+  @@index([ownerEmail])
+  @@index([status])
+}
+
+model TenantMembership {
+  id        String        @id @default(uuid())
+  tenantId  String
+  userId    String
+  role      UserRole      @default(STAFF)
+  status    AccountStatus @default(ACTIVE)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@index([tenantId])
+  @@index([userId])
+}
+
+model Domain {
+  id        String     @id @default(uuid())
+  tenantId  String
+  hostname  String     @unique
+  type      DomainType @default(SYSTEM_SUBDOMAIN)
+  status    String     @default("active")
+  verified  Boolean    @default(false)
+  isPrimary Boolean    @default(false)
+  sslStatus String     @default("active")
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([hostname])
+}
+
+// =========================================================================
+// 2. APPLICATIONS & PLANS & ENTITLEMENTS
+// =========================================================================
+
+model Application {
+  id          String              @id @default(uuid())
+  key         String              @unique // ECOMMERCE, BLOG, BLOG_ADS, CLASSIFIEDS, BOOKING, LMS, DIRECTORY, LANDING, BUSINESS, CUSTOM
+  name        String
+  slug        String              @unique
+  description String
+  status      String              @default("ACTIVE")
+  version     String              @default("2.4.0")
+  icon        String              @default("Store")
+  category    String              @default("Store")
+  modules     ApplicationModule[]
+  plans       Plan[]
+  licenses    License[]
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([key])
+  @@index([slug])
+}
+
+model ApplicationModule {
+  id            String   @id @default(uuid())
+  applicationId String
+  key           String // products, categories, orders, posts, ads, etc.
+  name          String
+  description   String?
+  isDefault     Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, key])
+  @@index([applicationId])
+}
+
+model Plan {
+  id            String            @id @default(uuid())
+  applicationId String
+  name          String
+  slug          String            @unique
+  description   String
+  monthlyPrice  Float
+  yearlyPrice   Float
+  currency      String            @default("EUR")
+  status        String            @default("ACTIVE")
+  trialDays     Int               @default(14)
+  popular       Boolean           @default(false)
+  badge         String?
+  imageUrl      String?
+  features      String[]          @default([])
+  entitlements  PlanEntitlement[]
+  licenses      License[]
+  subscriptions Subscription[]
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId])
+  @@index([slug])
+}
+
+model PlanEntitlement {
+  id        String   @id @default(uuid())
+  planId    String
+  key       String // products.max, storage.max_mb, domains.max, users.max, ai.enabled, plugins.allowed
+  value     String // String representation of limit, json array or boolean
+  type      String   @default("NUMBER") // NUMBER, BOOLEAN, ARRAY, STRING
+  createdAt DateTime @default(now())
+
+  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, key])
+  @@index([planId])
+  @@index([key])
+}
+
+// =========================================================================
+// 3. LICENSES, ACTIVATIONS & SUBSCRIPTIONS
+// =========================================================================
+
+model License {
+  id              String        @id @default(uuid())
+  licenseKeyHash  String        @unique
+  displayKey      String        @unique // FNX-ECOM-PRO-XXXX-XXXX
+  tenantId        String
+  applicationId   String
+  planId          String
+  subscriptionId  String?
+  status          LicenseStatus @default(ACTIVE)
+  startsAt        DateTime      @default(now())
+  expiresAt       DateTime
+  activationLimit Int           @default(1)
+  activationCount Int           @default(0)
+  lastValidatedAt DateTime?
+  customerName    String
+  customerEmail   String
+  price           Float         @default(0)
+  currency        String        @default("EUR")
+  billingPeriod   String        @default("monthly")
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  application  Application         @relation(fields: [applicationId], references: [id])
+  plan         Plan                @relation(fields: [planId], references: [id])
+  subscription Subscription?       @relation(fields: [subscriptionId], references: [id])
+  activations  LicenseActivation[]
+
+  @@index([tenantId])
+  @@index([applicationId])
+  @@index([planId])
+  @@index([subscriptionId])
+  @@index([licenseKeyHash])
+  @@index([displayKey])
+  @@index([status])
+}
+
+model LicenseActivation {
+  id            String    @id @default(uuid())
+  licenseId     String
+  tenantId      String
+  domain        String
+  environment   String    @default("production") // production, staging, local
+  ipAddress     String?
+  status        String    @default("ACTIVE")
+  activatedAt   DateTime  @default(now())
+  deactivatedAt DateTime?
+
+  license License @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+
+  @@index([licenseId])
+  @@index([tenantId])
+  @@index([domain])
+}
+
+model Subscription {
+  id                     String             @id @default(uuid())
+  tenantId               String
+  planId                 String
+  provider               String             @default("paypal") // paypal, stripe, manual
+  providerSubscriptionId String?
+  status                 SubscriptionStatus @default(ACTIVE)
+  billingPeriod          String             @default("monthly") // monthly, yearly
+  currentPeriodStart     DateTime           @default(now())
+  currentPeriodEnd       DateTime
+  cancelAtPeriodEnd      Boolean            @default(false)
+  cancelledAt            DateTime?
+  amount                 Float              @default(0)
+  currency               String             @default("EUR")
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan     Plan      @relation(fields: [planId], references: [id])
+  licenses License[]
+  payments Payment[]
+  invoices Invoice[]
+
+  @@index([tenantId])
+  @@index([planId])
+  @@index([providerSubscriptionId])
+  @@index([status])
+}
+
+model Payment {
+  id                    String          @id @default(uuid())
+  tenantId              String
+  subscriptionId        String?
+  amount                Float
+  currency              String          @default("EUR")
+  provider              PaymentProvider @default(STRIPE)
+  providerTransactionId String          @unique
+  status                PaymentStatus   @default(COMPLETED)
+  paymentType           String          @default("SAAS_LICENSE") // SAAS_LICENSE, THEME_PURCHASE, PLUGIN_PURCHASE, ORDER_PAYMENT
+  customerEmail         String
+  customerName          String
+  paidAt                DateTime?
+  metadata              Json?
+  createdAt             DateTime        @default(now())
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id])
+  invoice      Invoice?
+
+  @@index([tenantId])
+  @@index([subscriptionId])
+  @@index([providerTransactionId])
+  @@index([status])
+}
+
+model Invoice {
+  id             String        @id @default(uuid())
+  tenantId       String
+  subscriptionId String?
+  paymentId      String?       @unique
+  invoiceNumber  String        @unique
+  subtotal       Float
+  tax            Float         @default(0)
+  total          Float
+  currency       String        @default("EUR")
+  status         InvoiceStatus @default(PAID)
+  billingName    String
+  billingEmail   String
+  billingAddress Json?
+  items          Json
+  pdfUrl         String?
+  issuedAt       DateTime      @default(now())
+  paidAt         DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id])
+  payment      Payment?      @relation(fields: [paymentId], references: [id])
+
+  @@index([tenantId])
+  @@index([subscriptionId])
+  @@index([invoiceNumber])
+  @@index([status])
+}
+
+model WebhookEvent {
+  id                String    @id @default(uuid())
+  provider          String // paypal, stripe
+  eventId           String    @unique
+  eventType         String
+  payload           Json
+  signatureVerified Boolean   @default(true)
+  processed         Boolean   @default(false)
+  processedAt       DateTime?
+  error             String?
+  createdAt         DateTime  @default(now())
+
+  @@index([provider, eventId])
+  @@index([processed])
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  actorId      String?
+  tenantId     String?
+  action       String // LOGIN, LICENSE_CREATED, LICENSE_ACTIVATED, etc.
+  resourceType String // Tenant, License, Subscription, Product, etc.
+  resourceId   String?
+  metadata     Json?
+  ip           String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+
+  user   User?   @relation(fields: [actorId], references: [id])
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+// =========================================================================
+// 4. TENANT STOREFRONT / COMMERCE / CONTENT
+// =========================================================================
+
+model Category {
+  id          String   @id @default(uuid())
+  tenantId    String
+  name        String
+  slug        String
+  description String?
+  image       String?
+  parentId    String?
+  status      String   @default("ACTIVE")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant   Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  parent   Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryHierarchy")
+  products Product[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@index([parentId])
+  @@index([status])
+}
+
+model Product {
+  id           String   @id @default(uuid())
+  tenantId     String
+  categoryId   String?
+  title        String
+  slug         String
+  description  String?
+  price        Float
+  comparePrice Float?
+  costPrice    Float?
+  stock        Int      @default(0)
+  sku          String?
+  barcode      String?
+  category     String   @default("General")
+  images       String[] @default([])
+  featured     Boolean  @default(false)
+  isBestSeller Boolean  @default(false)
+  isDeal       Boolean  @default(false)
+  rating       Float    @default(5.0)
+  reviewsCount Int      @default(0)
+  tags         String[] @default([])
+  attributes   Json?
+  variants     Json?
+  translations Json?
+  status       String   @default("active")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  categoryRel Category?       @relation(fields: [categoryId], references: [id])
+  orderItems  OrderItem[]
+  reviews     ProductReview[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@index([categoryId])
+  @@index([status])
+}
+
+model Customer {
+  id          String   @id @default(uuid())
+  tenantId    String
+  name        String
+  email       String
+  phone       String?
+  address     Json?
+  ordersCount Int      @default(0)
+  totalSpent  Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orders Order[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([email])
+}
+
+model Order {
+  id                String            @id @default(uuid())
+  tenantId          String
+  customerId        String?
+  orderNumber       String            @unique
+  idempotencyKey    String?           @unique
+  customerName      String
+  customerEmail     String
+  customerPhone     String?
+  currency          String            @default("EUR")
+  total             Float
+  subtotal          Float
+  tax               Float             @default(0)
+  shippingCost      Float             @default(0)
+  discount          Float             @default(0)
+  status            OrderStatus       @default(pending)
+  fulfillmentStatus FulfillmentStatus @default(unfulfilled)
+  paymentMethod     String            @default("stripe")
+  paymentStatus     String            @default("pending")
+  trackingNumber    String?
+  carrier           String?
+  shippingAddress   Json?
+  items             Json // For fast snapshot access
+  notes             String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer   Customer?   @relation(fields: [customerId], references: [id])
+  orderItems OrderItem[]
+
+  @@index([tenantId])
+  @@index([customerId])
+  @@index([orderNumber])
+  @@index([idempotencyKey])
+  @@index([status])
+}
+
+model OrderItem {
+  id        String   @id @default(uuid())
+  orderId   String
+  productId String?
+  title     String
+  sku       String?
+  price     Float
+  quantity  Int
+  total     Float
+  variant   Json?
+  createdAt DateTime @default(now())
+
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+model Coupon {
+  id            String       @id @default(uuid())
+  tenantId      String
+  code          String
+  discountType  DiscountType @default(PERCENTAGE)
+  discountValue Float
+  minSpend      Float?
+  maxUses       Int?
+  usedCount     Int          @default(0)
+  expiresAt     DateTime?
+  status        String       @default("ACTIVE")
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([status])
+}
+
+model Theme {
+  id          String   @id @default(uuid())
+  tenantId    String
+  key         String
+  name        String
+  slug        String
+  description String?
+  version     String   @default("1.0.0")
+  author      String   @default("Fenix Team")
+  palette     Json?
+  typography  Json?
+  layout      Json?
+  sections    Json?
+  isActive    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant        Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  installations ThemeInstallation[]
+
+  @@index([tenantId])
+  @@index([key])
+}
+
+model ThemeInstallation {
+  id          String   @id @default(uuid())
+  tenantId    String
+  themeId     String
+  isActive    Boolean  @default(false)
+  customProps Json?
+  draftProps  Json?
+  installedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  theme  Theme  @relation(fields: [themeId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, themeId])
+  @@index([tenantId])
+  @@index([themeId])
+}
+
+model Plugin {
+  id        String   @id @default(uuid())
+  tenantId  String
+  key       String
+  name      String
+  version   String   @default("1.0.0")
+  category  String   @default("tools")
+  isEnabled Boolean  @default(false)
+  config    Json?
+  manifest  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant        Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  installations PluginInstallation[]
+
+  @@unique([tenantId, key])
+  @@index([tenantId])
+  @@index([key])
+}
+
+model PluginInstallation {
+  id          String   @id @default(uuid())
+  tenantId    String
+  pluginId    String
+  isEnabled   Boolean  @default(true)
+  settings    Json?
+  installedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plugin Plugin @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, pluginId])
+  @@index([tenantId])
+  @@index([pluginId])
+}
+
+model MediaAsset {
+  id         String   @id @default(uuid())
+  tenantId   String
+  filename   String
+  url        String
+  storageKey String?
+  mimeType   String
+  size       Int
+  width      Int?
+  height     Int?
+  alt        String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model Page {
+  id        String        @id @default(uuid())
+  tenantId  String
+  title     String
+  slug      String
+  content   String
+  status    ContentStatus @default(PUBLISHED)
+  seoTitle  String?
+  seoDesc   String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@index([slug])
+}
+
+model BlogPost {
+  id             String        @id @default(uuid())
+  tenantId       String
+  title          String
+  slug           String
+  excerpt        String?
+  content        String
+  category       String        @default("Noticias")
+  author         Json?
+  featuredImage  String?
+  tags           String[]      @default([])
+  status         ContentStatus @default(PUBLISHED)
+  seoTitle       String?
+  seoDescription String?
+  viewsCount     Int           @default(0)
+  publishedAt    DateTime      @default(now())
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@index([slug])
+}
+
+model ClassifiedAd {
+  id             String        @id @default(uuid())
+  tenantId       String
+  title          String
+  slug           String
+  description    String
+  category       String
+  categoryId     String?
+  price          Float
+  location       String
+  city           String?
+  images         String[]      @default([])
+  status         ContentStatus @default(PUBLISHED)
+  featured       Boolean       @default(false)
+  sellerId       String?
+  sellerName     String
+  sellerPhone    String?
+  sellerEmail    String?
+  attributes     Json?
+  viewsCount     Int           @default(0)
+  favoritesCount Int           @default(0)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@index([slug])
+  @@index([sellerId])
+}
+
+model ProductReview {
+  id         String   @id @default(uuid())
+  tenantId   String
+  productId  String
+  userName   String
+  userEmail  String
+  rating     Int      @default(5)
+  title      String?
+  comment    String
+  verified   Boolean  @default(true)
+  status     String   @default("APPROVED")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([productId])
+  @@index([status])
+}
+
+model CMSMenu {
+  id        String   @id @default(uuid())
+  tenantId  String
+  name      String
+  slug      String
+  location  String   @default("header") // header, footer, sidebar, mobile
+  items     Json     // array of MenuItem [{ label, url, target, icon, children }]
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@index([location])
+}
+
+model MarketplaceItem {
+  id            String   @id @default(uuid())
+  key           String   @unique
+  name          String
+  slug          String   @unique
+  description   String
+  type          String   // PLUGIN, THEME, APP_EXTENSION
+  category      String   @default("general")
+  author        String   @default("Fenix Ecosystem")
+  version       String   @default("1.0.0")
+  price         Float    @default(0.0)
+  currency      String   @default("EUR")
+  icon          String?
+  bannerUrl     String?
+  rating        Float    @default(5.0)
+  reviewsCount  Int      @default(0)
+  downloads     Int      @default(0)
+  isFeatured    Boolean  @default(false)
+  isVerified    Boolean  @default(true)
+  manifest      Json?
+  tags          String[] @default([])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([type])
+  @@index([category])
+  @@index([isFeatured])
+}
+

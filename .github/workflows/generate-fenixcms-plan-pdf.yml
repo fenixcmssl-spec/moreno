@@ -1,0 +1,141 @@
+name: Generate FenixCMS plan PDF
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/PLAN_MAESTRO_MODIFICACIONES_FENIXCMS.pdf"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  generate-pdf:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PDF generator
+        run: python -m pip install --quiet reportlab
+
+      - name: Generate PDF from the control document
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          from reportlab.pdfgen import canvas
+          from reportlab.lib.pagesizes import A4
+          from reportlab.pdfbase.pdfmetrics import stringWidth
+          import re
+
+          src = Path("docs/PLAN_MAESTRO_MODIFICACIONES_FENIXCMS.md")
+          out = Path("docs/PLAN_MAESTRO_MODIFICACIONES_FENIXCMS.pdf")
+
+          text = src.read_text(encoding="utf-8")
+          replacements = {
+              "●": "-",
+              "•": "-",
+              "→": "->",
+              "←": "<-",
+              "—": "-",
+              "–": "-",
+              "“": '"',
+              "”": '"',
+              "’": "'",
+              "‘": "'",
+              "…": "...",
+              "\u00a0": " ",
+          }
+          for a, b in replacements.items():
+              text = text.replace(a, b)
+
+          lines = []
+          for line in text.splitlines():
+              line = re.sub(r"^#{1,6}\s*", "", line)
+              line = line.replace("**", "")
+              line = line.replace("__", "")
+              line = line.replace(chr(96), "")
+              if line.startswith("> "):
+                  line = line[2:]
+              lines.append(line.rstrip())
+
+          PAGE_W, PAGE_H = A4
+          left = 42
+          right = 42
+          top = PAGE_H - 44
+          bottom = 44
+          font = "Helvetica"
+          size = 8.4
+          leading = 11.2
+          max_width = PAGE_W - left - right
+          state = {"y": top, "page_no": 1}
+
+          c = canvas.Canvas(str(out), pagesize=A4)
+
+          def footer():
+              c.setFont(font, 7.2)
+              c.drawCentredString(
+                  PAGE_W / 2,
+                  20,
+                  f"FenixCMS - Plan maestro de modificaciones | Pagina {state['page_no']}"
+              )
+
+          def new_page():
+              footer()
+              c.showPage()
+              state["page_no"] += 1
+              state["y"] = top
+
+          def emit_wrapped(raw_line):
+              if raw_line == "":
+                  state["y"] -= leading
+                  if state["y"] < bottom + 18:
+                      new_page()
+                  return
+
+              words = raw_line.split()
+              current = ""
+              indent = len(raw_line) - len(raw_line.lstrip(" "))
+              prefix = " " * min(indent, 8)
+
+              for word in words:
+                  candidate = (current + " " + word).strip()
+                  if stringWidth(prefix + candidate, font, size) <= max_width:
+                      current = candidate
+                  else:
+                      if current:
+                          if state["y"] < bottom + 18:
+                              new_page()
+                          c.setFont(font, size)
+                          c.drawString(left, state["y"], prefix + current)
+                          state["y"] -= leading
+                          prefix = ""
+                      current = word
+
+              if current:
+                  if state["y"] < bottom + 18:
+                      new_page()
+                  c.setFont(font, size)
+                  c.drawString(left, state["y"], prefix + current)
+                  state["y"] -= leading
+
+          for line in lines:
+              emit_wrapped(line)
+
+          footer()
+          c.save()
+          print(f"Generated {out} ({out.stat().st_size} bytes)")
+          PY
+
+      - name: Commit generated PDF
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/PLAN_MAESTRO_MODIFICACIONES_FENIXCMS.pdf
+          if git diff --cached --quiet; then
+            echo "PDF sin cambios."
+            exit 0
+          fi
+          git commit -m "docs: generar PDF del plan maestro FenixCMS"
+          git push

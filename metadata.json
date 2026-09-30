@@ -1,0 +1,6 @@
+{
+  "name": "FenixCMS SaaS",
+  "description": "Plataforma CMS SaaS Multi-tenant con venta de licencias, e-commerce avanzado Fenix Storefront, multidominio, multi-idioma (IT, ES, EN, FR, DE, PT), motor de plugins, temas y el importador masivo Fenix All Import Pro.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
