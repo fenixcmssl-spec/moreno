@@ -540,74 +540,53 @@ export function StoreProvider({
     storeName: string, 
     storeSlug: string
   ) => {
-    const selectedPlan = plans.find(p => p.id === planId) || plans[1];
-    const generatedLicenseKey = `FNX-${selectedPlan.slug.toUpperCase().slice(0, 3)}-${Math.floor(1000 + Math.random() * 9000)}-${storeSlug.toUpperCase().slice(0, 6)}`;
-    const newLicenseId = `lic_${Date.now()}`;
-    const newTenantId = `tenant_${storeSlug.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+    try {
+      // 1. Iniciar checkout en servidor
+      const checkoutRes = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          planId,
+          customerName,
+          customerEmail,
+          billingPeriod,
+          provider: 'PAYPAL',
+          tenantName: storeName,
+          tenantSlug: storeSlug
+        })
+      });
+      const checkoutData = await checkoutRes.json();
+      if (!checkoutRes.ok || !checkoutData.success) {
+        throw new Error(checkoutData.error || 'Error al iniciar checkout');
+      }
 
-    const newLicense: SaaSLicense = {
-      id: newLicenseId,
-      tenantId: newTenantId,
-      applicationId: selectedPlan.applicationId || 'app_ecommerce',
-      licenseKey: generatedLicenseKey,
-      planId: selectedPlan.id,
-      planName: selectedPlan.name,
-      status: 'active',
-      customerName,
-      customerEmail,
-      tenantSlug: storeSlug,
-      tenantName: storeName,
-      price: Number((billingPeriod === 'yearly' ? ((selectedPlan as any).yearlyPrice ?? selectedPlan.priceYearly) : ((selectedPlan as any).monthlyPrice ?? selectedPlan.priceMonthly)) || 0),
-      billingPeriod,
-      paymentProvider: 'paypal',
-      transactionId: `PP-TX-${Date.now()}`,
-      validFrom: new Date().toISOString(),
-      validTo: new Date(Date.now() + (billingPeriod === 'yearly' ? 365 : 30) * 24 * 60 * 60 * 1000).toISOString(),
-      autoRenew: true,
-      entitlements: selectedPlan.entitlements,
-      createdAt: new Date().toISOString()
-    };
+      // 2. Capturar orden y aprovisionar en servidor
+      const captureRes = await fetch('/api/billing/capture', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'PAYPAL',
+          orderId: checkoutData.session.paymentId || checkoutData.session.sessionId,
+          paymentId: checkoutData.session.paymentId
+        })
+      });
+      const captureData = await captureRes.json();
+      if (!captureRes.ok || !captureData.success) {
+        throw new Error(captureData.error || 'Error en captura de PayPal');
+      }
 
-    const newTenant: TenantStore = {
-      id: newTenantId,
-      name: storeName,
-      slug: storeSlug,
-      domain: `${storeSlug}.fenixcms.es`,
-      status: 'active',
-      applicationId: selectedPlan.applicationId || 'app_ecommerce',
-      enabledApplications: ['ECOMMERCE', 'BLOG'],
-      planId: selectedPlan.id,
-      licenseKey: generatedLicenseKey,
-      ownerEmail: customerEmail,
-      ownerName: customerName,
-      themeId: 'theme_fenix_market',
-      currency: 'EUR',
-      defaultLocale: 'es',
-      supportedLocales: ['es', 'en', 'it', 'fr', 'de', 'pt'],
-      branding: {
-        primaryColor: '#f59e0b',
-        accentColor: '#10b981',
-        fontFamily: 'Inter, sans-serif'
-      },
-      settings: {
-        storeName,
-        tagline: 'Tienda Oficial creada con FenixCMS',
-        supportEmail: customerEmail,
-        phone: '+34 900 000 000',
-        address: 'Calle Principal 10, Madrid',
-        taxRate: 21,
-        shippingBaseCost: 3.99,
-        freeShippingThreshold: 50.00
-      },
-      activePlugins: ['plugin_paypal', 'plugin_stripe', 'plugin_correos', 'plugin_fenix_import'],
-      createdAt: new Date().toISOString()
-    };
+      const newLicense = captureData.license;
+      const newTenant = captureData.tenant;
 
-    setLicenses(prev => [newLicense, ...prev]);
-    setTenant(newTenant);
-    logAction('LICENSE_PURCHASED', 'License', { key: generatedLicenseKey, store: storeName, customer: customerEmail });
+      if (newLicense) setLicenses(prev => [newLicense, ...prev]);
+      if (newTenant) setTenant(newTenant);
+      logAction('LICENSE_PURCHASED', 'License', { key: newLicense?.licenseKey, store: storeName, customer: customerEmail });
 
-    return { success: true, license: newLicense, tenant: newTenant };
+      return { success: true, license: newLicense, tenant: newTenant };
+    } catch (err: any) {
+      console.error('buyLicenseWithPayPal server error:', err);
+      throw err;
+    }
   };
 
   const toggleLicenseStatus = (licenseId: string, status: 'active' | 'suspended' | 'expired') => {

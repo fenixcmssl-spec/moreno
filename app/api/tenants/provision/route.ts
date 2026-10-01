@@ -1,126 +1,83 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { PlanService } from '@/lib/services/plan.service';
-import { ApplicationService } from '@/lib/services/application.service';
-import { AuditService } from '@/lib/services/audit.service';
-import { AuthService } from '@/lib/services/auth.service';
-import { TenantService } from '@/lib/services/tenant.service';
+import { SaaSCheckoutService } from '@/lib/services/saas-checkout.service';
+import { isProductionMode } from '@/lib/prisma';
 
+/**
+ * /api/tenants/provision
+ * =========================================================================
+ * FASE 1: CIERRE DEL APROVISIONAMIENTO GRATUITO Y PAGO PAYPAL REAL
+ * 
+ * Regla de Oro: NO PAYMENT CAPTURED = NO PROVISIONING.
+ * 
+ * Este endpoint ya NO permite la creación libre ni gratuita de tenants
+ * a partir de parámetros arbitrarios enviados por el cliente.
+ * 
+ * Exige obligatoriamente:
+ * 1. `paypalOrderId` o `paymentId` registrado en una sesión de checkout.
+ * 2. Validación y captura real de fondos con PayPal API en servidor.
+ * 3. Aprovisionamiento atómico vinculado a la orden confirmada.
+ * =========================================================================
+ */
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
     const {
-      applicationId = 'ECOMMERCE',
-      planId = 'plan_growth',
-      billingPeriod = 'monthly',
-      paymentProvider = 'paypal',
-      transactionId,
-      customerName,
-      customerEmail,
-      customerPassword,
-      storeName,
-      storeSlug,
-      currency = 'EUR',
-      customDomain
+      paypalOrderId,
+      orderId,
+      paymentId,
+      sessionId,
+      provider = 'PAYPAL',
+      providerPaymentId
     } = body;
 
-    if (!customerEmail || !storeSlug) {
+    const transactionIdentifier = paypalOrderId || orderId || providerPaymentId || paymentId || sessionId;
+
+    if (!transactionIdentifier) {
       return NextResponse.json(
-        { success: false, error: 'Correo de cliente y slug de tienda son requeridos' },
-        { status: 400 }
+        { 
+          success: false, 
+          error: 'Acceso denegado: Se requiere un identificador de orden de pago capturado y validado por la pasarela (NO PAYMENT CAPTURED = NO PROVISIONING).' 
+        },
+        { status: 401 }
       );
     }
 
-    const cleanSlug = storeSlug.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
-    const plan = (await PlanService.getById(planId)) || (await PlanService.getBySlug(planId)) || (await PlanService.getAll())[0];
-    const app = (await ApplicationService.getByKey(applicationId as any)) || (await ApplicationService.getAll())[0];
+    // Ejecutar verificación y captura server-side con la pasarela oficial
+    const result = await SaaSCheckoutService.verifyAndProcessPayment({
+      provider: provider.toUpperCase() === 'STRIPE' ? 'STRIPE' : 'PAYPAL',
+      providerPaymentId: transactionIdentifier,
+      paymentId: paymentId || transactionIdentifier,
+      sessionId: sessionId || transactionIdentifier,
+      rawPayload: body
+    });
 
-    const tenantId = `tenant_${cleanSlug}`;
-
-    // 1. Register user if password provided
-    let registeredUserId: string | undefined;
-    if (customerPassword) {
-      const reg = await AuthService.register({
-        name: customerName || storeName || 'Propietario',
-        email: customerEmail,
-        password: customerPassword,
-        role: 'OWNER',
-        tenantId,
-        tenantSlug: cleanSlug
-      });
-      if (reg.success && reg.user) {
-        registeredUserId = reg.user.id;
-      }
+    if (!result.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: result.error || 'No se pudo verificar la captura del pago en PayPal. Aprovisionamiento denegado.'
+        },
+        { status: 409 }
+      );
     }
-
-    // 2. Atomic Provisioning of Tenant + License + Domain + Membership (FASE 7)
-    const result = await TenantService.provisionTenantWithLicenseAsync({
-      tenantId,
-      name: storeName || 'Mi Tienda Fenix',
-      slug: cleanSlug,
-      applicationId: app?.key || 'ECOMMERCE',
-      planId: plan?.id || planId,
-      ownerName: customerName || storeName || 'Propietario',
-      ownerEmail: customerEmail,
-      ownerUserId: registeredUserId,
-      billingPeriod: billingPeriod as any,
-      paymentProvider,
-      transactionId,
-      currency,
-      customDomain,
-      activationLimit: 3,
-      branding: {
-        primaryColor: '#6366f1',
-        accentColor: '#10b981',
-        fontFamily: 'Inter',
-        seoTitle: `${storeName || cleanSlug} - Tienda Online Oficial`,
-        seoDescription: `Bienvenido a ${storeName || cleanSlug}. Catálogo exclusivo y compras seguras con FenixCMS.`
-      },
-      settings: {
-        storeName: storeName || cleanSlug,
-        tagline: 'Tu tienda online de confianza',
-        supportEmail: customerEmail,
-        phone: '+34 900 000 000',
-        address: 'Madrid, España',
-        taxRate: 21,
-        shippingBaseCost: 4.99,
-        freeShippingThreshold: 50
-      },
-      activePlugins: [
-        'plugin_correos_pro',
-        'plugin_stripe_connect',
-        'plugin_seo_pro',
-        'plugin_fenix_all_import'
-      ]
-    });
-
-    // 3. Audit Logging
-    AuditService.log({
-      tenantId: result.tenant.id,
-      userEmail: customerEmail,
-      action: 'TENANT_PROVISIONED',
-      entity: 'Tenant',
-      entityId: result.tenant.id,
-      details: {
-        slug: cleanSlug,
-        plan: plan?.name || planId,
-        application: app?.name || applicationId,
-        licenseKey: result.license.displayKey,
-        domain: result.defaultDomain
-      }
-    });
 
     return NextResponse.json({
       success: true,
       tenant: result.tenant,
       license: result.license,
-      redirectUrl: result.redirectUrl,
-      message: 'Comercio y licencia aprovisionados atómicamente con éxito'
+      subscription: result.subscription,
+      invoice: result.invoice,
+      payment: result.payment,
+      message: 'Comercio, licencia y suscripción aprovisionados con éxito tras verificar el pago.'
     }, { status: 201 });
 
   } catch (error: any) {
     console.error('Error in POST /api/tenants/provision:', error);
     return NextResponse.json(
-      { success: false, error: error?.message || 'Error en el aprovisionamiento del tenant' },
+      { 
+        success: false, 
+        error: error?.message || 'Error en la verificación y aprovisionamiento del comercio' 
+      },
       { status: 500 }
     );
   }

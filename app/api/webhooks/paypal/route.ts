@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
     };
 
     // 1. Official PayPal Webhook Transmission Verification
-    const verification = WebhookService.verifyPayPalSignature(rawBody, headers);
+    const verification = await WebhookService.verifyPayPalSignatureAsync(rawBody, headers);
     if (!verification.valid) {
       return NextResponse.json({
         error: 'Firma de webhook PayPal inválida',

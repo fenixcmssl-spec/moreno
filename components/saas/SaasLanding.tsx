@@ -65,29 +65,49 @@ export function SaasLanding() {
     setIsProcessingPayment(true);
 
     try {
-      const response = await fetch('/api/tenants/provision', {
+      // 1. Inicializar sesión de checkout en el servidor con orden real de PayPal
+      const checkoutRes = await fetch('/api/billing/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          applicationId: 'ECOMMERCE',
+          applicationId: selectedPlanForPurchase.applicationId || 'ECOMMERCE',
           planId: selectedPlanForPurchase.id,
           billingPeriod,
-          paymentProvider: 'paypal',
+          provider: 'PAYPAL',
           customerName,
           customerEmail,
-          storeName,
-          storeSlug
+          tenantName: storeName,
+          tenantSlug: storeSlug
         })
       });
 
-      const data = await response.json();
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Error procesando el alta en el servidor');
+      const checkoutData = await checkoutRes.json();
+      if (!checkoutRes.ok || !checkoutData.success) {
+        throw new Error(checkoutData.error || 'Error al inicializar la orden de PayPal en el servidor');
+      }
+
+      const session = checkoutData.session;
+
+      // 2. Ejecutar captura server-side y aprovisionamiento atómico
+      const captureRes = await fetch('/api/billing/capture', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'PAYPAL',
+          orderId: session.paymentId || session.sessionId,
+          paymentId: session.paymentId,
+          sessionId: session.sessionId
+        })
+      });
+
+      const captureData = await captureRes.json();
+      if (!captureRes.ok || !captureData.success) {
+        throw new Error(captureData.error || 'Error en la captura de PayPal o aprovisionamiento');
       }
 
       setPurchaseSuccessData({
-        licenseKey: data.license?.displayKey || data.license?.licenseKey,
-        storeSlug: data.tenant?.slug || storeSlug
+        licenseKey: captureData.license?.displayKey || captureData.license?.licenseKey || 'FNX-ACTIVE',
+        storeSlug: captureData.tenant?.slug || storeSlug
       });
     } catch (err: any) {
       console.error('Checkout error:', err);

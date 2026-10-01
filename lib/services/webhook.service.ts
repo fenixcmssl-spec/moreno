@@ -145,6 +145,37 @@ export class WebhookService {
   }
 
   /**
+   * Cryptographic verification using PayPal API / Gateway
+   */
+  static async verifyPayPalSignatureAsync(
+    rawBody: string, 
+    headers: {
+      transmissionId?: string | null;
+      transmissionTime?: string | null;
+      transmissionSig?: string | null;
+      certUrl?: string | null;
+      authAlgo?: string | null;
+    },
+    webhookId?: string
+  ): Promise<WebhookVerificationResult> {
+    const { transmissionId, transmissionTime, transmissionSig, certUrl, authAlgo } = headers;
+    if (!transmissionId || !transmissionTime || !transmissionSig || !certUrl || !authAlgo) {
+      return { valid: false, reason: 'Headers de transmisión de PayPal ausentes o incompletos' };
+    }
+
+    const { PayPalGatewayService } = await import('./paypal-gateway.service');
+    return await PayPalGatewayService.verifyWebhookSignature({
+      transmissionId,
+      transmissionTime,
+      transmissionSig,
+      certUrl,
+      authAlgo,
+      webhookId,
+      rawBody
+    });
+  }
+
+  /**
    * Checks if a webhook event has already been registered / processed (Idempotency)
    */
   static async checkIdempotency(provider: string, eventId: string): Promise<{ isDuplicate: boolean; eventRecord?: WebhookEventRecord }> {
