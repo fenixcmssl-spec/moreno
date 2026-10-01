@@ -11,7 +11,6 @@ on:
       - "docs/FENIXCMS_2.pdf"
       - "docs/FENIXCMS_2.parts/**"
       - "docs/FENIXCMS_2.payload/**"
-      - "docs/FENIXCMS_2.ready"
   workflow_dispatch:
 
 permissions:
