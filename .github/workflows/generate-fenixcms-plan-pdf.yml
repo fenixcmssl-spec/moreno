@@ -8,6 +8,7 @@ on:
       - "docs/PLAN_MEJORAS_ADICIONALES_FENIXCMS_V2.pdf"
       - "docs/FENIXCMS_1.pdf"
       - "docs/FENIXCMS_2.pdf"
+      - "docs/FENIXCMS_3.pdf"
   workflow_dispatch:
 
 permissions:
@@ -206,14 +207,64 @@ jobs:
           print(f"Generated {out} ({out.stat().st_size} bytes)")
           PY
 
+      - name: Generate FENIXCMS_3 PDF
+        if: ${{ hashFiles('docs/FENIXCMS_3.md') != '' }}
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          from reportlab.pdfgen import canvas
+          from reportlab.lib.pagesizes import A4
+          from reportlab.pdfbase.pdfmetrics import stringWidth
+          import re
+          src=Path("docs/FENIXCMS_3.md"); out=Path("docs/FENIXCMS_3.pdf")
+          text=src.read_text(encoding="utf-8")
+          replacements={"●":"-","•":"-","→":"->","←":"<-","—":"-","–":"-","“":'"',"”":'"',"’":"'","‘":"'","…":"...","\u00a0":" "}
+          for a,b in replacements.items(): text=text.replace(a,b)
+          lines=[]
+          for raw in text.splitlines():
+              line=re.sub(r"^#{1,6}\s*","",raw).replace("**","").replace("__","").replace(chr(96),"")
+              if line.startswith("> "): line=line[2:]
+              lines.append(line.rstrip())
+          W,H=A4; left,right=44,44; top,bottom=H-46,46; max_width=W-left-right
+          state={"y":top,"page":1}; c=canvas.Canvas(str(out),pagesize=A4)
+          def footer():
+              c.setFont("Helvetica",7); c.drawCentredString(W/2,21,f"FenixCMS - FENIXCMS_3 | Plan Integral de Implementacion | Pagina {state['page']}")
+          def new_page():
+              footer(); c.showPage(); state["page"]+=1; state["y"]=top
+          for t in lines:
+              t=t.strip()
+              if not t:
+                  state["y"]-=6
+                  if state["y"]<bottom+20: new_page()
+                  continue
+              if t.startswith("FENIXCMS_3"): font,size,leading="Helvetica-Bold",18,21
+              elif t.startswith("FASE ") or t.startswith("## "): font,size,leading="Helvetica-Bold",12,16
+              elif re.match(r"^\d+\.",t): font,size,leading="Helvetica-Bold",10.5,13.5
+              else: font,size,leading="Helvetica",8.4,11.1
+              cur=""
+              for word in t.split():
+                  cand=(cur+" "+word).strip()
+                  if stringWidth(cand,font,size)<=max_width: cur=cand
+                  else:
+                      if cur:
+                          if state["y"]<bottom+leading: new_page()
+                          c.setFont(font,size); c.drawString(left,state["y"],cur); state["y"]-=leading
+                      cur=word
+              if cur:
+                  if state["y"]<bottom+leading: new_page()
+                  c.setFont(font,size); c.drawString(left,state["y"],cur); state["y"]-=leading
+          footer(); c.save()
+          print(f"Generated {out} ({out.stat().st_size} bytes)")
+          PY
+
       - name: Commit generated documents
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/PLAN_MAESTRO_MODIFICACIONES_FENIXCMS.pdf docs/PLAN_MEJORAS_ADICIONALES_FENIXCMS_V2.pdf docs/FENIXCMS_1.pdf docs/FENIXCMS_2.md docs/FENIXCMS_2.pdf
+          git add docs/PLAN_MAESTRO_MODIFICACIONES_FENIXCMS.pdf docs/PLAN_MEJORAS_ADICIONALES_FENIXCMS_V2.pdf docs/FENIXCMS_1.pdf docs/FENIXCMS_2.md docs/FENIXCMS_2.pdf docs/FENIXCMS_3.md docs/FENIXCMS_3.pdf
           if git diff --cached --quiet; then
             echo "Sin cambios."
             exit 0
           fi
-          git commit -m "docs: generar FENIXCMS_2 y su PDF"
+          git commit -m "docs: generar planes y PDFs FenixCMS"
           git push
