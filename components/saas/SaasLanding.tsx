@@ -65,7 +65,7 @@ export function SaasLanding() {
     setIsProcessingPayment(true);
 
     try {
-      // 1. Inicializar sesión de checkout en el servidor con orden real de PayPal
+      // 1. Inicializar CheckoutSession en el servidor con orden oficial de PayPal
       const checkoutRes = await fetch('/api/billing/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -88,31 +88,17 @@ export function SaasLanding() {
 
       const session = checkoutData.session;
 
-      // 2. Ejecutar captura server-side y aprovisionamiento atómico
-      const captureRes = await fetch('/api/billing/capture', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          provider: 'PAYPAL',
-          orderId: session.paymentId || session.sessionId,
-          paymentId: session.paymentId,
-          sessionId: session.sessionId
-        })
-      });
-
-      const captureData = await captureRes.json();
-      if (!captureRes.ok || !captureData.success) {
-        throw new Error(captureData.error || 'Error en la captura de PayPal o aprovisionamiento');
+      // 2. Redirección oficial al flujo de aprobación de PayPal
+      if (session?.checkoutUrl) {
+        // Redirigir al comprador a la URL oficial de PayPal para autorizar el cobro
+        window.location.assign(session.checkoutUrl);
+        return;
       }
 
-      setPurchaseSuccessData({
-        licenseKey: captureData.license?.displayKey || captureData.license?.licenseKey || 'FNX-ACTIVE',
-        storeSlug: captureData.tenant?.slug || storeSlug
-      });
+      throw new Error('No se recibió la URL de aprobación de PayPal desde el servidor.');
     } catch (err: any) {
       console.error('Checkout error:', err);
-      alert(err?.message || 'Error procesando el pago y aprovisionamiento con el servidor.');
-    } finally {
+      alert(err?.message || 'Error procesando la conexión con PayPal.');
       setIsProcessingPayment(false);
     }
   };

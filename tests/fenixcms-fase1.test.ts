@@ -87,7 +87,7 @@ async function runFase1Tests() {
       'La moneda es EUR conforme a la configuración del plan'
     );
     assert(
-      typeof session.paymentId === 'string' && session.paymentId.startsWith('pay_saas_'),
+      typeof session.paymentId === 'string' && (session.paymentId.startsWith('pay_saas_') || session.paymentId.startsWith('cs_')),
       'Genera paymentId persistente para trazabilidad'
     );
     assert(

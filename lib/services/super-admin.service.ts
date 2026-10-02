@@ -130,8 +130,8 @@ export class SuperAdminService {
           });
         }
 
-        // If no active subscriptions found in DB yet, calculate from initial data
-        if (calculatedMrr === 0) {
+        // If no active subscriptions found in DB yet in non-production, calculate from initial data
+        if (calculatedMrr === 0 && !process.env.DATABASE_URL) {
           calculatedMrr = INITIAL_LICENSES.filter(l => l.status === 'active').reduce((acc, l) => {
             return acc + (l.billingPeriod === 'yearly' ? l.price / 12 : l.price);
           }, 0);
@@ -143,23 +143,23 @@ export class SuperAdminService {
         let totalRevenue = 0;
         if (Array.isArray(allCompletedPayments) && allCompletedPayments.length > 0) {
           totalRevenue = allCompletedPayments.reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
-        } else {
+        } else if (!process.env.DATABASE_URL) {
           totalRevenue = INITIAL_LICENSES.reduce((sum, l) => sum + l.price, 0);
         }
 
         return {
           mrr,
           arr,
-          tenants: tenantsCount ?? INITIAL_TENANTS.length,
-          activeLicenses: activeLicensesCount ?? INITIAL_LICENSES.filter(l => l.status === 'active').length,
-          trialLicenses: trialLicensesCount ?? 1,
-          expiredLicenses: expiredLicensesCount ?? 1,
-          cancelledSubscriptions: cancelledSubscriptionsCount ?? 0,
-          failedPayments: failedPaymentsCount ?? 0,
+          tenants: Number(tenantsCount ?? 0),
+          activeLicenses: Number(activeLicensesCount ?? 0),
+          trialLicenses: Number(trialLicensesCount ?? 0),
+          expiredLicenses: Number(expiredLicensesCount ?? 0),
+          cancelledSubscriptions: Number(cancelledSubscriptionsCount ?? 0),
+          failedPayments: Number(failedPaymentsCount ?? 0),
           currency: 'EUR',
-          totalUsers: totalUsersCount ?? 4,
-          activeSubscriptions: activeSubscriptionsCount ?? 3,
-          totalInvoices: 3,
+          totalUsers: Number(totalUsersCount ?? 0),
+          activeSubscriptions: Number(activeSubscriptionsCount ?? 0),
+          totalInvoices: Number(tenantsCount ?? 0),
           revenueTotal: Math.round(totalRevenue * 100) / 100
         };
       }

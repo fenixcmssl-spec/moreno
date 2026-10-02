@@ -57,6 +57,10 @@ export interface PaymentVerificationParams {
 
 export interface SaaSOrderCompletionResult {
   success: boolean;
+  tenant?: any;
+  checkoutSessionId?: string;
+  failureCode?: string;
+  message?: string;
   payment: {
     id: string;
     tenantId: string;

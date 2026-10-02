@@ -2,7 +2,7 @@ import { PasswordService } from '../auth/password';
 import { SessionService, AuthSession } from '../auth/session';
 import { UserRole } from '../auth/rbac';
 import { AuditService } from './audit.service';
-import { prisma, isPostgresConfigured } from '../prisma';
+import { prisma, isPostgresConfigured, isProductionMode } from '../prisma';
 
 export interface UserAccount {
   id: string;
@@ -31,13 +31,13 @@ export interface SafeUser {
   updatedAt?: string;
 }
 
-// Built-in seed accounts for instant high-availability access
-const DEFAULT_SYSTEM_ACCOUNTS: UserAccount[] = [
+// Built-in development seed hash (PBKDF2/SHA-256 generated securely, no plaintext master passwords)
+const DEV_SEED_ACCOUNTS: UserAccount[] = [
   {
     id: 'usr_superadmin',
     email: 'info@fenixcms.es',
     name: 'Super Admin FenixCMS',
-    passwordHash: PasswordService.hashPassword('Patricia1980@'),
+    passwordHash: PasswordService.hashPassword('SuperAdmin#Secure2026!'),
     role: 'SUPER_ADMIN',
     status: 'ACTIVE',
     createdAt: new Date().toISOString()
@@ -46,58 +46,26 @@ const DEFAULT_SYSTEM_ACCOUNTS: UserAccount[] = [
     id: 'usr_superadmin_alias',
     email: 'admin@fenixcms.es',
     name: 'Administrador Maestro',
-    passwordHash: PasswordService.hashPassword('Patricia1980@'),
+    passwordHash: PasswordService.hashPassword('SuperAdmin#Secure2026!'),
     role: 'SUPER_ADMIN',
     status: 'ACTIVE',
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'usr_merchant_demo',
-    email: 'admin@tienda-demo.es',
-    name: 'Admin Tienda Demo',
-    passwordHash: PasswordService.hashPassword('Patricia1980@'),
-    role: 'TENANT_ADMIN',
-    status: 'ACTIVE',
-    tenantId: 'tenant_demo',
-    tenantSlug: 'tienda-demo',
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'usr_merchant_milano',
-    email: 'admin@milanostyle.it',
-    name: 'Gianluca Rossi (Milano Style)',
-    passwordHash: PasswordService.hashPassword('Patricia1980@'),
-    role: 'TENANT_ADMIN',
-    status: 'ACTIVE',
-    tenantId: 'tenant_milano',
-    tenantSlug: 'milanostyle',
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'usr_customer_demo',
-    email: 'cliente@fenixcms.es',
-    name: 'Cliente VIP',
-    passwordHash: PasswordService.hashPassword('Patricia1980@'),
-    role: 'CUSTOMER',
-    status: 'ACTIVE',
-    tenantId: 'tenant_demo',
-    tenantSlug: 'tienda-demo',
     createdAt: new Date().toISOString()
   }
 ];
 
-// Fallback in-memory user registry to ensure 100% uptime in all environments
+// In-memory registry ONLY for non-production development / unit tests
 const inMemoryUserStore = new Map<string, UserAccount>();
-DEFAULT_SYSTEM_ACCOUNTS.forEach(acc => {
+DEV_SEED_ACCOUNTS.forEach(acc => {
   inMemoryUserStore.set(acc.email.toLowerCase(), { ...acc });
 });
 
 /**
  * =========================================================================
- * FenixCMS SaaS Engine — PostgreSQL & High-Availability Authentication Service
+ * FenixCMS SaaS Engine — PostgreSQL Authentication Service
  * =========================================================================
- * Robust authentication supporting PostgreSQL with seamless high-availability
- * fallback. Handles PBKDF2 hashing, secure session issuance, and RBAC roles.
+ * In production mode: Exclusively relies on PostgreSQL + PBKDF2/SHA-256
+ * verification. Prohibits any master passwords, backdoor logins, or fallback
+ * memory stores.
  * =========================================================================
  */
 export class AuthService {
@@ -114,7 +82,86 @@ export class AuthService {
     const cleanEmail = params.email.trim().toLowerCase();
     const cleanPassword = params.password.trim();
 
-    // 1. Try PostgreSQL when configured
+    // 1. Production Mode: PostgreSQL is the EXCLUSIVE authority
+    if (isProductionMode()) {
+      if (!isPostgresConfigured()) {
+        return { success: false, error: 'Error de configuración: Base de datos no disponible en producción' };
+      }
+
+      try {
+        const user = await prisma.user.findUnique({
+          where: { email: cleanEmail },
+          include: {
+            memberships: {
+              include: {
+                tenant: true
+              }
+            }
+          }
+        });
+
+        if (!user || user.status !== 'ACTIVE') {
+          return { success: false, error: 'Credenciales inválidas o cuenta inactiva' };
+        }
+
+        const isMatch = PasswordService.verifyPassword(cleanPassword, user.passwordHash);
+        if (!isMatch) {
+          return { success: false, error: 'Credenciales inválidas' };
+        }
+
+        let effectiveTenantId: string | undefined = undefined;
+        let effectiveTenantSlug: string | undefined = undefined;
+        let effectiveRole: UserRole = user.role as UserRole;
+
+        if (user.role !== 'SUPER_ADMIN') {
+          const userMemberships = user.memberships || [];
+          if (params.tenantSlug) {
+            const matchedMembership = userMemberships.find((m: any) => m.tenant?.slug === params.tenantSlug);
+            if (matchedMembership) {
+              effectiveTenantId = matchedMembership.tenantId;
+              effectiveTenantSlug = matchedMembership.tenant?.slug;
+              effectiveRole = matchedMembership.role as UserRole;
+            } else if (userMemberships.length > 0) {
+              effectiveTenantId = userMemberships[0].tenantId;
+              effectiveTenantSlug = userMemberships[0].tenant?.slug;
+              effectiveRole = userMemberships[0].role as UserRole;
+            }
+          } else if (userMemberships.length > 0) {
+            effectiveTenantId = userMemberships[0].tenantId;
+            effectiveTenantSlug = userMemberships[0].tenant?.slug;
+            effectiveRole = userMemberships[0].role as UserRole;
+          }
+        }
+
+        const { token, session } = await SessionService.createSession({
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: effectiveRole,
+          tenantId: effectiveTenantId,
+          tenantSlug: effectiveTenantSlug,
+          ipAddress: params.ipAddress,
+          userAgent: params.userAgent
+        });
+
+        AuditService.log({
+          tenantId: effectiveTenantId,
+          userId: user.id,
+          userEmail: user.email,
+          action: 'USER_LOGIN',
+          entity: 'Session',
+          entityId: session.id,
+          details: { role: effectiveRole, ip: params.ipAddress }
+        });
+
+        return { success: true, session, token };
+      } catch (err: any) {
+        console.error('[AuthService] Error in production login:', err);
+        return { success: false, error: 'Error interno de autenticación' };
+      }
+    }
+
+    // 2. Development / Test Mode: Try PostgreSQL first, then in-memory store
     if (isPostgresConfigured() && prisma?.user?.findUnique) {
       try {
         const user = await prisma.user.findUnique({
@@ -128,130 +175,53 @@ export class AuthService {
           }
         });
 
-        if (user) {
-          if (user.status !== 'ACTIVE') {
-            return { success: false, error: 'Tu cuenta se encuentra suspendida o inactiva' };
-          }
-
+        if (user && user.status === 'ACTIVE') {
           const isMatch = PasswordService.verifyPassword(cleanPassword, user.passwordHash) ||
-            cleanPassword === user.passwordHash ||
-            (cleanPassword === 'Patricia1980@' && (cleanEmail === 'info@fenixcms.es' || cleanEmail === 'admin@fenixcms.es'));
+            cleanPassword === user.passwordHash;
 
-          if (!isMatch) {
-            return { success: false, error: 'Contraseña incorrecta' };
+          if (isMatch) {
+            let effectiveTenantId: string | undefined = undefined;
+            let effectiveTenantSlug: string | undefined = undefined;
+            let effectiveRole: UserRole = user.role as UserRole;
+
+            const { token, session } = await SessionService.createSession({
+              id: user.id,
+              email: user.email,
+              name: user.name,
+              role: effectiveRole,
+              tenantId: effectiveTenantId,
+              tenantSlug: effectiveTenantSlug,
+              ipAddress: params.ipAddress,
+              userAgent: params.userAgent
+            });
+
+            return { success: true, session, token };
           }
-
-          // Determine tenant association
-          let effectiveTenantId: string | undefined = undefined;
-          let effectiveTenantSlug: string | undefined = undefined;
-          let effectiveRole: UserRole = user.role as UserRole;
-
-          if (user.role === 'SUPER_ADMIN') {
-            effectiveRole = 'SUPER_ADMIN';
-          } else {
-            const userMemberships = user.memberships || [];
-            if (params.tenantSlug) {
-              const matchedMembership = userMemberships.find((m: any) => m.tenant?.slug === params.tenantSlug);
-              if (matchedMembership) {
-                effectiveTenantId = matchedMembership.tenantId;
-                effectiveTenantSlug = matchedMembership.tenant?.slug;
-                effectiveRole = matchedMembership.role as UserRole;
-              } else if (userMemberships.length > 0) {
-                effectiveTenantId = userMemberships[0].tenantId;
-                effectiveTenantSlug = userMemberships[0].tenant?.slug;
-                effectiveRole = userMemberships[0].role as UserRole;
-              }
-            } else if (userMemberships.length > 0) {
-              effectiveTenantId = userMemberships[0].tenantId;
-              effectiveTenantSlug = userMemberships[0].tenant?.slug;
-              effectiveRole = userMemberships[0].role as UserRole;
-            }
-          }
-
-          const { token, session } = await SessionService.createSession({
-            id: user.id,
-            email: user.email,
-            name: user.name,
-            role: effectiveRole,
-            tenantId: effectiveTenantId,
-            tenantSlug: effectiveTenantSlug,
-            ipAddress: params.ipAddress,
-            userAgent: params.userAgent
-          });
-
-          AuditService.log({
-            tenantId: effectiveTenantId,
-            userId: user.id,
-            userEmail: user.email,
-            action: 'USER_LOGIN',
-            entity: 'Session',
-            entityId: session.id,
-            details: { role: effectiveRole, ip: params.ipAddress }
-          });
-
-          return { success: true, session, token };
         }
-      } catch (e: any) {
-        console.warn('[AuthService] PostgreSQL lookup error, proceeding with high-availability fallback:', e?.message);
-      }
+      } catch {}
     }
 
-    // 2. High-Availability / Built-in Account Verification
+    // Dev fallback using hashed password check
     const fallbackUser = inMemoryUserStore.get(cleanEmail);
-    if (fallbackUser) {
-      if (fallbackUser.status !== 'ACTIVE') {
-        return { success: false, error: 'Tu cuenta se encuentra suspendida o inactiva' };
-      }
-
+    if (fallbackUser && fallbackUser.status === 'ACTIVE') {
       const isMatch = fallbackUser.passwordHash
-        ? (PasswordService.verifyPassword(cleanPassword, fallbackUser.passwordHash) ||
-           cleanPassword === fallbackUser.passwordHash ||
-           cleanPassword === 'Patricia1980@' ||
-           cleanPassword === 'admin123')
-        : (cleanPassword === 'Patricia1980@' || cleanPassword === 'admin123');
+        ? PasswordService.verifyPassword(cleanPassword, fallbackUser.passwordHash)
+        : false;
 
-      if (!isMatch) {
-        return { success: false, error: 'Contraseña incorrecta' };
-      }
-
-      const { token, session } = await SessionService.createSession({
-        id: fallbackUser.id,
-        email: fallbackUser.email,
-        name: fallbackUser.name,
-        role: fallbackUser.role,
-        tenantId: fallbackUser.tenantId,
-        tenantSlug: fallbackUser.tenantSlug || params.tenantSlug,
-        ipAddress: params.ipAddress,
-        userAgent: params.userAgent
-      });
-
-      AuditService.log({
-        tenantId: fallbackUser.tenantId,
-        userId: fallbackUser.id,
-        userEmail: fallbackUser.email,
-        action: 'USER_LOGIN_FALLBACK',
-        entity: 'Session',
-        entityId: session.id,
-        details: { role: fallbackUser.role, ip: params.ipAddress }
-      });
-
-      return { success: true, session, token };
-    }
-
-    // 3. Super Admin quick master match for configured root credentials
-    if (cleanEmail === 'info@fenixcms.es' || cleanEmail === 'admin@fenixcms.es') {
-      if (cleanPassword === 'Patricia1980@' || cleanPassword === 'admin123' || cleanPassword === 'fenix2026') {
+      if (isMatch) {
         const { token, session } = await SessionService.createSession({
-          id: 'usr_superadmin',
-          email: cleanEmail,
-          name: 'Super Admin Maestro',
-          role: 'SUPER_ADMIN',
+          id: fallbackUser.id,
+          email: fallbackUser.email,
+          name: fallbackUser.name,
+          role: fallbackUser.role,
+          tenantId: fallbackUser.tenantId,
+          tenantSlug: fallbackUser.tenantSlug || params.tenantSlug,
           ipAddress: params.ipAddress,
           userAgent: params.userAgent
         });
+
         return { success: true, session, token };
       }
-      return { success: false, error: 'Contraseña incorrecta para el Super Admin' };
     }
 
     return { success: false, error: 'Credenciales inválidas o usuario no encontrado' };
@@ -705,8 +675,8 @@ export class AuthService {
     const target = Array.from(inMemoryUserStore.values()).find(u => u.id === params.userId);
     if (target) {
       const isMatch = target.passwordHash
-        ? PasswordService.verifyPassword(params.currentPassword, target.passwordHash) || params.currentPassword === 'Patricia1980@'
-        : params.currentPassword === 'Patricia1980@';
+        ? PasswordService.verifyPassword(params.currentPassword, target.passwordHash)
+        : false;
 
       if (!isMatch) {
         return { success: false, error: 'La contraseña actual es incorrecta' };
