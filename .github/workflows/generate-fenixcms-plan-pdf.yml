@@ -1,21 +1,17 @@
-name: Generate FenixCMS plan PDF
+name: Generate FenixCMS plan PDFs
 
 on:
   push:
     branches: [main]
     paths-ignore:
-      - "docs/PLAN_MAESTRO_MODIFICACIONES_FENIXCMS.pdf"
-      - "docs/PLAN_MEJORAS_ADICIONALES_FENIXCMS_V2.pdf"
-      - "docs/FENIXCMS_1.pdf"
-      - "docs/FENIXCMS_2.pdf"
-      - "docs/FENIXCMS_3.pdf"
+      - "docs/*.pdf"
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  generate-pdf:
+  generate-pdfs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -24,7 +20,7 @@ jobs:
       - name: Install PDF generator
         run: python -m pip install --quiet reportlab
 
-      - name: Generate PDF from the control document
+      - name: Generate PDFs for available FENIXCMS documents
         run: |
           python <<'PY'
           from pathlib import Path
@@ -32,239 +28,109 @@ jobs:
           from reportlab.lib.pagesizes import A4
           from reportlab.pdfbase.pdfmetrics import stringWidth
           import re
-          src = Path("docs/PLAN_MAESTRO_MODIFICACIONES_FENIXCMS.md")
-          out = Path("docs/PLAN_MAESTRO_MODIFICACIONES_FENIXCMS.pdf")
-          text = src.read_text(encoding="utf-8")
-          replacements = {"●":"-","•":"-","→":"->","←":"<-","—":"-","–":"-","“":'"',"”":'"',"’":"'","‘":"'","…":"...","\u00a0":" "}
-          for a,b in replacements.items(): text=text.replace(a,b)
-          lines=[]
-          for line in text.splitlines():
-              line=re.sub(r"^#{1,6}\s*","",line)
-              line=line.replace("**","").replace("__","").replace(chr(96),"")
-              if line.startswith("> "): line=line[2:]
-              lines.append(line.rstrip())
-          W,H=A4; left,right,top,bottom=42,42,H-44,44; font,size,leading="Helvetica",8.4,11.2
-          max_width=W-left-right; state={"y":top,"page":1}; c=canvas.Canvas(str(out),pagesize=A4)
-          def footer():
-              c.setFont(font,7.2); c.drawCentredString(W/2,20,f"FenixCMS - Plan maestro de modificaciones | Pagina {state['page']}")
-          def new_page():
-              footer(); c.showPage(); state["page"]+=1; state["y"]=top
-          for raw in lines:
-              if raw=="": state["y"]-=leading; continue
-              words=raw.split(); current=""; prefix=" "*min(len(raw)-len(raw.lstrip(" ")),8)
-              for word in words:
-                  candidate=(current+" "+word).strip()
-                  if stringWidth(prefix+candidate,font,size)<=max_width: current=candidate
+
+          docs = sorted(Path("docs").glob("FENIXCMS_*.md"))
+          W, H = A4
+          left, right = 44, 44
+          top, bottom = H - 46, 46
+          max_width = W - left - right
+
+          def normalize(text):
+              replacements = {
+                  "→":"->","←":"<-","↓":"v","↑":"^",
+                  "—":"-","–":"-","“":'"',"”":'"',"’":"'","‘":"'","…":"...",
+                  "\u00a0":" ","✓":"[OK]","✔":"[OK]","☐":"[ ]","✅":"[OK]"
+              }
+              for a,b in replacements.items():
+                  text = text.replace(a,b)
+              return text
+
+          for src in docs:
+              out = src.with_suffix(".pdf")
+              text = normalize(src.read_text(encoding="utf-8"))
+              lines = []
+              for raw in text.splitlines():
+                  line = raw.rstrip()
+                  lines.append(line)
+
+              state = {"y": top, "page": 1}
+              c = canvas.Canvas(str(out), pagesize=A4)
+
+              def footer():
+                  c.setFont("Helvetica", 7)
+                  c.drawCentredString(
+                      W/2, 21,
+                      f"FenixCMS - {src.stem} | Pagina {state['page']}"
+                  )
+
+              def new_page():
+                  footer()
+                  c.showPage()
+                  state["page"] += 1
+                  state["y"] = top
+
+              def draw_wrapped(t, font, size, leading):
+                  words = t.split()
+                  cur = ""
+                  if not words:
+                      state["y"] -= 6
+                      return
+                  for word in words:
+                      cand = (cur + " " + word).strip()
+                      if stringWidth(cand, font, size) <= max_width:
+                          cur = cand
+                      else:
+                          if cur:
+                              if state["y"] < bottom + leading:
+                                  new_page()
+                              c.setFont(font, size)
+                              c.drawString(left, state["y"], cur)
+                              state["y"] -= leading
+                          cur = word
+                  if cur:
+                      if state["y"] < bottom + leading:
+                          new_page()
+                      c.setFont(font, size)
+                      c.drawString(left, state["y"], cur)
+                      state["y"] -= leading
+
+              for raw in lines:
+                  t = raw.strip()
+                  if not t:
+                      state["y"] -= 6
+                      if state["y"] < bottom + 20:
+                          new_page()
+                      continue
+
+                  if t.startswith("# "):
+                      draw_wrapped(t[2:], "Helvetica-Bold", 18, 22)
+                  elif t.startswith("## "):
+                      draw_wrapped(t[3:], "Helvetica-Bold", 12.5, 16)
+                  elif t.startswith("### "):
+                      draw_wrapped(t[4:], "Helvetica-Bold", 10.5, 14)
+                  elif t.startswith("INICIO FASE") or t.startswith("FIN FASE"):
+                      draw_wrapped(t, "Helvetica-Bold", 10.5, 14)
+                  elif t.startswith("- ") or re.match(r"^\[\s?[xX]?\]\s", t):
+                      draw_wrapped(t, "Helvetica", 8.4, 11.1)
                   else:
-                      if current:
-                          if state["y"]<bottom+18: new_page()
-                          c.setFont(font,size); c.drawString(left,state["y"],prefix+current); state["y"]-=leading; prefix=""
-                      current=word
-              if current:
-                  if state["y"]<bottom+18: new_page()
-                  c.setFont(font,size); c.drawString(left,state["y"],prefix+current); state["y"]-=leading
-          footer(); c.save()
+                      draw_wrapped(t, "Helvetica", 8.4, 11.1)
+
+              footer()
+              c.save()
+              print(f"Generated {out} ({out.stat().st_size} bytes)")
+
+          if not docs:
+              raise SystemExit("No FENIXCMS_*.md documents found.")
           PY
 
-      - name: Generate PDF from the additional improvements document
-        run: |
-          python <<'PY'
-          from pathlib import Path
-          from reportlab.pdfgen import canvas
-          from reportlab.lib.pagesizes import A4
-          from reportlab.pdfbase.pdfmetrics import stringWidth
-          import re
-          src=Path("docs/PLAN_MEJORAS_ADICIONALES_FENIXCMS_V2.md"); out=Path("docs/PLAN_MEJORAS_ADICIONALES_FENIXCMS_V2.pdf")
-          text=src.read_text(encoding="utf-8")
-          replacements={"●":"-","•":"-","→":"->","←":"<-","—":"-","–":"-","“":'"',"”":'"',"’":"'","‘":"'","…":"...","\u00a0":" "}
-          for a,b in replacements.items(): text=text.replace(a,b)
-          lines=[]
-          for raw in text.splitlines():
-              line=re.sub(r"^#{1,6}\s*","",raw).replace("**","").replace("__","").replace(chr(96),"")
-              if line.startswith("> "): line=line[2:]
-              lines.append(line.rstrip())
-          W,H=A4; left,right=44,44; top,bottom=H-50,48; max_width=W-left-right
-          state={"y":top,"page":1}; c=canvas.Canvas(str(out),pagesize=A4)
-          def footer():
-              c.setFont("Helvetica",7); c.drawCentredString(W/2,22,f"FenixCMS - Mejoras adicionales FASES 24-44 | Pagina {state['page']}")
-          def new_page():
-              footer(); c.showPage(); state["page"]+=1; state["y"]=top
-          for t in lines:
-              t=t.strip()
-              if not t: state["y"]-=6; continue
-              if t.startswith("FenixCMS SaaS") or t.startswith("Plan de mejoras adicionales"): font,size,leading="Helvetica-Bold",17,20
-              elif t.startswith("FASE "): font,size,leading="Helvetica-Bold",11,15
-              elif re.match(r"^\d+(\.\d+)?\.",t): font,size,leading="Helvetica-Bold",10,13
-              else: font,size,leading="Helvetica",8.4,11.2
-              cur=""
-              for word in t.split():
-                  cand=(cur+" "+word).strip()
-                  if stringWidth(cand,font,size)<=max_width: cur=cand
-                  else:
-                      if cur:
-                          if state["y"]<bottom+leading: new_page()
-                          c.setFont(font,size); c.drawString(left,state["y"],cur); state["y"]-=leading
-                      cur=word
-              if cur:
-                  if state["y"]<bottom+leading: new_page()
-                  c.setFont(font,size); c.drawString(left,state["y"],cur); state["y"]-=leading
-          footer(); c.save()
-          PY
-
-      - name: Generate FENIXCMS_1 PDF
-        run: |
-          python <<'PY'
-          from pathlib import Path
-          from reportlab.pdfgen import canvas
-          from reportlab.lib.pagesizes import A4
-          from reportlab.pdfbase.pdfmetrics import stringWidth
-          import re
-          src=Path("docs/FENIXCMS_1.md"); out=Path("docs/FENIXCMS_1.pdf")
-          text=src.read_text(encoding="utf-8")
-          replacements={"●":"-","•":"-","→":"->","←":"<-","—":"-","–":"-","“":'"',"”":'"',"’":"'","‘":"'","…":"...","\u00a0":" "}
-          for a,b in replacements.items(): text=text.replace(a,b)
-          lines=[]
-          for raw in text.splitlines():
-              line=re.sub(r"^#{1,6}\s*","",raw).replace("**","").replace("__","").replace(chr(96),"")
-              if line.startswith("> "): line=line[2:]
-              lines.append(line.rstrip())
-          W,H=A4; left,right=44,44; top,bottom=H-46,46; max_width=W-left-right
-          state={"y":top,"page":1}; c=canvas.Canvas(str(out),pagesize=A4)
-          def footer():
-              c.setFont("Helvetica",7); c.drawCentredString(W/2,21,f"FenixCMS - FENIXCMS_1 | Pagina {state['page']}")
-          def new_page():
-              footer(); c.showPage(); state["page"]+=1; state["y"]=top
-          for t in lines:
-              t=t.strip()
-              if not t: state["y"]-=6; continue
-              if t.startswith("FENIXCMS_1"): font,size,leading="Helvetica-Bold",18,21
-              elif t.startswith("FASE "): font,size,leading="Helvetica-Bold",12,16
-              elif re.match(r"^\d+\.",t) or re.match(r"^\d+\.\d+",t): font,size,leading="Helvetica-Bold",10.5,13.5
-              else: font,size,leading="Helvetica",8.4,11.1
-              cur=""
-              for word in t.split():
-                  cand=(cur+" "+word).strip()
-                  if stringWidth(cand,font,size)<=max_width: cur=cand
-                  else:
-                      if cur:
-                          if state["y"]<bottom+leading: new_page()
-                          c.setFont(font,size); c.drawString(left,state["y"],cur); state["y"]-=leading
-                      cur=word
-              if cur:
-                  if state["y"]<bottom+leading: new_page()
-                  c.setFont(font,size); c.drawString(left,state["y"],cur); state["y"]-=leading
-          footer(); c.save()
-          PY
-
-      - name: Generate FENIXCMS_2 PDF
-        if: ${{ hashFiles('docs/FENIXCMS_2.md') != '' }}
-        run: |
-          python <<'PY'
-          from pathlib import Path
-          from reportlab.pdfgen import canvas
-          from reportlab.lib.pagesizes import A4
-          from reportlab.pdfbase.pdfmetrics import stringWidth
-          import re
-          src=Path("docs/FENIXCMS_2.md"); out=Path("docs/FENIXCMS_2.pdf")
-          text=src.read_text(encoding="utf-8")
-          replacements={"●":"-","•":"-","→":"->","←":"<-","—":"-","–":"-","“":'"',"”":'"',"’":"'","‘":"'","…":"...","\u00a0":" "}
-          for a,b in replacements.items(): text=text.replace(a,b)
-          lines=[]
-          for raw in text.splitlines():
-              line=re.sub(r"^#{1,6}\s*","",raw).replace("**","").replace("__","").replace(chr(96),"")
-              if line.startswith("> "): line=line[2:]
-              lines.append(line.rstrip())
-          W,H=A4; left,right=44,44; top,bottom=H-46,46; max_width=W-left-right
-          state={"y":top,"page":1}; c=canvas.Canvas(str(out),pagesize=A4)
-          def footer():
-              c.setFont("Helvetica",7); c.drawCentredString(W/2,21,f"FenixCMS - FENIXCMS_2 | Fase 2 - CheckoutSession, PayPal y provisioning seguro | Pagina {state['page']}")
-          def new_page():
-              footer(); c.showPage(); state["page"]+=1; state["y"]=top
-          for t in lines:
-              t=t.strip()
-              if not t:
-                  state["y"]-=6
-                  if state["y"]<bottom+20: new_page()
-                  continue
-              if t.startswith("FENIXCMS_2"): font,size,leading="Helvetica-Bold",18,21
-              elif t.startswith("FASE "): font,size,leading="Helvetica-Bold",12,16
-              elif re.match(r"^\d+\.",t): font,size,leading="Helvetica-Bold",10.5,13.5
-              elif t.startswith("INICIO FASE") or t.startswith("FIN FASE"): font,size,leading="Helvetica-Bold",11,15
-              else: font,size,leading="Helvetica",8.4,11.1
-              cur=""
-              for word in t.split():
-                  cand=(cur+" "+word).strip()
-                  if stringWidth(cand,font,size)<=max_width: cur=cand
-                  else:
-                      if cur:
-                          if state["y"]<bottom+leading: new_page()
-                          c.setFont(font,size); c.drawString(left,state["y"],cur); state["y"]-=leading
-                      cur=word
-              if cur:
-                  if state["y"]<bottom+leading: new_page()
-                  c.setFont(font,size); c.drawString(left,state["y"],cur); state["y"]-=leading
-          footer(); c.save()
-          print(f"Generated {out} ({out.stat().st_size} bytes)")
-          PY
-
-      - name: Generate FENIXCMS_3 PDF
-        if: ${{ hashFiles('docs/FENIXCMS_3.md') != '' }}
-        run: |
-          python <<'PY'
-          from pathlib import Path
-          from reportlab.pdfgen import canvas
-          from reportlab.lib.pagesizes import A4
-          from reportlab.pdfbase.pdfmetrics import stringWidth
-          import re
-          src=Path("docs/FENIXCMS_3.md"); out=Path("docs/FENIXCMS_3.pdf")
-          text=src.read_text(encoding="utf-8")
-          replacements={"●":"-","•":"-","→":"->","←":"<-","—":"-","–":"-","“":'"',"”":'"',"’":"'","‘":"'","…":"...","\u00a0":" "}
-          for a,b in replacements.items(): text=text.replace(a,b)
-          lines=[]
-          for raw in text.splitlines():
-              line=re.sub(r"^#{1,6}\s*","",raw).replace("**","").replace("__","").replace(chr(96),"")
-              if line.startswith("> "): line=line[2:]
-              lines.append(line.rstrip())
-          W,H=A4; left,right=44,44; top,bottom=H-46,46; max_width=W-left-right
-          state={"y":top,"page":1}; c=canvas.Canvas(str(out),pagesize=A4)
-          def footer():
-              c.setFont("Helvetica",7); c.drawCentredString(W/2,21,f"FenixCMS - FENIXCMS_3 | Plan Integral de Implementacion | Pagina {state['page']}")
-          def new_page():
-              footer(); c.showPage(); state["page"]+=1; state["y"]=top
-          for t in lines:
-              t=t.strip()
-              if not t:
-                  state["y"]-=6
-                  if state["y"]<bottom+20: new_page()
-                  continue
-              if t.startswith("FENIXCMS_3"): font,size,leading="Helvetica-Bold",18,21
-              elif t.startswith("FASE ") or t.startswith("## "): font,size,leading="Helvetica-Bold",12,16
-              elif re.match(r"^\d+\.",t): font,size,leading="Helvetica-Bold",10.5,13.5
-              else: font,size,leading="Helvetica",8.4,11.1
-              cur=""
-              for word in t.split():
-                  cand=(cur+" "+word).strip()
-                  if stringWidth(cand,font,size)<=max_width: cur=cand
-                  else:
-                      if cur:
-                          if state["y"]<bottom+leading: new_page()
-                          c.setFont(font,size); c.drawString(left,state["y"],cur); state["y"]-=leading
-                      cur=word
-              if cur:
-                  if state["y"]<bottom+leading: new_page()
-                  c.setFont(font,size); c.drawString(left,state["y"],cur); state["y"]-=leading
-          footer(); c.save()
-          print(f"Generated {out} ({out.stat().st_size} bytes)")
-          PY
-
-      - name: Commit generated documents
+      - name: Commit generated PDFs
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/PLAN_MAESTRO_MODIFICACIONES_FENIXCMS.pdf docs/PLAN_MEJORAS_ADICIONALES_FENIXCMS_V2.pdf docs/FENIXCMS_1.pdf docs/FENIXCMS_2.md docs/FENIXCMS_2.pdf docs/FENIXCMS_3.md docs/FENIXCMS_3.pdf
+          git add docs/*.pdf
           if git diff --cached --quiet; then
-            echo "Sin cambios."
+            echo "No PDF changes."
             exit 0
           fi
-          git commit -m "docs: generar planes y PDFs FenixCMS"
+          git commit -m "docs: generar PDFs de los planes FenixCMS"
           git push
