@@ -4,6 +4,7 @@ import { TenantContextHelper } from '@/lib/auth/tenantContext';
 import { AuditService } from '@/lib/services/audit.service';
 import { SecurityService } from '@/lib/security/security.service';
 import { TenantService } from '@/lib/services/tenant.service';
+import { isProductionMode } from '@/lib/prisma';
 
 const SEED_DEFAULT_MEDIA_FILES = [
   {
@@ -106,25 +107,32 @@ export async function GET(req: NextRequest) {
     const search = searchParams.get('search') || undefined;
     const type = searchParams.get('type') || undefined;
 
-    let targetTenantId = queryTenantId;
+    let targetTenantId = isProductionMode() ? null : queryTenantId;
+
+    const session = await TenantContextHelper.getSessionFromRequest(req);
+    if (session?.tenantId) {
+      targetTenantId = session.tenantId;
+    } else {
+      const publicContext = await TenantContextHelper.resolvePublicTenant(req);
+      if (publicContext?.tenant?.id) {
+        targetTenantId = publicContext.tenant.id;
+      }
+    }
 
     if (!targetTenantId) {
-      const session = await TenantContextHelper.getSessionFromRequest(req);
-      if (session?.tenantId) {
-        targetTenantId = session.tenantId;
-      } else {
-        const publicContext = await TenantContextHelper.resolvePublicTenant(req);
-        targetTenantId = publicContext?.tenant.id || 'tenant_demo';
+      if (isProductionMode()) {
+        return NextResponse.json({ success: false, error: 'Contexto de tenant no autenticado o dominio no verificado.' }, { status: 401 });
       }
+      targetTenantId = queryTenantId || 'tenant_demo';
     }
 
     let files = await StorageService.getTenantMedia(targetTenantId, { search, type });
 
-    // If database has no files yet, provide rich initial seed media assets
-    if (!files || files.length === 0) {
+    // In production, empty DB returns empty state, never demo seeds
+    if ((!files || files.length === 0) && !isProductionMode()) {
       files = SEED_DEFAULT_MEDIA_FILES.map(f => ({
         ...f,
-        tenantId: targetTenantId,
+        tenantId: targetTenantId!,
       }));
 
       if (search) {
@@ -136,9 +144,12 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true, files, tenantId: targetTenantId });
+    return NextResponse.json({ success: true, files: files || [], tenantId: targetTenantId });
   } catch (error: any) {
-    console.error('Error loading media assets:', error);
+    if (isProductionMode()) {
+      return NextResponse.json({ success: false, error: error?.message || 'Error al obtener archivos multimedia' }, { status: 500 });
+    }
+    console.error('Error loading media assets in dev:', error);
     return NextResponse.json({ 
       success: true, 
       files: SEED_DEFAULT_MEDIA_FILES,
@@ -157,14 +168,23 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { filename, mimeType, size, url, base64Data, alt } = body;
 
-    let targetTenantId = body.tenantId;
+    let targetTenantId = isProductionMode() ? null : body.tenantId;
 
     const session = await TenantContextHelper.getSessionFromRequest(req);
     if (session?.tenantId) {
       targetTenantId = session.tenantId;
-    } else if (!targetTenantId) {
+    } else {
       const publicContext = await TenantContextHelper.resolvePublicTenant(req);
-      targetTenantId = publicContext?.tenant.id || 'tenant_demo';
+      if (publicContext?.tenant?.id) {
+        targetTenantId = publicContext.tenant.id;
+      }
+    }
+
+    if (!targetTenantId) {
+      if (isProductionMode()) {
+        return NextResponse.json({ success: false, error: 'Contexto de tenant no autenticado para subida de medios.' }, { status: 401 });
+      }
+      targetTenantId = body.tenantId || 'tenant_demo';
     }
 
     // 1. Strict File Security Validation
@@ -206,7 +226,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(result, { status: 200 });
     }
 
-    // Fallback safe upload object for local preview
+    // If storage write failed, return error response (fail-closed)
+    if (!result.success || isProductionMode()) {
+      return NextResponse.json({
+        success: false,
+        error: result.error || 'Error persistiendo el archivo multimedia.'
+      }, { status: 500 });
+    }
+
+    // Non-production fallback only
     const fallbackFile = {
       id: `med_${Date.now()}`,
       tenantId: targetTenantId,

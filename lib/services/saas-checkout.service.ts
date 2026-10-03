@@ -124,10 +124,10 @@ export class SaaSCheckoutService {
       }
     }
 
-    // Fallback únicamente en desarrollo / tests aislados
+    // Fallback únicamente en desarrollo / tests aislados cuando el plan existe en catálogo de prueba
     if (!planRecord && !isProductionMode()) {
-      planRecord = INITIAL_PLANS.find(p => p.id === planId || p.slug === planId) || INITIAL_PLANS[0];
-      appRecord = INITIAL_APPLICATIONS.find(a => a.id === applicationId || a.key === applicationId) || INITIAL_APPLICATIONS[0];
+      planRecord = INITIAL_PLANS.find(p => p.id === planId || p.slug === planId);
+      appRecord = INITIAL_APPLICATIONS.find(a => a.id === applicationId || a.key === applicationId);
     }
 
     if (!planRecord) {

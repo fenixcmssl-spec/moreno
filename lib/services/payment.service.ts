@@ -119,28 +119,70 @@ export class PaymentService {
 
   /**
    * 1. Creates a SaaS Checkout session for FenixCMS Subscriptions / Licenses
+   * In Production: Strictly loads Application and Plan from PostgreSQL.
+   * NEVER creates a Tenant before payment is captured.
    */
   static async createSaaSCheckoutSession(params: SaaSCheckoutParams): Promise<SaaSCheckoutSessionResult> {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('SaaS Checkout requires DATABASE_URL in production mode.');
+    }
+
     // 1. Resolve Application
     let application: any = null;
-    if (process.env.DATABASE_URL && prisma?.application) {
+    if (isPostgresConfigured() && prisma?.application) {
       try {
-        application = await prisma.application.findUnique({ where: { id: params.applicationId } });
-      } catch {}
+        application = await prisma.application.findFirst({
+          where: {
+            OR: [
+              { id: params.applicationId },
+              { key: params.applicationId.toUpperCase() },
+              { slug: params.applicationId.toLowerCase() }
+            ]
+          }
+        });
+      } catch (err: any) {
+        if (isProductionMode()) throw err;
+      }
     }
-    if (!application) {
+
+    if (!application && !isProductionMode()) {
       application = INITIAL_APPLICATIONS.find(a => a.id === params.applicationId || a.slug === params.applicationId || a.key === params.applicationId) || INITIAL_APPLICATIONS[0];
+    }
+
+    if (!application) {
+      throw new Error(`Aplicación '${params.applicationId}' no encontrada en la base de datos.`);
     }
 
     // 2. Resolve Plan
     let plan: any = null;
-    if (process.env.DATABASE_URL && prisma?.plan) {
+    if (isPostgresConfigured() && prisma?.plan) {
       try {
-        plan = await prisma.plan.findUnique({ where: { id: params.planId }, include: { entitlements: true } });
-      } catch {}
+        plan = await prisma.plan.findFirst({
+          where: {
+            AND: [
+              {
+                OR: [
+                  { id: params.planId },
+                  { slug: params.planId }
+                ]
+              },
+              { applicationId: application.id },
+              { status: 'ACTIVE' }
+            ]
+          },
+          include: { entitlements: true }
+        });
+      } catch (err: any) {
+        if (isProductionMode()) throw err;
+      }
     }
-    if (!plan) {
+
+    if (!plan && !isProductionMode()) {
       plan = INITIAL_PLANS.find(p => p.id === params.planId || p.slug === params.planId) || INITIAL_PLANS[1];
+    }
+
+    if (!plan) {
+      throw new Error(`Plan '${params.planId}' no encontrado o no activo para la aplicación '${application.id}'.`);
     }
 
     const priceMonthly = Number(plan.monthlyPrice ?? plan.priceMonthly ?? 29);
@@ -156,16 +198,8 @@ export class PaymentService {
 
     const providerTransactionId = `${params.provider}_PENDING_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 
-    // Ensure Tenant exists or create placeholder
-    await this.ensureTenantExists({
-      id: tenantId,
-      slug: cleanSlug,
-      name: params.tenantName,
-      ownerEmail: params.customerEmail,
-      ownerName: params.customerName,
-      planId: plan.id,
-      applicationId: application.id
-    });
+    // IMPORTANT (FASE 5): NO TENANT CREATION BEFORE PAYMENT CAPTURED
+    // Tenant is created exclusively inside SaaSProvisioningService after capture COMPLETED.
 
     // Persist Payment in PostgreSQL with status PENDING
     const paymentRecord = {
@@ -194,10 +228,6 @@ export class PaymentService {
       paidAt: null
     };
 
-    if (isProductionMode() && !isPostgresConfigured()) {
-      throw new DatabaseConfigurationError('SaaS Checkout requires DATABASE_URL in production mode.');
-    }
-
     if (isPostgresConfigured() && prisma?.payment) {
       try {
         await prisma.payment.create({
@@ -209,6 +239,9 @@ export class PaymentService {
         FALLBACK_PAYMENTS.push(paymentRecord);
       }
     } else {
+      if (isProductionMode()) {
+        throw new DatabaseConfigurationError('PostgreSQL no disponible para persistir el intento de pago en producción.');
+      }
       FALLBACK_PAYMENTS.push(paymentRecord);
     }
 
@@ -671,39 +704,6 @@ export class PaymentService {
     }
 
     return { verified: true };
-  }
-
-  private static async ensureTenantExists(data: {
-    id: string;
-    slug: string;
-    name: string;
-    ownerEmail: string;
-    ownerName: string;
-    planId: string;
-    applicationId: string;
-  }): Promise<void> {
-    if (process.env.DATABASE_URL && prisma?.tenant) {
-      try {
-        const existing = await prisma.tenant.findUnique({ where: { id: data.id } });
-        if (!existing) {
-          await prisma.tenant.create({
-            data: {
-              id: data.id,
-              name: data.name,
-              slug: data.slug,
-              status: 'active',
-              licenseKey: `FNX-TRIAL-${data.id.slice(0, 12)}`,
-              ownerEmail: data.ownerEmail,
-              ownerName: data.ownerName,
-              planId: data.planId,
-              themeId: 'theme_fenix_market',
-              currency: 'EUR',
-              defaultLocale: 'es'
-            }
-          });
-        }
-      } catch {}
-    }
   }
 
   private static mapPrismaToPayment(p: any) {

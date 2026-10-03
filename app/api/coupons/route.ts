@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { TenantContextHelper } from '@/lib/auth/tenantContext';
 import { CouponService } from '@/lib/services/coupon.service';
 import { AuditService } from '@/lib/services/audit.service';
+import { isProductionMode } from '@/lib/prisma';
 
 export async function GET(req: NextRequest) {
   try {
@@ -15,7 +16,11 @@ export async function GET(req: NextRequest) {
       let targetTenantId = requestedTenantId;
       if (!targetTenantId) {
         const publicContext = await TenantContextHelper.resolvePublicTenant(req);
-        targetTenantId = publicContext?.tenant?.id || 'tenant_demo';
+        targetTenantId = publicContext?.tenant?.id || (isProductionMode() ? '' : 'tenant_demo');
+      }
+
+      if (!targetTenantId) {
+        return NextResponse.json({ valid: false, error: 'Identificador de comercio no disponible' }, { status: 400 });
       }
 
       const validation = await CouponService.validateCoupon(targetTenantId, validateCode, subtotal);

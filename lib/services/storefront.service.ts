@@ -120,7 +120,7 @@ export class StorefrontService {
    */
   static async resolveStorefront(rawHost: string, options?: { forceFresh?: boolean; fallbackSlug?: string }): Promise<StorefrontResolutionPayload | null> {
     const hostname = this.sanitizeHostname(rawHost);
-    const fallbackSlug = options?.fallbackSlug ? this.sanitizeHostname(options.fallbackSlug) : undefined;
+    const fallbackSlug = (!isProductionMode() && options?.fallbackSlug) ? this.sanitizeHostname(options.fallbackSlug) : undefined;
 
     const cacheKey = `storefront:${hostname || fallbackSlug || 'default'}`;
 

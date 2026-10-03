@@ -116,7 +116,7 @@ export function BackendLoginGate({
                 required
                 value={password}
                 onChange={e => setPassword(e.target.value)}
-                placeholder="Patricia1980@"
+                placeholder="••••••••••••"
                 className="w-full px-3.5 py-2.5 bg-slate-800/90 border border-slate-700 rounded-xl text-xs text-white placeholder:text-slate-500 font-mono focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500 transition"
               />
             </div>

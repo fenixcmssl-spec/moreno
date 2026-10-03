@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { TenantContextHelper } from '@/lib/auth/tenantContext';
 import { CategoryService } from '@/lib/services/category.service';
 import { AuditService } from '@/lib/services/audit.service';
+import { isProductionMode } from '@/lib/prisma';
 
 export async function GET(req: NextRequest) {
   try {
@@ -11,11 +12,11 @@ export async function GET(req: NextRequest) {
     const parentId = searchParams.get('parentId') || undefined;
 
     const session = await TenantContextHelper.getSessionFromRequest(req);
-    let effectiveTenantId: string;
+    let effectiveTenantId: string | null = null;
 
     if (session) {
       if (session.role === 'SUPER_ADMIN') {
-        effectiveTenantId = requestedTenantId || session.tenantId || 'tenant_demo';
+        effectiveTenantId = requestedTenantId || session.tenantId || (isProductionMode() ? null : 'tenant_demo');
       } else {
         if (requestedTenantId && requestedTenantId !== session.tenantId && requestedTenantId !== session.tenantSlug) {
           return NextResponse.json(
@@ -23,11 +24,19 @@ export async function GET(req: NextRequest) {
             { status: 403 }
           );
         }
-        effectiveTenantId = session.tenantId || requestedTenantId || 'tenant_demo';
+        effectiveTenantId = session.tenantId || requestedTenantId || (isProductionMode() ? null : 'tenant_demo');
       }
     } else {
       const publicContext = await TenantContextHelper.resolvePublicTenant(req);
-      effectiveTenantId = publicContext?.tenant?.id || requestedTenantId || 'tenant_demo';
+      effectiveTenantId = publicContext?.tenant?.id || (isProductionMode() ? null : requestedTenantId || 'tenant_demo');
+    }
+
+    if (!effectiveTenantId) {
+      return NextResponse.json({
+        categories: [],
+        total: 0,
+        tenantId: ''
+      });
     }
 
     const { categories, total } = await CategoryService.listCategories(effectiveTenantId, {

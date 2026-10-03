@@ -51,9 +51,9 @@ interface MediaLibraryModalProps {
 const DEFAULT_SEED_FILES: MediaFileItem[] = [
   {
     id: 'med_logo_official',
-    tenantId: 'tenant_demo',
+    tenantId: '',
     filename: 'logo-fenix-store.png',
-    storageKey: 'tenants/tenant_demo/uploads/logo-fenix.png',
+    storageKey: 'uploads/logo-fenix.png',
     url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&q=80',
     mimeType: 'image/png',
     size: 64200,
@@ -64,9 +64,9 @@ const DEFAULT_SEED_FILES: MediaFileItem[] = [
   },
   {
     id: 'med_smartwatch',
-    tenantId: 'tenant_demo',
+    tenantId: '',
     filename: 'smartwatch-ultra-gps-titanium.webp',
-    storageKey: 'tenants/tenant_demo/uploads/smartwatch.webp',
+    storageKey: 'uploads/smartwatch.webp',
     url: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&q=80',
     mimeType: 'image/webp',
     size: 142000,
@@ -77,9 +77,9 @@ const DEFAULT_SEED_FILES: MediaFileItem[] = [
   },
   {
     id: 'med_espresso',
-    tenantId: 'tenant_demo',
+    tenantId: '',
     filename: 'cafetera-espresso-20bares.jpg',
-    storageKey: 'tenants/tenant_demo/uploads/cafetera.jpg',
+    storageKey: 'uploads/cafetera.jpg',
     url: 'https://images.unsplash.com/photo-1517668808822-9ebb02f2a0e6?w=800&q=80',
     mimeType: 'image/jpeg',
     size: 198000,
@@ -90,9 +90,9 @@ const DEFAULT_SEED_FILES: MediaFileItem[] = [
   },
   {
     id: 'med_headphones',
-    tenantId: 'tenant_demo',
+    tenantId: '',
     filename: 'auriculares-pro-noise-cancelling.webp',
-    storageKey: 'tenants/tenant_demo/uploads/headphones.webp',
+    storageKey: 'uploads/headphones.webp',
     url: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&q=80',
     mimeType: 'image/webp',
     size: 165000,
@@ -103,9 +103,9 @@ const DEFAULT_SEED_FILES: MediaFileItem[] = [
   },
   {
     id: 'med_keyboard',
-    tenantId: 'tenant_demo',
+    tenantId: '',
     filename: 'teclado-mecanico-rgb-hotswap.jpg',
-    storageKey: 'tenants/tenant_demo/uploads/keyboard.jpg',
+    storageKey: 'uploads/keyboard.jpg',
     url: 'https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=800&q=80',
     mimeType: 'image/jpeg',
     size: 180000,
@@ -116,9 +116,9 @@ const DEFAULT_SEED_FILES: MediaFileItem[] = [
   },
   {
     id: 'med_macbook',
-    tenantId: 'tenant_demo',
+    tenantId: '',
     filename: 'macbook-pro-m3-spacegray.jpg',
-    storageKey: 'tenants/tenant_demo/uploads/macbook.jpg',
+    storageKey: 'uploads/macbook.jpg',
     url: 'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=800&q=80',
     mimeType: 'image/jpeg',
     size: 210000,
@@ -129,9 +129,9 @@ const DEFAULT_SEED_FILES: MediaFileItem[] = [
   },
   {
     id: 'med_banner_deals',
-    tenantId: 'tenant_demo',
+    tenantId: '',
     filename: 'banner-ofertas-flash-ecommerce.webp',
-    storageKey: 'tenants/tenant_demo/uploads/banner.webp',
+    storageKey: 'uploads/banner.webp',
     url: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=1200&q=80',
     mimeType: 'image/webp',
     size: 245000,
@@ -175,7 +175,7 @@ export function MediaLibraryModal({ tenantId, isOpen, onClose, onSelectImage }: 
     let isMounted = true;
     setLoading(true);
 
-    fetch(`/api/media?tenantId=${tenantId || 'tenant_demo'}`)
+    fetch(`/api/media?tenantId=${tenantId || ''}`)
       .then(res => res.json())
       .then(data => {
         if (isMounted && data.success && Array.isArray(data.files) && data.files.length > 0) {
@@ -185,7 +185,7 @@ export function MediaLibraryModal({ tenantId, isOpen, onClose, onSelectImage }: 
         }
       })
       .catch((err) => {
-        console.warn('Failed to load media files from API, using default seed assets:', err);
+        console.warn('Failed to load media files from API:', err);
         if (isMounted) setFiles(DEFAULT_SEED_FILES);
       })
       .finally(() => {
@@ -255,9 +255,9 @@ export function MediaLibraryModal({ tenantId, isOpen, onClose, onSelectImage }: 
       const cleanFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
       const newMedia: MediaFileItem = {
         id: `med_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        tenantId: tenantId || 'tenant_demo',
+        tenantId: tenantId || '',
         filename: cleanFilename,
-        storageKey: `tenants/${tenantId || 'tenant_demo'}/uploads/${Date.now()}_${cleanFilename}`,
+        storageKey: `tenants/${tenantId || 'uploads'}/${Date.now()}_${cleanFilename}`,
         url: dataUrl,
         mimeType: file.type || 'image/png',
         size: file.size || 120000,
@@ -275,7 +275,7 @@ export function MediaLibraryModal({ tenantId, isOpen, onClose, onSelectImage }: 
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            tenantId: tenantId || 'tenant_demo',
+            tenantId: tenantId || '',
             filename: cleanFilename,
             mimeType: file.type || 'image/png',
             size: file.size,
@@ -322,7 +322,7 @@ export function MediaLibraryModal({ tenantId, isOpen, onClose, onSelectImage }: 
     const filename = newFileName.trim() || `imagen_${Date.now()}.jpg`;
     const newMedia: MediaFileItem = {
       id: `med_${Date.now()}`,
-      tenantId: tenantId || 'tenant_demo',
+      tenantId: tenantId || '',
       filename,
       storageKey: `url_${Date.now()}`,
       url: newFileUrl.trim(),
@@ -343,7 +343,7 @@ export function MediaLibraryModal({ tenantId, isOpen, onClose, onSelectImage }: 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          tenantId: tenantId || 'tenant_demo',
+          tenantId: tenantId || '',
           filename: newMedia.filename,
           mimeType: newMedia.mimeType,
           size: 154000,
@@ -368,7 +368,7 @@ export function MediaLibraryModal({ tenantId, isOpen, onClose, onSelectImage }: 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          tenantId: tenantId || 'tenant_demo',
+          tenantId: tenantId || '',
           url: file.url,
           filename: file.filename,
           fileId: file.id,
@@ -411,7 +411,7 @@ export function MediaLibraryModal({ tenantId, isOpen, onClose, onSelectImage }: 
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          tenantId: tenantId || 'tenant_demo',
+          tenantId: tenantId || '',
           fileId: selectedFile.id,
           alt: updatedAlt
         })
@@ -430,7 +430,7 @@ export function MediaLibraryModal({ tenantId, isOpen, onClose, onSelectImage }: 
       return;
     }
     try {
-      await fetch(`/api/media?tenantId=${tenantId || 'tenant_demo'}&fileId=${id}`, {
+      await fetch(`/api/media?tenantId=${tenantId || ''}&fileId=${id}`, {
         method: 'DELETE'
       });
     } catch {}

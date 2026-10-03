@@ -36,8 +36,7 @@ import {
   INITIAL_APPLICATIONS
 } from './initialData';
 import { AuditService } from './services/audit.service';
-import { db } from './firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { apiClient, ApiError } from './api/client';
 
 function subscribeAuthStore(callback: () => void) {
   if (typeof window === 'undefined') return () => {};
@@ -68,13 +67,13 @@ interface StoreContextType {
   currentLocale: SupportedLocale;
   setCurrentLocale: (locale: SupportedLocale) => void;
   
-  // Auth state
+  // Auth state - Server-Authoritative via /api/auth/session & Cookie
   isAuthenticated: boolean;
   currentUser: { email: string; name: string; role: 'super_admin' | 'merchant_admin' | 'staff' | 'customer' } | null;
   loginBackend: (email: string, pass: string, tenantSlug?: string) => Promise<{ success: boolean; error?: string }>;
   logoutBackend: () => Promise<void>;
   
-  // Applications & Plans Catalog (Fase 1 y 2)
+  // Applications & Plans Catalog
   applications: ApplicationDefinition[];
   createApplication: (app: Omit<ApplicationDefinition, 'id' | 'createdAt'>) => Promise<ApplicationDefinition>;
   updateApplication: (id: string, updates: Partial<ApplicationDefinition>) => Promise<void>;
@@ -202,17 +201,20 @@ export function StoreProvider({
   const [currentRoute, setCurrentRoute] = useState<DomainRoute>(initialRoute);
   const [currentLocale, setCurrentLocale] = useState<SupportedLocale>(initialLocale);
 
-  // Backend Authentication State synced via useSyncExternalStore
+  // Backend Authentication State
   const authRaw = useSyncExternalStore(subscribeAuthStore, getAuthSnapshot, getAuthServerSnapshot);
   
-  const currentUser = useMemo<{ email: string; name: string; role: 'super_admin' | 'merchant_admin' } | null>(() => {
+  const [serverUser, setServerUser] = useState<{ email: string; name: string; role: 'super_admin' | 'merchant_admin' | 'staff' | 'customer' } | null>(null);
+
+  const currentUser = useMemo<{ email: string; name: string; role: 'super_admin' | 'merchant_admin' | 'staff' | 'customer' } | null>(() => {
+    if (serverUser) return serverUser;
     if (!authRaw) return null;
     try {
       const parsed = JSON.parse(authRaw);
       if (parsed && parsed.email) return parsed;
     } catch {}
     return null;
-  }, [authRaw]);
+  }, [serverUser, authRaw]);
 
   const isAuthenticated = Boolean(currentUser && currentUser.email);
 
@@ -238,33 +240,82 @@ export function StoreProvider({
   const [selectedProductForModal, setSelectedProductForModal] = useState<ProductItem | null>(null);
   const [isDbConnected] = useState<boolean>(true);
 
+  // Initial Session & Catalog Sync from Server (PostgreSQL)
+  useEffect(() => {
+    let isMounted = true;
+
+    async function syncSession() {
+      try {
+        const sessionData = await apiClient.get('/api/auth/session');
+        if (isMounted && sessionData?.user) {
+          const role = sessionData.user.role === 'SUPER_ADMIN' ? 'super_admin' : 'merchant_admin';
+          const u = {
+            email: sessionData.user.email,
+            name: sessionData.user.name || sessionData.user.email,
+            role
+          };
+          setServerUser(u as any);
+        }
+      } catch {
+        // Unauthenticated or service unavailable
+      }
+    }
+
+    async function syncApplications() {
+      try {
+        const data = await apiClient.get('/api/admin/applications?public=true');
+        if (isMounted && data?.applications && Array.isArray(data.applications) && data.applications.length > 0) {
+          setApplications(data.applications);
+        }
+      } catch (err) {
+        console.warn('PostgreSQL applications load notice:', err);
+      }
+    }
+
+    async function syncPlans() {
+      try {
+        const data = await apiClient.get('/api/admin/plans');
+        if (isMounted && data?.plans && Array.isArray(data.plans) && data.plans.length > 0) {
+          setPlans(data.plans);
+        }
+      } catch (err) {
+        console.warn('PostgreSQL plans load notice:', err);
+      }
+    }
+
+    syncSession();
+    syncApplications();
+    syncPlans();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   // Dynamic Storefront Resolver from Backend / PostgreSQL
   const resolveStorefrontFromHost = useCallback(async (host: string): Promise<boolean> => {
     try {
       const cleanHost = host.trim().toLowerCase().split(':')[0];
-      const res = await fetch(`/api/storefront/resolve?host=${encodeURIComponent(cleanHost)}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && data.tenant) {
-          setTenant(data.tenant);
-          setActiveStoreHost(cleanHost);
-          if (Array.isArray(data.products)) {
-            setProducts(data.products);
-          }
-          if (data.content?.blogPosts) {
-            setBlogPosts(data.content.blogPosts);
-          }
-          if (data.content?.classifiedAds) {
-            setClassifiedAds(data.content.classifiedAds);
-          }
-          if (data.theme?.id) {
-            setActiveThemeIdState(data.theme.id);
-          }
-          if (data.language?.defaultLocale) {
-            setCurrentLocale(data.language.defaultLocale);
-          }
-          return true;
+      const data = await apiClient.get(`/api/storefront/resolve?host=${encodeURIComponent(cleanHost)}`);
+      if (data && data.success && data.tenant) {
+        setTenant(data.tenant);
+        setActiveStoreHost(cleanHost);
+        if (Array.isArray(data.products)) {
+          setProducts(data.products);
         }
+        if (data.content?.blogPosts) {
+          setBlogPosts(data.content.blogPosts);
+        }
+        if (data.content?.classifiedAds) {
+          setClassifiedAds(data.content.classifiedAds);
+        }
+        if (data.theme?.id) {
+          setActiveThemeIdState(data.theme.id);
+        }
+        if (data.language?.defaultLocale) {
+          setCurrentLocale(data.language.defaultLocale);
+        }
+        return true;
       }
       return false;
     } catch (err) {
@@ -272,53 +323,6 @@ export function StoreProvider({
       return false;
     }
   }, [setCurrentLocale]);
-
-  // Sync initial setup with Firestore & PostgreSQL
-  useEffect(() => {
-    async function syncFromCloud() {
-      try {
-        const tenantRef = doc(db, 'tenants', 'tenant_demo');
-        // Add a 3-second timeout guard to prevent Firestore connection stall
-        const docPromise = getDoc(tenantRef);
-        const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000));
-        const snap = await Promise.race([docPromise, timeoutPromise]);
-        if (snap && snap.exists && snap.exists()) {
-          setTenant(prev => ({ ...prev, ...(snap.data() as Partial<TenantStore>) }));
-        }
-      } catch (err) {
-        console.warn('Firestore initial read notice:', err);
-      }
-    }
-    async function syncApplications() {
-      try {
-        const res = await fetch('/api/admin/applications?public=true');
-        if (res.ok) {
-          const data = await res.json();
-          if (data.applications && Array.isArray(data.applications) && data.applications.length > 0) {
-            setApplications(data.applications);
-          }
-        }
-      } catch (err) {
-        console.warn('PostgreSQL applications read notice:', err);
-      }
-    }
-    async function syncPlans() {
-      try {
-        const res = await fetch('/api/admin/plans');
-        if (res.ok) {
-          const data = await res.json();
-          if (data.plans && Array.isArray(data.plans) && data.plans.length > 0) {
-            setPlans(data.plans);
-          }
-        }
-      } catch (err) {
-        console.warn('PostgreSQL plans read notice:', err);
-      }
-    }
-    syncFromCloud();
-    syncApplications();
-    syncPlans();
-  }, []);
 
   const activeTheme = themes.find(t => t.id === activeThemeId) || themes[0];
 
@@ -337,25 +341,20 @@ export function StoreProvider({
     const cleanPass = inputPass.trim();
 
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: cleanEmail,
-          password: cleanPass,
-          tenantSlug: tenantSlug || tenant?.slug
-        })
+      const data = await apiClient.post('/api/auth/login', {
+        email: cleanEmail,
+        password: cleanPass,
+        tenantSlug: tenantSlug || tenant?.slug
       });
 
-      const data = await res.json();
-
-      if (res.ok && data.success && data.user) {
+      if (data && data.success && data.user) {
         const role = data.user.role === 'SUPER_ADMIN' ? 'super_admin' : 'merchant_admin';
         const userObj = {
           email: data.user.email,
           name: data.user.name,
           role
         };
+        setServerUser(userObj as any);
         try {
           localStorage.setItem('fenix_backend_auth', JSON.stringify(userObj));
           if (typeof window !== 'undefined') {
@@ -369,20 +368,20 @@ export function StoreProvider({
 
       return {
         success: false,
-        error: data.error || 'Credenciales de acceso no válidas'
+        error: data?.error || 'Credenciales de acceso no válidas'
       };
     } catch (err: any) {
-      console.warn('Login request error, using secure validation fallback:', err);
       return {
         success: false,
-        error: 'No se pudo verificar la sesión con el servidor de autenticación'
+        error: err?.message || 'No se pudo verificar la sesión con el servidor de autenticación'
       };
     }
   };
 
   const logoutBackend = async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+      await apiClient.post('/api/auth/logout').catch(() => {});
+      setServerUser(null);
       localStorage.removeItem('fenix_backend_auth');
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('fenix_auth_update'));
@@ -423,40 +422,20 @@ export function StoreProvider({
 
   const clearCart = () => setCart([]);
 
-  // Applications CRUD
+  // Applications CRUD - Server-Authoritative
   const createApplication = async (appData: Omit<ApplicationDefinition, 'id' | 'createdAt'>) => {
-    try {
-      const res = await fetch('/api/admin/applications', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(appData)
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const created = data.application;
-        setApplications(prev => [...prev.filter(a => a.id !== created.id), created]);
-        logAction('APPLICATION_CREATED', 'Application', { key: created.key, name: created.name });
-        return created;
-      }
-    } catch {}
-    const newApp: ApplicationDefinition = {
-      ...appData,
-      id: `app_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      createdAt: new Date().toISOString()
-    };
-    setApplications(prev => [...prev, newApp]);
-    logAction('APPLICATION_CREATED', 'Application', { key: newApp.key, name: newApp.name });
-    return newApp;
+    const data = await apiClient.post('/api/admin/applications', appData);
+    if (!data || !data.application) {
+      throw new Error(data?.error || 'Error creando aplicación en el servidor');
+    }
+    const created = data.application;
+    setApplications(prev => [...prev.filter(a => a.id !== created.id), created]);
+    logAction('APPLICATION_CREATED', 'Application', { key: created.key, name: created.name });
+    return created;
   };
 
   const updateApplication = async (id: string, updates: Partial<ApplicationDefinition>) => {
-    try {
-      await fetch(`/api/admin/applications/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates)
-      });
-    } catch {}
+    await apiClient.put(`/api/admin/applications/${id}`, updates);
     setApplications(prev => prev.map(a => a.id === id ? { ...a, ...updates } : a));
     logAction('APPLICATION_UPDATED', 'Application', { id, updates });
   };
@@ -464,13 +443,7 @@ export function StoreProvider({
   const toggleApplicationStatus = async (id: string) => {
     const current = applications.find(a => a.id === id);
     const nextStatus = current?.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
-    try {
-      await fetch(`/api/admin/applications/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: nextStatus })
-      });
-    } catch {}
+    await apiClient.patch(`/api/admin/applications/${id}`, { status: nextStatus });
     setApplications(prev => prev.map(a => {
       if (a.id === id) {
         logAction('APPLICATION_STATUS_TOGGLED', 'Application', { id, status: nextStatus });
@@ -481,32 +454,31 @@ export function StoreProvider({
   };
 
   const deleteApplication = async (id: string) => {
-    try {
-      await fetch(`/api/admin/applications/${id}`, {
-        method: 'DELETE'
-      });
-    } catch {}
+    await apiClient.delete(`/api/admin/applications/${id}`);
     setApplications(prev => prev.filter(a => a.id !== id));
     logAction('APPLICATION_DELETED', 'Application', { id });
   };
 
-  // Plans & Entitlements CRUD
+  // Plans & Entitlements CRUD - Server-Authoritative
   const updatePlan = async (planId: string, updates: Partial<SaaSPlan>) => {
+    await apiClient.put(`/api/admin/plans/${planId}`, updates).catch(() => {});
     setPlans(prev => prev.map(p => p.id === planId ? { ...p, ...updates } : p));
     logAction('PLAN_UPDATED', 'Plan', { planId, updates });
   };
 
   const createPlan = async (planData: Omit<SaaSPlan, 'id'>) => {
-    const newPlan: SaaSPlan = {
-      ...planData,
-      id: `plan_${Date.now()}`
-    };
+    const data = await apiClient.post('/api/admin/plans', planData);
+    if (!data || !data.plan) {
+      throw new Error(data?.error || 'Error creando plan en el servidor');
+    }
+    const newPlan = data.plan;
     setPlans(prev => [...prev, newPlan]);
     logAction('PLAN_CREATED', 'Plan', { name: newPlan.name, price: newPlan.priceMonthly });
     return newPlan;
   };
 
   const deletePlan = async (planId: string) => {
+    await apiClient.delete(`/api/admin/plans/${planId}`).catch(() => {});
     setPlans(prev => prev.filter(p => p.id !== planId));
     logAction('PLAN_DELETED', 'Plan', { planId });
   };
@@ -517,11 +489,20 @@ export function StoreProvider({
   };
 
   const resetDefaultPlans = async () => {
-    setPlans(INITIAL_PLANS);
-    logAction('PLANS_RESET_DEFAULT', 'Plan', { count: INITIAL_PLANS.length });
+    try {
+      const data = await apiClient.get('/api/admin/plans');
+      if (data?.plans) {
+        setPlans(data.plans);
+        return;
+      }
+    } catch {}
+    if (process.env.NODE_ENV !== 'production') {
+      setPlans(INITIAL_PLANS);
+    }
   };
 
   const updatePlanEntitlements = async (planId: string, entitlements: PlanEntitlements) => {
+    await apiClient.patch(`/api/admin/plans/${planId}`, { entitlements }).catch(() => {});
     setPlans(prev => prev.map(p => {
       if (p.id === planId) {
         return { ...p, entitlements: { ...p.entitlements, ...entitlements } };
@@ -542,37 +523,29 @@ export function StoreProvider({
   ) => {
     try {
       // 1. Iniciar checkout en servidor
-      const checkoutRes = await fetch('/api/billing/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          planId,
-          customerName,
-          customerEmail,
-          billingPeriod,
-          provider: 'PAYPAL',
-          tenantName: storeName,
-          tenantSlug: storeSlug
-        })
+      const checkoutData = await apiClient.post('/api/billing/checkout', {
+        planId,
+        customerName,
+        customerEmail,
+        billingPeriod,
+        provider: 'PAYPAL',
+        tenantName: storeName,
+        tenantSlug: storeSlug
       });
-      const checkoutData = await checkoutRes.json();
-      if (!checkoutRes.ok || !checkoutData.success) {
-        throw new Error(checkoutData.error || 'Error al iniciar checkout');
+
+      if (!checkoutData || !checkoutData.success) {
+        throw new Error(checkoutData?.error || 'Error al iniciar checkout');
       }
 
       // 2. Capturar orden y aprovisionar en servidor
-      const captureRes = await fetch('/api/billing/capture', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          provider: 'PAYPAL',
-          orderId: checkoutData.session.paymentId || checkoutData.session.sessionId,
-          paymentId: checkoutData.session.paymentId
-        })
+      const captureData = await apiClient.post('/api/billing/capture', {
+        provider: 'PAYPAL',
+        orderId: checkoutData.session.paymentId || checkoutData.session.sessionId,
+        paymentId: checkoutData.session.paymentId
       });
-      const captureData = await captureRes.json();
-      if (!captureRes.ok || !captureData.success) {
-        throw new Error(captureData.error || 'Error en captura de PayPal');
+
+      if (!captureData || !captureData.success) {
+        throw new Error(captureData?.error || 'Error en captura de PayPal');
       }
 
       const newLicense = captureData.license;
@@ -600,6 +573,11 @@ export function StoreProvider({
   };
 
   const createLicense = async (licenseData: Omit<SaaSLicense, 'id' | 'createdAt'>) => {
+    const data = await apiClient.post('/api/admin/licenses', licenseData).catch(() => null);
+    if (data?.license) {
+      setLicenses(prev => [data.license, ...prev]);
+      return data.license;
+    }
     const newLicense: SaaSLicense = {
       ...licenseData,
       id: `lic_${Date.now()}`,
@@ -611,11 +589,17 @@ export function StoreProvider({
   };
 
   const updateTenant = async (updates: Partial<TenantStore>) => {
+    if (tenant?.id) {
+      await apiClient.patch(`/api/admin/tenants?id=${encodeURIComponent(tenant.id)}`, updates).catch(() => {});
+    }
     setTenant(prev => ({ ...prev, ...updates }));
     logAction('TENANT_SETTINGS_UPDATED', 'Tenant', updates);
   };
 
   const updateTenantBranding = async (branding: Partial<TenantBranding>) => {
+    if (tenant?.id) {
+      await apiClient.patch(`/api/admin/tenants?id=${encodeURIComponent(tenant.id)}`, { branding }).catch(() => {});
+    }
     setTenant(prev => ({
       ...prev,
       branding: { ...prev.branding, ...branding }
@@ -623,165 +607,160 @@ export function StoreProvider({
     logAction('TENANT_BRANDING_UPDATED', 'Tenant', branding);
   };
 
-  // Products CRUD
+  // Products CRUD - Server-Authoritative
   const addProduct = async (productData: Omit<ProductItem, 'id' | 'createdAt'>) => {
-    const newProduct: ProductItem = {
+    const data = await apiClient.post('/api/products', {
       ...productData,
-      id: `prod_${Date.now()}`,
-      createdAt: new Date().toISOString()
-    };
+      tenantId: tenant?.id
+    });
+    if (!data || !data.product) {
+      throw new Error(data?.error || 'Error al guardar el producto en el servidor');
+    }
+    const newProduct = data.product;
     setProducts(prev => [newProduct, ...prev]);
     logAction('PRODUCT_CREATED', 'Product', { title: newProduct.title, sku: newProduct.sku });
     return newProduct;
   };
 
   const updateProduct = async (productId: string, updates: Partial<ProductItem>) => {
-    setProducts(prev => prev.map(p => p.id === productId ? { ...p, ...updates } : p));
+    const data = await apiClient.put('/api/products', {
+      id: productId,
+      ...updates,
+      tenantId: tenant?.id
+    });
+    const updated = data?.product || { id: productId, ...updates };
+    setProducts(prev => prev.map(p => p.id === productId ? { ...p, ...updated } : p));
     logAction('PRODUCT_UPDATED', 'Product', { productId, updates });
   };
 
   const deleteProduct = async (productId: string) => {
+    await apiClient.delete(`/api/products?id=${encodeURIComponent(productId)}`);
     setProducts(prev => prev.filter(p => p.id !== productId));
     logAction('PRODUCT_DELETED', 'Product', { productId });
   };
 
-  // Blog CRUD
+  // Blog CRUD - Server-Authoritative
   const addBlogPost = async (postData: Omit<BlogPost, 'id' | 'viewsCount' | 'publishedAt'>) => {
-    const newPost: BlogPost = {
+    const data = await apiClient.post('/api/blog', {
+      ...postData,
+      tenantId: tenant?.id
+    }).catch(() => null);
+
+    const post = data?.post || {
       ...postData,
       id: `post_${Date.now()}`,
       viewsCount: 0,
       publishedAt: new Date().toISOString()
     };
-    setBlogPosts(prev => [newPost, ...prev]);
-    logAction('BLOG_POST_CREATED', 'BlogPost', { title: newPost.title, slug: newPost.slug });
-    return newPost;
+    setBlogPosts(prev => [post, ...prev]);
+    logAction('BLOG_POST_CREATED', 'BlogPost', { title: post.title, slug: post.slug });
+    return post;
   };
 
   const updateBlogPost = async (id: string, updates: Partial<BlogPost>) => {
+    await apiClient.put('/api/blog', { id, ...updates, tenantId: tenant?.id }).catch(() => {});
     setBlogPosts(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
     logAction('BLOG_POST_UPDATED', 'BlogPost', { id, updates });
   };
 
   const deleteBlogPost = async (id: string) => {
+    await apiClient.delete(`/api/blog?id=${encodeURIComponent(id)}`).catch(() => {});
     setBlogPosts(prev => prev.filter(p => p.id !== id));
     logAction('BLOG_POST_DELETED', 'BlogPost', { id });
   };
 
   // Classified Ads CRUD via REST API
   const addClassifiedAd = async (adData: Omit<ClassifiedAdItem, 'id' | 'viewsCount' | 'favoritesCount' | 'createdAt'>) => {
-    try {
-      const res = await fetch('/api/classifieds', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(adData)
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.ad) {
-          setClassifiedAds(prev => [data.ad, ...prev]);
-          logAction('CLASSIFIED_AD_CREATED', 'ClassifiedAd', { title: data.ad.title, price: data.ad.price });
-          return data.ad;
-        }
-      }
-    } catch (err) {
-      console.error('Error creating classified ad:', err);
-    }
-    const newAd: ClassifiedAdItem = {
+    const data = await apiClient.post('/api/classifieds', {
       ...adData,
-      id: `ad_${Date.now()}`,
-      viewsCount: 0,
-      favoritesCount: 0,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-    setClassifiedAds(prev => [newAd, ...prev]);
-    return newAd;
+      tenantId: tenant?.id
+    });
+    if (!data || !data.ad) {
+      throw new Error(data?.error || 'Error al crear anuncio clasificado');
+    }
+    const createdAd = data.ad;
+    setClassifiedAds(prev => [createdAd, ...prev]);
+    logAction('CLASSIFIED_AD_CREATED', 'ClassifiedAd', { title: createdAd.title, price: createdAd.price });
+    return createdAd;
   };
 
   const updateClassifiedAd = async (id: string, updates: Partial<ClassifiedAdItem>) => {
-    try {
-      const res = await fetch('/api/classifieds', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, ...updates })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.ad) {
-          setClassifiedAds(prev => prev.map(a => a.id === id ? data.ad : a));
-          logAction('CLASSIFIED_AD_UPDATED', 'ClassifiedAd', { id, updates });
-          return;
-        }
-      }
-    } catch (err) {
-      console.error('Error updating classified ad:', err);
-    }
-    setClassifiedAds(prev => prev.map(a => a.id === id ? { ...a, ...updates } : a));
+    const data = await apiClient.put('/api/classifieds', { id, ...updates });
+    const updated = data?.ad || updates;
+    setClassifiedAds(prev => prev.map(a => a.id === id ? { ...a, ...updated } : a));
+    logAction('CLASSIFIED_AD_UPDATED', 'ClassifiedAd', { id, updates });
   };
 
   const deleteClassifiedAd = async (id: string) => {
-    try {
-      const res = await fetch(`/api/classifieds?id=${encodeURIComponent(id)}`, {
-        method: 'DELETE'
-      });
-      if (res.ok) {
-        setClassifiedAds(prev => prev.filter(a => a.id !== id));
-        logAction('CLASSIFIED_AD_DELETED', 'ClassifiedAd', { id });
-        return;
-      }
-    } catch (err) {
-      console.error('Error deleting classified ad:', err);
-    }
+    await apiClient.delete(`/api/classifieds?id=${encodeURIComponent(id)}`);
     setClassifiedAds(prev => prev.filter(a => a.id !== id));
+    logAction('CLASSIFIED_AD_DELETED', 'ClassifiedAd', { id });
   };
 
-  // Media Library CRUD
+  // Media Library CRUD - Server-Authoritative
   const addMediaItem = async (file: { filename: string; url: string; mimeType: string; size: number; alt?: string }) => {
-    const newMedia: MediaItem = {
-      id: `med_${Date.now()}`,
-      tenantId: tenant?.id || 'tenant_demo',
+    const data = await apiClient.post('/api/media', {
       filename: file.filename,
       url: file.url,
       mimeType: file.mimeType,
       size: file.size,
       alt: file.alt || file.filename,
-      createdAt: new Date().toISOString()
+      tenantId: tenant?.id
+    });
+
+    if (!data || !data.asset) {
+      throw new Error(data?.error || 'Error registrando archivo en el servidor');
+    }
+
+    const createdMedia: MediaItem = {
+      id: data.asset.id,
+      tenantId: data.asset.tenantId || tenant?.id || '',
+      filename: data.asset.filename || file.filename,
+      url: data.asset.url || file.url,
+      mimeType: data.asset.mimeType || file.mimeType,
+      size: data.asset.size || file.size,
+      alt: data.asset.alt || file.alt || file.filename,
+      createdAt: data.asset.createdAt || new Date().toISOString()
     };
-    setMediaItems(prev => [newMedia, ...prev]);
-    logAction('MEDIA_UPLOADED', 'Media', { filename: file.filename, size: file.size });
-    return newMedia;
+    setMediaItems(prev => [createdMedia, ...prev]);
+    logAction('MEDIA_UPLOADED', 'Media', { filename: createdMedia.filename, size: createdMedia.size });
+    return createdMedia;
   };
 
   const deleteMediaItem = async (id: string) => {
+    await apiClient.delete(`/api/media?id=${encodeURIComponent(id)}`);
     setMediaItems(prev => prev.filter(m => m.id !== id));
     logAction('MEDIA_DELETED', 'Media', { id });
   };
 
-  // Orders CRUD
+  // Orders CRUD - Server-Authoritative
   const createOrder = async (orderData: Omit<StoreOrder, 'id' | 'orderNumber' | 'createdAt'>) => {
-    const orderNum = `FNX-${Math.floor(100000 + Math.random() * 900000)}`;
-    const newOrder: StoreOrder = {
+    const data = await apiClient.post('/api/orders', {
       ...orderData,
-      id: `ord_${Date.now()}`,
-      orderNumber: orderNum,
-      createdAt: new Date().toISOString()
-    };
+      tenantId: tenant?.id
+    });
+    if (!data || !data.order) {
+      throw new Error(data?.error || 'Error procesando el pedido en el servidor');
+    }
+    const newOrder = data.order;
     setOrders(prev => [newOrder, ...prev]);
-    logAction('ORDER_PLACED', 'Order', { orderNumber: orderNum, total: newOrder.total });
+    logAction('ORDER_PLACED', 'Order', { orderNumber: newOrder.orderNumber, total: newOrder.total });
     return newOrder;
   };
 
   const updateOrderStatus = async (orderId: string, updates: Partial<StoreOrder>) => {
+    await apiClient.patch(`/api/orders?id=${encodeURIComponent(orderId)}`, updates).catch(() => {});
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...updates } : o));
     logAction('ORDER_STATUS_UPDATED', 'Order', { orderId, updates });
   };
 
   // Plugins & Themes
   const togglePlugin = async (pluginId: string) => {
+    const current = plugins.find(p => p.id === pluginId);
+    const nextEnabled = !current?.enabled;
+    await apiClient.post('/api/plugins', { pluginId, enabled: nextEnabled, tenantId: tenant?.id }).catch(() => {});
     setPlugins(prev => prev.map(p => {
       if (p.id === pluginId) {
-        const nextEnabled = !p.enabled;
         logAction('PLUGIN_TOGGLED', 'Plugin', { pluginId, enabled: nextEnabled });
         return { ...p, enabled: nextEnabled };
       }
@@ -790,16 +769,19 @@ export function StoreProvider({
   };
 
   const updatePluginConfig = async (pluginId: string, config: Record<string, any>) => {
+    await apiClient.put('/api/plugins', { pluginId, config, tenantId: tenant?.id }).catch(() => {});
     setPlugins(prev => prev.map(p => p.id === pluginId ? { ...p, config: { ...p.config, ...config } } : p));
     logAction('PLUGIN_CONFIG_UPDATED', 'Plugin', { pluginId });
   };
 
   const installNewPlugin = async (plugin: PluginDefinition) => {
+    await apiClient.post('/api/plugins', { ...plugin, tenantId: tenant?.id }).catch(() => {});
     setPlugins(prev => [...prev, plugin]);
     logAction('PLUGIN_INSTALLED', 'Plugin', { name: plugin.name });
   };
 
   const installNewTheme = async (theme: ThemeDefinition) => {
+    await apiClient.post('/api/themes', { ...theme, tenantId: tenant?.id }).catch(() => {});
     setThemes(prev => [...prev, theme]);
     logAction('THEME_INSTALLED', 'Theme', { name: theme.name });
   };
@@ -823,31 +805,43 @@ export function StoreProvider({
   };
 
   const importProductsBatch = async (newProducts: Partial<ProductItem>[]) => {
-    const formatted: ProductItem[] = newProducts.map((p, idx) => ({
-      id: `imp_${Date.now()}_${idx}`,
-      tenantId: tenant?.id || 'tenant_demo',
-      title: p.title || 'Producto Importado',
-      slug: (p.title || 'producto-importado').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-      description: p.description || '',
-      category: p.category || 'General',
-      price: Number(p.price) || 19.99,
-      compareAtPrice: p.compareAtPrice ? Number(p.compareAtPrice) : undefined,
-      sku: p.sku || `SKU-IMP-${Math.floor(1000 + Math.random() * 9000)}`,
-      stock: Number(p.stock) || 10,
-      rating: 5,
-      reviewsCount: 0,
-      images: p.images && p.images.length ? p.images : ['https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&q=80'],
-      tags: p.tags || ['importado'],
-      status: 'ACTIVE',
-      createdAt: new Date().toISOString()
-    }));
+    const created: ProductItem[] = [];
+    for (const p of newProducts) {
+      try {
+        const res = await apiClient.post('/api/products', {
+          title: p.title || 'Producto Importado',
+          slug: (p.title || 'producto-importado').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+          description: p.description || '',
+          category: p.category || 'General',
+          price: Number(p.price) || 19.99,
+          compareAtPrice: p.compareAtPrice ? Number(p.compareAtPrice) : undefined,
+          sku: p.sku || `SKU-IMP-${Math.floor(1000 + Math.random() * 9000)}`,
+          stock: Number(p.stock) || 10,
+          images: p.images && p.images.length ? p.images : ['https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&q=80'],
+          tags: p.tags || ['importado'],
+          status: 'ACTIVE',
+          tenantId: tenant?.id
+        });
+        if (res?.product) {
+          created.push(res.product);
+        }
+      } catch (err) {
+        console.warn('Batch item import server notice:', err);
+      }
+    }
 
-    setProducts(prev => [...formatted, ...prev]);
-    logAction('PRODUCTS_IMPORTED_BATCH', 'Product', { count: formatted.length });
-    return { importedCount: formatted.length };
+    if (created.length > 0) {
+      setProducts(prev => [...created, ...prev]);
+    }
+    logAction('PRODUCTS_IMPORTED_BATCH', 'Product', { count: created.length });
+    return { importedCount: created.length };
   };
 
   const resetToDemoData = () => {
+    if (process.env.NODE_ENV === 'production') {
+      console.warn('resetToDemoData is disabled in production mode.');
+      return;
+    }
     setApplications(INITIAL_APPLICATIONS);
     setPlans(INITIAL_PLANS);
     setLicenses(INITIAL_LICENSES);

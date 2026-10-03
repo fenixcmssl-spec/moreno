@@ -296,11 +296,18 @@ export class AuthService {
           }
         };
       } catch (e: any) {
+        if (isProductionMode()) {
+          return { success: false, error: e?.message || 'Error registrando usuario en la base de datos' };
+        }
         console.warn('[AuthService] PostgreSQL register error, saving to in-memory store:', e?.message);
       }
     }
 
-    // High availability store
+    if (isProductionMode()) {
+      return { success: false, error: 'Base de datos no disponible para registro en producción' };
+    }
+
+    // High availability store for development / unit test environments
     if (inMemoryUserStore.has(cleanEmail)) {
       return { success: false, error: 'Ya existe una cuenta con este correo electrónico' };
     }
@@ -361,8 +368,13 @@ export class AuthService {
           };
         }
       } catch (e) {
+        if (isProductionMode()) throw e;
         console.warn('[AuthService] getUserById error:', e);
       }
+    }
+
+    if (isProductionMode()) {
+      return null;
     }
 
     // Fallback store
@@ -412,8 +424,13 @@ export class AuthService {
           };
         }
       } catch (e) {
+        if (isProductionMode()) throw e;
         console.warn('[AuthService] getUserByEmail error:', e);
       }
+    }
+
+    if (isProductionMode()) {
+      return null;
     }
 
     const fallback = inMemoryUserStore.get(cleanEmail);
@@ -477,8 +494,15 @@ export class AuthService {
           }
         };
       } catch (e: any) {
+        if (isProductionMode()) {
+          return { success: false, error: e?.message || 'Error al actualizar usuario' };
+        }
         console.warn('[AuthService] updateUser error:', e?.message);
       }
+    }
+
+    if (isProductionMode()) {
+      return { success: false, error: 'Usuario no encontrado en la base de datos' };
     }
 
     // Fallback store update
@@ -526,8 +550,15 @@ export class AuthService {
         await prisma.user.delete({ where: { id } });
         return { success: true };
       } catch (e: any) {
+        if (isProductionMode()) {
+          return { success: false, error: e?.message || 'Error al eliminar usuario' };
+        }
         console.warn('[AuthService] deleteUser error:', e?.message);
       }
+    }
+
+    if (isProductionMode()) {
+      return { success: false, error: 'Base de datos no disponible' };
     }
 
     const target = Array.from(inMemoryUserStore.values()).find(u => u.id === id);
@@ -571,7 +602,7 @@ export class AuthService {
           orderBy: { createdAt: 'desc' }
         });
 
-        if (users && users.length > 0) {
+        if (users) {
           return users.map((u: any) => {
             const firstMembership = u.memberships?.[0];
             return {
@@ -589,8 +620,13 @@ export class AuthService {
           });
         }
       } catch (e) {
+        if (isProductionMode()) throw e;
         console.warn('[AuthService] listUsers postgres error, returning fallback:', e);
       }
+    }
+
+    if (isProductionMode()) {
+      return [];
     }
 
     // Return fallback list
@@ -667,8 +703,15 @@ export class AuthService {
           return { success: true };
         }
       } catch (e: any) {
+        if (isProductionMode()) {
+          return { success: false, error: e?.message || 'Error al cambiar contraseña' };
+        }
         console.warn('[AuthService] changePassword error:', e?.message);
       }
+    }
+
+    if (isProductionMode()) {
+      return { success: false, error: 'Usuario no encontrado en la base de datos' };
     }
 
     // In-memory fallback

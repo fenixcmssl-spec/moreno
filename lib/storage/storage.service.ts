@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import prisma from '@/lib/prisma';
+import { prisma, isProductionMode } from '@/lib/prisma';
 import { SecurityService } from '@/lib/security/security.service';
 
 export interface MediaFileItem {
@@ -58,11 +58,22 @@ export class ManagedStorageProvider implements IStorageProvider {
     const timestamp = Date.now();
     const storageKey = `tenants/${params.tenantId}/uploads/${timestamp}_${sanitizedFilename}`;
 
-    const checksum = crypto
-      .createHash('sha256')
-      .update(params.filename + timestamp + params.size)
-      .digest('hex')
-      .slice(0, 16);
+    let rawBuffer: Buffer | null = null;
+    if (Buffer.isBuffer(params.bufferOrUrl)) {
+      rawBuffer = params.bufferOrUrl;
+    } else if (typeof params.bufferOrUrl === 'string' && params.bufferOrUrl.startsWith('data:')) {
+      const base64Data = params.bufferOrUrl.split(';base64,').pop();
+      if (base64Data) {
+        rawBuffer = Buffer.from(base64Data, 'base64');
+      }
+    } else if (typeof params.bufferOrUrl === 'string' && !params.bufferOrUrl.startsWith('http')) {
+      rawBuffer = Buffer.from(params.bufferOrUrl, 'utf-8');
+    }
+
+    // Exact SHA-256 calculation of payload bytes
+    const checksum = rawBuffer
+      ? crypto.createHash('sha256').update(rawBuffer).digest('hex')
+      : crypto.createHash('sha256').update(Buffer.from(`${params.filename}_${params.size}_${timestamp}`)).digest('hex');
 
     let url = typeof params.bufferOrUrl === 'string' && params.bufferOrUrl.startsWith('http')
       ? params.bufferOrUrl
@@ -70,30 +81,24 @@ export class ManagedStorageProvider implements IStorageProvider {
 
     // Physical disk write for persistent storage on VPS
     try {
-      if (params.bufferOrUrl) {
+      if (rawBuffer) {
         const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'tenants', params.tenantId, 'uploads');
         if (!fs.existsSync(uploadDir)) {
           fs.mkdirSync(uploadDir, { recursive: true });
         }
 
         const filePath = path.join(uploadDir, `${timestamp}_${sanitizedFilename}`);
-        if (Buffer.isBuffer(params.bufferOrUrl)) {
-          await fs.promises.writeFile(filePath, params.bufferOrUrl);
-        } else if (typeof params.bufferOrUrl === 'string' && params.bufferOrUrl.startsWith('data:')) {
-          const base64Data = params.bufferOrUrl.split(';base64,').pop();
-          if (base64Data) {
-            await fs.promises.writeFile(filePath, Buffer.from(base64Data, 'base64'));
-          }
-        }
+        await fs.promises.writeFile(filePath, rawBuffer);
       }
-    } catch (diskErr) {
-      console.warn('[ManagedStorageProvider] Disk write warning:', diskErr);
+    } catch (diskErr: any) {
+      console.error('[ManagedStorageProvider] Disk write failed:', diskErr?.message);
+      throw new Error(`Fallo de escritura en almacenamiento persistente: ${diskErr?.message}`);
     }
 
     return {
       url,
       storageKey,
-      size: params.size,
+      size: rawBuffer ? rawBuffer.length : params.size,
       checksum
     };
   }
@@ -105,10 +110,14 @@ export class ManagedStorageProvider implements IStorageProvider {
       if (fs.existsSync(filePath)) {
         await fs.promises.unlink(filePath);
       }
-    } catch (delErr) {
+      return true;
+    } catch (delErr: any) {
+      if (isProductionMode()) {
+        throw new Error(`Error al eliminar archivo del almacenamiento: ${delErr?.message}`);
+      }
       console.warn('[ManagedStorageProvider] Disk unlink warning:', delErr);
+      return false;
     }
-    return true;
   }
 
   getUrl(storageKey: string): string {

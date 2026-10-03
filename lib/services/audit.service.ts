@@ -1,6 +1,8 @@
 import { AuditLogItem } from '@/types';
 
-const INITIAL_AUDIT_LOGS: AuditLogItem[] = [
+const isProdMode = process.env.NODE_ENV === 'production';
+
+const INITIAL_AUDIT_LOGS: AuditLogItem[] = isProdMode ? [] : [
   {
     id: 'aud_1',
     tenantId: 'tenant_demo',

@@ -761,7 +761,7 @@ export function SaasLanding() {
                 </div>
                 <h3 className="text-lg font-bold text-white">¡Licencia FenixCMS Activada con Éxito!</h3>
                 <p className="text-xs text-slate-300">
-                  Tu tienda <span className="text-amber-400 font-semibold">{storeName}</span> ha sido provisionada en Firestore y está lista para ser administrada.
+                  Tu tienda <span className="text-amber-400 font-semibold">{storeName}</span> ha sido provisionada en PostgreSQL y está lista para ser administrada.
                 </p>
 
                 <div className="p-3 bg-slate-800 rounded-lg border border-slate-700 text-left font-mono text-xs space-y-1">

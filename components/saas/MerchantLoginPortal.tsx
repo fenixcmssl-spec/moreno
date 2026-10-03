@@ -116,7 +116,7 @@ export function MerchantLoginPortal() {
                   required
                   value={password}
                   onChange={e => setPassword(e.target.value)}
-                  placeholder="Patricia1980@"
+                  placeholder="••••••••••••"
                   className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white font-mono focus:outline-none focus:ring-1 focus:ring-amber-500"
                 />
               </div>

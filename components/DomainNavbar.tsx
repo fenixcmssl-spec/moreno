@@ -123,11 +123,11 @@ export function DomainNavbar() {
             <ChevronDown className="w-3 h-3 text-slate-400 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
 
-          {/* Firestore Status Pill */}
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-emerald-950/80 border border-emerald-700/50 text-emerald-300 text-[10px] font-medium" title="Firestore Live Connection">
+          {/* PostgreSQL Status Pill */}
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-emerald-950/80 border border-emerald-700/50 text-emerald-300 text-[10px] font-medium" title="PostgreSQL Live Connection">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             <Database className="w-3 h-3" />
-            <span className="hidden sm:inline">{getTranslation(currentLocale, 'nav.firestore_live')}</span>
+            <span className="hidden sm:inline">{getTranslation(currentLocale, 'nav.postgres_live', 'PostgreSQL Live')}</span>
           </div>
 
           {/* Admin Session Badge */}

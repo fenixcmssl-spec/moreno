@@ -1116,7 +1116,7 @@ export function MerchantAdmin() {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
                 <div>
                   <h1 className="text-xl font-extrabold text-white">Catálogo de Productos</h1>
-                  <p className="text-xs text-slate-400">Gestiona precios, variantes, imágenes y stock sincronizados en Firestore.</p>
+                  <p className="text-xs text-slate-400">Gestiona precios, variantes, imágenes y stock sincronizados en PostgreSQL.</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -2170,7 +2170,7 @@ export function MerchantAdmin() {
                       {isImportRunning ? (
                         <>
                           <div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
-                          <span>Importando {parsedImportRows.length} productos a Firestore...</span>
+                          <span>Importando {parsedImportRows.length} productos a PostgreSQL...</span>
                         </>
                       ) : (
                         <>

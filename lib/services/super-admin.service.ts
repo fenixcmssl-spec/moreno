@@ -1,4 +1,4 @@
-import prisma from '../prisma';
+import { prisma, isPostgresConfigured, isProductionMode, DatabaseConfigurationError } from '../prisma';
 import { AuditService } from './audit.service';
 import { PasswordService } from '../auth/password';
 import { UserRole } from '../auth/rbac';
@@ -64,9 +64,88 @@ export class SuperAdminService {
    * 1. DASHBOARD METRICS FROM POSTGRESQL
    */
   static async getDashboardMetrics(): Promise<DashboardMetrics> {
+    if (isProductionMode()) {
+      if (!isPostgresConfigured() || !prisma) {
+        throw new DatabaseConfigurationError('Super Admin metrics require active PostgreSQL in production.');
+      }
+      // Run genuine parallel queries against PostgreSQL without fake catch fallbacks
+      const [
+        tenantsCount,
+        activeTenantsCount,
+        activeLicensesCount,
+        trialLicensesCount,
+        expiredLicensesCount,
+        cancelledSubscriptionsCount,
+        activeSubscriptionsCount,
+        failedPaymentsCount,
+        allActiveLicenses,
+        allActiveSubscriptions,
+        totalUsersCount,
+        allCompletedPayments
+      ] = await Promise.all([
+        prisma.tenant.count(),
+        prisma.tenant.count({ where: { status: 'active' } }),
+        prisma.license.count({ where: { status: 'ACTIVE' } }),
+        prisma.license.count({ where: { status: 'TRIAL' } }),
+        prisma.license.count({ where: { status: 'EXPIRED' } }),
+        prisma.subscription.count({ where: { status: 'CANCELLED' } }),
+        prisma.subscription.count({ where: { status: 'ACTIVE' } }),
+        prisma.payment.count({ where: { status: 'FAILED' } }),
+        prisma.license.findMany({
+          where: { status: 'ACTIVE' },
+          select: { price: true, billingPeriod: true }
+        }),
+        prisma.subscription.findMany({
+          where: { status: 'ACTIVE' },
+          select: { amount: true, billingPeriod: true }
+        }),
+        prisma.user.count(),
+        prisma.payment.findMany({
+          where: { status: 'COMPLETED' },
+          select: { amount: true }
+        })
+      ]);
+
+      let calculatedMrr = 0;
+      if (Array.isArray(allActiveLicenses)) {
+        allActiveLicenses.forEach((lic: any) => {
+          const price = Number(lic.price || 0);
+          const period = lic.billingPeriod || 'monthly';
+          calculatedMrr += period === 'yearly' ? (price / 12) : price;
+        });
+      }
+
+      if (Array.isArray(allActiveSubscriptions)) {
+        allActiveSubscriptions.forEach((sub: any) => {
+          const amount = Number(sub.amount || 0);
+          const period = sub.billingPeriod || 'monthly';
+          calculatedMrr += period === 'yearly' ? (amount / 12) : amount;
+        });
+      }
+
+      const mrr = Math.round(calculatedMrr * 100) / 100;
+      const arr = Math.round(mrr * 12 * 100) / 100;
+      const totalRevenue = (allCompletedPayments || []).reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
+
+      return {
+        mrr,
+        arr,
+        tenants: Number(tenantsCount ?? 0),
+        activeLicenses: Number(activeLicensesCount ?? 0),
+        trialLicenses: Number(trialLicensesCount ?? 0),
+        expiredLicenses: Number(expiredLicensesCount ?? 0),
+        cancelledSubscriptions: Number(cancelledSubscriptionsCount ?? 0),
+        failedPayments: Number(failedPaymentsCount ?? 0),
+        currency: 'EUR',
+        totalUsers: Number(totalUsersCount ?? 0),
+        activeSubscriptions: Number(activeSubscriptionsCount ?? 0),
+        totalInvoices: Number(tenantsCount ?? 0),
+        revenueTotal: Math.round(totalRevenue * 100) / 100
+      };
+    }
+
     try {
-      if (prisma) {
-        // Run parallel queries against PostgreSQL
+      if (prisma && isPostgresConfigured()) {
         const [
           tenantsCount,
           activeTenantsCount,
@@ -81,39 +160,30 @@ export class SuperAdminService {
           totalUsersCount,
           allCompletedPayments
         ] = await Promise.all([
-          // Tenants
-          prisma.tenant?.count().catch(() => INITIAL_TENANTS.length),
-          prisma.tenant?.count({ where: { status: 'active' } }).catch(() => INITIAL_TENANTS.filter(t => t.status === 'active').length),
-          // Licenses
-          prisma.license?.count({ where: { status: 'ACTIVE' } }).catch(() => INITIAL_LICENSES.filter(l => l.status === 'active').length),
-          prisma.license?.count({ where: { status: 'TRIAL' } }).catch(() => 1),
-          prisma.license?.count({ where: { status: 'EXPIRED' } }).catch(() => 1),
-          // Subscriptions
+          prisma.tenant?.count().catch(() => 0),
+          prisma.tenant?.count({ where: { status: 'active' } }).catch(() => 0),
+          prisma.license?.count({ where: { status: 'ACTIVE' } }).catch(() => 0),
+          prisma.license?.count({ where: { status: 'TRIAL' } }).catch(() => 0),
+          prisma.license?.count({ where: { status: 'EXPIRED' } }).catch(() => 0),
           prisma.subscription?.count({ where: { status: 'CANCELLED' } }).catch(() => 0),
-          prisma.subscription?.count({ where: { status: 'ACTIVE' } }).catch(() => 3),
-          // Payments
+          prisma.subscription?.count({ where: { status: 'ACTIVE' } }).catch(() => 0),
           prisma.payment?.count({ where: { status: 'FAILED' } }).catch(() => 0),
-          // Active items for MRR calculation
           prisma.license?.findMany({
             where: { status: 'ACTIVE' },
             select: { price: true, billingPeriod: true }
-          }).catch(() => INITIAL_LICENSES.filter(l => l.status === 'active')),
+          }).catch(() => []),
           prisma.subscription?.findMany({
             where: { status: 'ACTIVE' },
             select: { amount: true, billingPeriod: true }
           }).catch(() => []),
-          // Users
-          prisma.user?.count().catch(() => 4),
-          // Revenue
+          prisma.user?.count().catch(() => 0),
           prisma.payment?.findMany({
             where: { status: 'COMPLETED' },
             select: { amount: true }
           }).catch(() => [])
         ]);
 
-        // Compute MRR from active licenses & subscriptions in PostgreSQL
         let calculatedMrr = 0;
-
         if (Array.isArray(allActiveLicenses)) {
           allActiveLicenses.forEach((lic: any) => {
             const price = Number(lic.price || 0);
@@ -121,7 +191,6 @@ export class SuperAdminService {
             calculatedMrr += period === 'yearly' ? (price / 12) : price;
           });
         }
-
         if (Array.isArray(allActiveSubscriptions)) {
           allActiveSubscriptions.forEach((sub: any) => {
             const amount = Number(sub.amount || 0);
@@ -130,22 +199,9 @@ export class SuperAdminService {
           });
         }
 
-        // If no active subscriptions found in DB yet in non-production, calculate from initial data
-        if (calculatedMrr === 0 && !process.env.DATABASE_URL) {
-          calculatedMrr = INITIAL_LICENSES.filter(l => l.status === 'active').reduce((acc, l) => {
-            return acc + (l.billingPeriod === 'yearly' ? l.price / 12 : l.price);
-          }, 0);
-        }
-
         const mrr = Math.round(calculatedMrr * 100) / 100;
         const arr = Math.round(mrr * 12 * 100) / 100;
-
-        let totalRevenue = 0;
-        if (Array.isArray(allCompletedPayments) && allCompletedPayments.length > 0) {
-          totalRevenue = allCompletedPayments.reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
-        } else if (!process.env.DATABASE_URL) {
-          totalRevenue = INITIAL_LICENSES.reduce((sum, l) => sum + l.price, 0);
-        }
+        const totalRevenue = (allCompletedPayments || []).reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
 
         return {
           mrr,
@@ -164,10 +220,10 @@ export class SuperAdminService {
         };
       }
     } catch (e) {
-      console.error('PostgreSQL getDashboardMetrics error:', e);
+      console.error('PostgreSQL getDashboardMetrics error in dev:', e);
     }
 
-    // Fallback calculation
+    // Fallback calculation ONLY for offline development without DB
     const activeLics = INITIAL_LICENSES.filter(l => l.status === 'active');
     const mrr = activeLics.reduce((sum, l) => sum + (l.billingPeriod === 'yearly' ? l.price / 12 : l.price), 0);
     return {
@@ -191,6 +247,9 @@ export class SuperAdminService {
    * 2. APPLICATIONS FROM POSTGRESQL
    */
   static async getApplications() {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('getApplications requires PostgreSQL in production mode.');
+    }
     try {
       if (prisma && typeof (prisma as any).application?.findMany === 'function') {
         const apps = await (prisma as any).application.findMany({
@@ -202,11 +261,13 @@ export class SuperAdminService {
           },
           orderBy: { createdAt: 'asc' }
         });
-        if (apps && apps.length > 0) return apps;
+        if (apps) return apps;
       }
     } catch (e) {
+      if (isProductionMode()) throw e;
       console.error('PostgreSQL getApplications error:', e);
     }
+    if (isProductionMode()) return [];
     return INITIAL_APPLICATIONS;
   }
 
@@ -214,6 +275,9 @@ export class SuperAdminService {
    * 3. PLANS FROM POSTGRESQL
    */
   static async getPlans(applicationId?: string) {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('getPlans requires PostgreSQL in production mode.');
+    }
     try {
       if (prisma && typeof (prisma as any).plan?.findMany === 'function') {
         const where: any = {};
@@ -226,11 +290,13 @@ export class SuperAdminService {
           },
           orderBy: { monthlyPrice: 'asc' }
         });
-        if (plans && plans.length > 0) return plans;
+        if (plans) return plans;
       }
     } catch (e) {
+      if (isProductionMode()) throw e;
       console.error('PostgreSQL getPlans error:', e);
     }
+    if (isProductionMode()) return [];
     return applicationId ? INITIAL_PLANS.filter(p => p.applicationId === applicationId) : INITIAL_PLANS;
   }
 
@@ -238,6 +304,9 @@ export class SuperAdminService {
    * 4. ENTITLEMENTS FROM POSTGRESQL
    */
   static async getEntitlements() {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('getEntitlements requires PostgreSQL in production mode.');
+    }
     try {
       if (prisma && typeof (prisma as any).planEntitlement?.findMany === 'function') {
         const entitlements = await (prisma as any).planEntitlement.findMany({
@@ -248,11 +317,13 @@ export class SuperAdminService {
           },
           orderBy: { key: 'asc' }
         });
-        if (entitlements && entitlements.length > 0) return entitlements;
+        if (entitlements) return entitlements;
       }
     } catch (e) {
+      if (isProductionMode()) throw e;
       console.error('PostgreSQL getEntitlements error:', e);
     }
+    if (isProductionMode()) return [];
     return [
       { id: 'ent_1', planId: 'plan_pro', key: 'products.max', value: '10000', type: 'NUMBER' },
       { id: 'ent_2', planId: 'plan_pro', key: 'storage.max_mb', value: '25000', type: 'NUMBER' },
@@ -267,6 +338,9 @@ export class SuperAdminService {
    * 5. LICENSES FROM POSTGRESQL
    */
   static async getLicenses(filters?: { status?: string; tenantId?: string }) {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('getLicenses requires PostgreSQL in production mode.');
+    }
     try {
       if (prisma && typeof (prisma as any).license?.findMany === 'function') {
         const where: any = {};
@@ -283,7 +357,7 @@ export class SuperAdminService {
           },
           orderBy: { createdAt: 'desc' }
         });
-        if (lics && lics.length > 0) {
+        if (lics) {
           return lics.map((l: any) => ({
             id: l.id,
             licenseKey: l.displayKey,
@@ -308,8 +382,10 @@ export class SuperAdminService {
         }
       }
     } catch (e) {
+      if (isProductionMode()) throw e;
       console.error('PostgreSQL getLicenses error:', e);
     }
+    if (isProductionMode()) return [];
     return INITIAL_LICENSES;
   }
 
