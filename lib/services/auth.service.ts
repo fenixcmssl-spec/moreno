@@ -740,4 +740,144 @@ export class AuthService {
   static async logout(token: string): Promise<boolean> {
     return SessionService.revokeSession(token);
   }
+
+  /**
+   * Creates a secure one-time activation token for onboarding
+   */
+  static async createActivationToken(userId: string): Promise<{ rawToken: string; tokenHash: string; expiresAt: Date }> {
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+    if (isPostgresConfigured() && prisma?.userActivationToken) {
+      try {
+        await prisma.userActivationToken.create({
+          data: {
+            userId,
+            tokenHash,
+            expiresAt
+          }
+        });
+      } catch (err: any) {
+        if (isProductionMode()) throw err;
+        console.warn('[AuthService] createActivationToken db error:', err);
+      }
+    }
+
+    return { rawToken, tokenHash, expiresAt };
+  }
+
+  /**
+   * Verifies an activation token without consuming it
+   */
+  static async verifyActivationToken(rawToken: string): Promise<{ valid: boolean; userId?: string; user?: any; error?: string }> {
+    if (!rawToken || typeof rawToken !== 'string') {
+      return { valid: false, error: 'Token de activación no proporcionado' };
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(rawToken.trim()).digest('hex');
+
+    if (isPostgresConfigured() && prisma?.userActivationToken) {
+      try {
+        const record = await prisma.userActivationToken.findUnique({
+          where: { tokenHash },
+          include: { user: true }
+        });
+
+        if (!record) {
+          return { valid: false, error: 'Token de activación no válido' };
+        }
+
+        if (record.usedAt) {
+          return { valid: false, error: 'Este enlace de activación ya ha sido utilizado' };
+        }
+
+        if (new Date(record.expiresAt).getTime() < Date.now()) {
+          return { valid: false, error: 'El enlace de activación ha expirado' };
+        }
+
+        return {
+          valid: true,
+          userId: record.userId,
+          user: {
+            id: record.user.id,
+            email: record.user.email,
+            name: record.user.name,
+            status: record.user.status
+          }
+        };
+      } catch (err: any) {
+        if (isProductionMode()) throw err;
+        console.warn('[AuthService] verifyActivationToken error:', err);
+      }
+    }
+
+    return { valid: false, error: 'Servicio de activación no disponible' };
+  }
+
+  /**
+   * Consumes activation token and sets permanent password
+   */
+  static async activateAccountWithToken(rawToken: string, newPassword: string): Promise<{ success: boolean; user?: any; error?: string }> {
+    if (!rawToken || !newPassword) {
+      return { success: false, error: 'Token y contraseña requeridos' };
+    }
+
+    if (newPassword.length < 8) {
+      return { success: false, error: 'La contraseña debe tener al menos 8 caracteres' };
+    }
+
+    const verification = await this.verifyActivationToken(rawToken);
+    if (!verification.valid || !verification.userId) {
+      return { success: false, error: verification.error || 'Token inválido' };
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(rawToken.trim()).digest('hex');
+    const passwordHash = PasswordService.hashPassword(newPassword);
+
+    if (isPostgresConfigured() && prisma) {
+      try {
+        const result = await prisma.$transaction(async (tx: any) => {
+          // 1. Mark token as used
+          await tx.userActivationToken.update({
+            where: { tokenHash },
+            data: { usedAt: new Date() }
+          });
+
+          // 2. Update user status to ACTIVE and save password hash
+          const updatedUser = await tx.user.update({
+            where: { id: verification.userId },
+            data: {
+              passwordHash,
+              status: 'ACTIVE'
+            },
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              role: true,
+              status: true
+            }
+          });
+
+          return updatedUser;
+        });
+
+        AuditService.log({
+          userId: result.id,
+          userEmail: result.email,
+          action: 'USER_ACTIVATION_COMPLETED',
+          entity: 'User',
+          entityId: result.id
+        });
+
+        return { success: true, user: result };
+      } catch (err: any) {
+        if (isProductionMode()) throw err;
+        return { success: false, error: 'Error al activar la cuenta' };
+      }
+    }
+
+    return { success: false, error: 'Base de datos no disponible' };
+  }
 }

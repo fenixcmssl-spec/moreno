@@ -132,9 +132,10 @@ model User {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
-  memberships TenantMembership[]
-  sessions    Session[]
-  auditLogs   AuditLog[]
+  memberships      TenantMembership[]
+  sessions         Session[]
+  activationTokens UserActivationToken[]
+  auditLogs        AuditLog[]
 
   @@index([email])
   @@index([role])
@@ -977,4 +978,30 @@ model CheckoutSession {
   @@index([applicationId, planId])
   @@index([tenantSlug])
 }
+
+model PlatformSetting {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([key])
+}
+
+model UserActivationToken {
+  id         String    @id @default(uuid())
+  userId     String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@index([expiresAt])
+}
+
 

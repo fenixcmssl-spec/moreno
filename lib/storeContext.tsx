@@ -218,20 +218,22 @@ export function StoreProvider({
 
   const isAuthenticated = Boolean(currentUser && currentUser.email);
 
-  const [applications, setApplications] = useState<ApplicationDefinition[]>(INITIAL_APPLICATIONS);
-  const [plans, setPlans] = useState<SaaSPlan[]>(INITIAL_PLANS);
-  const [licenses, setLicenses] = useState<SaaSLicense[]>(INITIAL_LICENSES);
-  const [tenant, setTenant] = useState<TenantStore>(initialTenant);
-  const [products, setProducts] = useState<ProductItem[]>(initialProducts);
-  const [orders, setOrders] = useState<StoreOrder[]>(INITIAL_ORDERS);
-  const [blogPosts, setBlogPosts] = useState<BlogPost[]>(initialBlogPosts);
-  const [classifiedAds, setClassifiedAds] = useState<ClassifiedAdItem[]>(initialClassifiedAds);
-  const [mediaItems, setMediaItems] = useState<MediaItem[]>(INITIAL_MEDIA_ITEMS);
+  const isProd = process.env.NODE_ENV === 'production';
+
+  const [applications, setApplications] = useState<ApplicationDefinition[]>(isProd ? [] : INITIAL_APPLICATIONS);
+  const [plans, setPlans] = useState<SaaSPlan[]>(isProd ? [] : INITIAL_PLANS);
+  const [licenses, setLicenses] = useState<SaaSLicense[]>(isProd ? [] : INITIAL_LICENSES);
+  const [tenant, setTenant] = useState<TenantStore>(isProd ? initialTenant : initialTenant);
+  const [products, setProducts] = useState<ProductItem[]>(isProd ? [] : initialProducts);
+  const [orders, setOrders] = useState<StoreOrder[]>(isProd ? [] : INITIAL_ORDERS);
+  const [blogPosts, setBlogPosts] = useState<BlogPost[]>(isProd ? [] : initialBlogPosts);
+  const [classifiedAds, setClassifiedAds] = useState<ClassifiedAdItem[]>(isProd ? [] : initialClassifiedAds);
+  const [mediaItems, setMediaItems] = useState<MediaItem[]>(isProd ? [] : INITIAL_MEDIA_ITEMS);
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>(AuditService.getAll());
   
-  const [plugins, setPlugins] = useState<PluginDefinition[]>(INITIAL_PLUGINS);
-  const [themes, setThemes] = useState<ThemeDefinition[]>(INITIAL_THEMES);
-  const [marketplaceItems, setMarketplaceItems] = useState<MarketplaceItem[]>(INITIAL_MARKETPLACE_ITEMS);
+  const [plugins, setPlugins] = useState<PluginDefinition[]>(isProd ? [] : INITIAL_PLUGINS);
+  const [themes, setThemes] = useState<ThemeDefinition[]>(isProd ? [] : INITIAL_THEMES);
+  const [marketplaceItems, setMarketplaceItems] = useState<MarketplaceItem[]>(isProd ? [] : INITIAL_MARKETPLACE_ITEMS);
   const [activeThemeId, setActiveThemeIdState] = useState<string>(initialActiveThemeId);
   const [activeStoreHost, setActiveStoreHost] = useState<string>(initialTenant.domain || `${initialTenant.slug}.es`);
   

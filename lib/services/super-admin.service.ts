@@ -393,6 +393,9 @@ export class SuperAdminService {
    * 6. ACTIVATIONS FROM POSTGRESQL
    */
   static async getActivations() {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('getActivations requires PostgreSQL in production mode.');
+    }
     try {
       if (prisma && typeof (prisma as any).licenseActivation?.findMany === 'function') {
         const activations = await (prisma as any).licenseActivation.findMany({
@@ -403,11 +406,13 @@ export class SuperAdminService {
           },
           orderBy: { activatedAt: 'desc' }
         });
-        if (activations && activations.length > 0) return activations;
+        if (activations) return activations;
       }
     } catch (e) {
+      if (isProductionMode()) throw e;
       console.error('PostgreSQL getActivations error:', e);
     }
+    if (isProductionMode()) return [];
     return [
       {
         id: 'act_1',
@@ -438,6 +443,9 @@ export class SuperAdminService {
    * 7. SUBSCRIPTIONS FROM POSTGRESQL
    */
   static async getSubscriptions() {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('getSubscriptions requires PostgreSQL in production mode.');
+    }
     try {
       if (prisma && typeof (prisma as any).subscription?.findMany === 'function') {
         const subs = await (prisma as any).subscription.findMany({
@@ -449,51 +457,23 @@ export class SuperAdminService {
           },
           orderBy: { createdAt: 'desc' }
         });
-        if (subs && subs.length > 0) return subs;
+        if (subs) return subs;
       }
     } catch (e) {
+      if (isProductionMode()) throw e;
       console.error('PostgreSQL getSubscriptions error:', e);
     }
-    return [
-      {
-        id: 'sub_valencia_01',
-        tenantId: 'tenant_boutiquevalencia',
-        tenantName: 'Boutique Valencia',
-        planId: 'plan_pro',
-        planName: 'Pro Storefront',
-        provider: 'STRIPE',
-        providerSubscriptionId: 'sub_stripe_889911',
-        status: 'ACTIVE',
-        billingPeriod: 'monthly',
-        amount: 79,
-        currency: 'EUR',
-        currentPeriodStart: '2026-08-01T00:00:00Z',
-        currentPeriodEnd: '2026-09-01T00:00:00Z',
-        cancelAtPeriodEnd: false
-      },
-      {
-        id: 'sub_madrid_02',
-        tenantId: 'tenant_tienda_madrid',
-        tenantName: 'Tech Madrid Express',
-        planId: 'plan_enterprise',
-        planName: 'Enterprise Commerce',
-        provider: 'STRIPE',
-        providerSubscriptionId: 'sub_stripe_445522',
-        status: 'ACTIVE',
-        billingPeriod: 'yearly',
-        amount: 1990,
-        currency: 'EUR',
-        currentPeriodStart: '2026-01-01T00:00:00Z',
-        currentPeriodEnd: '2027-01-01T00:00:00Z',
-        cancelAtPeriodEnd: false
-      }
-    ];
+    if (isProductionMode()) return [];
+    return [];
   }
 
   /**
    * 8. PAYMENTS FROM POSTGRESQL
    */
   static async getPayments() {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('getPayments requires PostgreSQL in production mode.');
+    }
     try {
       if (prisma && typeof (prisma as any).payment?.findMany === 'function') {
         const payments = await (prisma as any).payment.findMany({
@@ -504,49 +484,23 @@ export class SuperAdminService {
           },
           orderBy: { createdAt: 'desc' }
         });
-        if (payments && payments.length > 0) return payments;
+        if (payments) return payments;
       }
     } catch (e) {
+      if (isProductionMode()) throw e;
       console.error('PostgreSQL getPayments error:', e);
     }
-    return [
-      {
-        id: 'pay_01',
-        tenantId: 'tenant_boutiquevalencia',
-        tenantName: 'Boutique Valencia',
-        amount: 79,
-        currency: 'EUR',
-        provider: 'STRIPE',
-        providerTransactionId: 'pi_test_stripe_998811',
-        status: 'COMPLETED',
-        paymentType: 'SAAS_LICENSE',
-        customerName: 'Carlos Moreno',
-        customerEmail: 'carlos@boutiquevalencia.es',
-        paidAt: '2026-08-10T12:00:00Z',
-        createdAt: '2026-08-10T12:00:00Z'
-      },
-      {
-        id: 'pay_02',
-        tenantId: 'tenant_tienda_madrid',
-        tenantName: 'Tech Madrid Express',
-        amount: 1990,
-        currency: 'EUR',
-        provider: 'STRIPE',
-        providerTransactionId: 'pi_test_stripe_223344',
-        status: 'COMPLETED',
-        paymentType: 'SAAS_LICENSE',
-        customerName: 'Elena Ramos',
-        customerEmail: 'elena@techmadrid.es',
-        paidAt: '2026-08-01T10:00:00Z',
-        createdAt: '2026-08-01T10:00:00Z'
-      }
-    ];
+    if (isProductionMode()) return [];
+    return [];
   }
 
   /**
    * 9. INVOICES FROM POSTGRESQL
    */
   static async getInvoices() {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('getInvoices requires PostgreSQL in production mode.');
+    }
     try {
       if (prisma && typeof (prisma as any).invoice?.findMany === 'function') {
         const invoices = await (prisma as any).invoice.findMany({
@@ -555,51 +509,23 @@ export class SuperAdminService {
           },
           orderBy: { issuedAt: 'desc' }
         });
-        if (invoices && invoices.length > 0) return invoices;
+        if (invoices) return invoices;
       }
     } catch (e) {
+      if (isProductionMode()) throw e;
       console.error('PostgreSQL getInvoices error:', e);
     }
-    return [
-      {
-        id: 'inv_01',
-        invoiceNumber: 'FNX-2026-0001',
-        tenantId: 'tenant_boutiquevalencia',
-        tenantName: 'Boutique Valencia',
-        billingName: 'Boutique Valencia S.L.',
-        billingEmail: 'facturacion@boutiquevalencia.es',
-        subtotal: 65.29,
-        tax: 13.71,
-        total: 79.00,
-        currency: 'EUR',
-        status: 'PAID',
-        issuedAt: '2026-08-10T12:00:00Z',
-        paidAt: '2026-08-10T12:01:00Z',
-        items: [{ description: 'FenixCMS E-Commerce Pro - Suscripción Mensual', amount: 79.00 }]
-      },
-      {
-        id: 'inv_02',
-        invoiceNumber: 'FNX-2026-0002',
-        tenantId: 'tenant_tienda_madrid',
-        tenantName: 'Tech Madrid Express',
-        billingName: 'Tech Madrid Express S.A.',
-        billingEmail: 'admin@techmadrid.es',
-        subtotal: 1644.63,
-        tax: 345.37,
-        total: 1990.00,
-        currency: 'EUR',
-        status: 'PAID',
-        issuedAt: '2026-08-01T10:00:00Z',
-        paidAt: '2026-08-01T10:02:00Z',
-        items: [{ description: 'FenixCMS E-Commerce Enterprise - Suscripción Anual', amount: 1990.00 }]
-      }
-    ];
+    if (isProductionMode()) return [];
+    return [];
   }
 
   /**
    * 10. TENANTS FROM POSTGRESQL
    */
   static async getTenants() {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('getTenants requires PostgreSQL in production mode.');
+    }
     try {
       if (prisma && typeof (prisma as any).tenant?.findMany === 'function') {
         const tenants = await (prisma as any).tenant.findMany({
@@ -617,11 +543,13 @@ export class SuperAdminService {
           },
           orderBy: { createdAt: 'desc' }
         });
-        if (tenants && tenants.length > 0) return tenants;
+        if (tenants) return tenants;
       }
     } catch (e) {
+      if (isProductionMode()) throw e;
       console.error('PostgreSQL getTenants error:', e);
     }
+    if (isProductionMode()) return [];
     return INITIAL_TENANTS;
   }
 
@@ -629,6 +557,9 @@ export class SuperAdminService {
    * 11. DOMAINS FROM POSTGRESQL
    */
   static async getDomains() {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('getDomains requires PostgreSQL in production mode.');
+    }
     try {
       if (prisma && typeof (prisma as any).domain?.findMany === 'function') {
         const domains = await (prisma as any).domain.findMany({
@@ -637,55 +568,23 @@ export class SuperAdminService {
           },
           orderBy: { createdAt: 'desc' }
         });
-        if (domains && domains.length > 0) return domains;
+        if (domains) return domains;
       }
     } catch (e) {
+      if (isProductionMode()) throw e;
       console.error('PostgreSQL getDomains error:', e);
     }
-    return [
-      {
-        id: 'dom_1',
-        hostname: 'boutiquevalencia.fenixcms.com',
-        type: 'SYSTEM_SUBDOMAIN',
-        status: 'active',
-        verified: true,
-        isPrimary: true,
-        sslStatus: 'active',
-        tenantId: 'tenant_boutiquevalencia',
-        tenantName: 'Boutique Valencia',
-        createdAt: '2026-01-10T10:00:00Z'
-      },
-      {
-        id: 'dom_2',
-        hostname: 'boutiquevalencia.es',
-        type: 'CUSTOM_DOMAIN',
-        status: 'active',
-        verified: true,
-        isPrimary: false,
-        sslStatus: 'active',
-        tenantId: 'tenant_boutiquevalencia',
-        tenantName: 'Boutique Valencia',
-        createdAt: '2026-01-15T12:00:00Z'
-      },
-      {
-        id: 'dom_3',
-        hostname: 'techmadrid.fenixcms.com',
-        type: 'SYSTEM_SUBDOMAIN',
-        status: 'active',
-        verified: true,
-        isPrimary: true,
-        sslStatus: 'active',
-        tenantId: 'tenant_tienda_madrid',
-        tenantName: 'Tech Madrid Express',
-        createdAt: '2026-02-01T14:30:00Z'
-      }
-    ];
+    if (isProductionMode()) return [];
+    return [];
   }
 
   /**
    * 12. THEMES FROM POSTGRESQL
    */
   static async getThemes() {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('getThemes requires PostgreSQL in production mode.');
+    }
     try {
       if (prisma && typeof (prisma as any).theme?.findMany === 'function') {
         const themes = await (prisma as any).theme.findMany({
@@ -696,11 +595,13 @@ export class SuperAdminService {
           },
           orderBy: { name: 'asc' }
         });
-        if (themes && themes.length > 0) return themes;
+        if (themes) return themes;
       }
     } catch (e) {
+      if (isProductionMode()) throw e;
       console.error('PostgreSQL getThemes error:', e);
     }
+    if (isProductionMode()) return [];
     return INITIAL_THEMES;
   }
 
@@ -708,6 +609,9 @@ export class SuperAdminService {
    * 13. PLUGINS FROM POSTGRESQL
    */
   static async getPlugins() {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('getPlugins requires PostgreSQL in production mode.');
+    }
     try {
       if (prisma && typeof (prisma as any).plugin?.findMany === 'function') {
         const plugins = await (prisma as any).plugin.findMany({
@@ -718,11 +622,13 @@ export class SuperAdminService {
           },
           orderBy: { name: 'asc' }
         });
-        if (plugins && plugins.length > 0) return plugins;
+        if (plugins) return plugins;
       }
     } catch (e) {
+      if (isProductionMode()) throw e;
       console.error('PostgreSQL getPlugins error:', e);
     }
+    if (isProductionMode()) return [];
     return INITIAL_PLUGINS;
   }
 
@@ -730,6 +636,9 @@ export class SuperAdminService {
    * 14. USERS FROM POSTGRESQL
    */
   static async getUsers() {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('getUsers requires PostgreSQL in production mode.');
+    }
     try {
       if (prisma && typeof (prisma as any).user?.findMany === 'function') {
         const users = await (prisma as any).user.findMany({
@@ -741,7 +650,7 @@ export class SuperAdminService {
           },
           orderBy: { createdAt: 'desc' }
         });
-        if (users && users.length > 0) {
+        if (users) {
           return users.map((u: any) => ({
             id: u.id,
             name: u.name,
@@ -756,40 +665,11 @@ export class SuperAdminService {
         }
       }
     } catch (e) {
+      if (isProductionMode()) throw e;
       console.error('PostgreSQL getUsers error:', e);
     }
-    return [
-      {
-        id: 'usr_super_admin',
-        name: 'Super Admin FenixCMS',
-        email: 'superadmin@fenixcms.io',
-        role: 'SUPER_ADMIN',
-        status: 'ACTIVE',
-        tenants: ['Plataforma Global'],
-        createdAt: '2026-01-01T00:00:00Z',
-        lastActive: '2026-09-11T09:00:00Z'
-      },
-      {
-        id: 'usr_carlos',
-        name: 'Carlos Moreno',
-        email: 'carlos@boutiquevalencia.es',
-        role: 'OWNER',
-        status: 'ACTIVE',
-        tenants: ['Boutique Valencia'],
-        createdAt: '2026-01-10T10:00:00Z',
-        lastActive: '2026-09-10T18:00:00Z'
-      },
-      {
-        id: 'usr_elena',
-        name: 'Elena Ramos',
-        email: 'elena@techmadrid.es',
-        role: 'OWNER',
-        status: 'ACTIVE',
-        tenants: ['Tech Madrid Express'],
-        createdAt: '2026-02-01T14:30:00Z',
-        lastActive: '2026-09-10T16:20:00Z'
-      }
-    ];
+    if (isProductionMode()) return [];
+    return [];
   }
 
   /**
@@ -815,18 +695,73 @@ export class SuperAdminService {
   }
 
   /**
-   * 16. PLATFORM SETTINGS
+   * 16. PERSISTENT PLATFORM SETTINGS (PostgreSQL)
    */
   static async getSettings(): Promise<PlatformSettings> {
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('Platform settings require PostgreSQL in production mode.');
+    }
+
+    if (isPostgresConfigured() && prisma?.platformSetting) {
+      try {
+        const record = await prisma.platformSetting.findUnique({
+          where: { key: 'global_platform_settings' }
+        });
+        if (record && record.value && typeof record.value === 'object') {
+          return {
+            ...this.defaultSettings,
+            ...(record.value as any),
+            updatedAt: record.updatedAt.toISOString()
+          };
+        }
+      } catch (err: any) {
+        if (isProductionMode()) throw err;
+        console.warn('PostgreSQL getSettings error:', err);
+      }
+    }
+
     return this.defaultSettings;
   }
 
   static async updateSettings(updates: Partial<PlatformSettings>): Promise<PlatformSettings> {
-    this.defaultSettings = {
-      ...this.defaultSettings,
+    if (isProductionMode() && !isPostgresConfigured()) {
+      throw new DatabaseConfigurationError('Platform settings require PostgreSQL in production mode.');
+    }
+
+    const current = await this.getSettings();
+    const merged: PlatformSettings = {
+      ...current,
       ...updates,
       updatedAt: new Date().toISOString()
     };
+
+    if (isPostgresConfigured() && prisma?.platformSetting) {
+      try {
+        await prisma.platformSetting.upsert({
+          where: { key: 'global_platform_settings' },
+          update: {
+            value: merged as any
+          },
+          create: {
+            key: 'global_platform_settings',
+            value: merged as any
+          }
+        });
+
+        AuditService.log({
+          action: 'PLATFORM_SETTINGS_UPDATED',
+          entity: 'PlatformSettings',
+          details: updates
+        });
+
+        return merged;
+      } catch (err: any) {
+        if (isProductionMode()) throw err;
+        console.warn('PostgreSQL updateSettings error:', err);
+      }
+    }
+
+    this.defaultSettings = merged;
     AuditService.log({
       action: 'PLATFORM_SETTINGS_UPDATED',
       entity: 'PlatformSettings',
@@ -904,3 +839,4 @@ export class SuperAdminService {
     return false;
   }
 }
+

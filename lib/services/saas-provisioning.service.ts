@@ -178,13 +178,29 @@ export class SaaSProvisioningService {
     }
 
     // 5. Validar que el captureId no haya sido reutilizado
-    if (PROVISIONED_CAPTURE_IDS.has(captureId)) {
-      return {
-        success: false,
-        checkoutSessionId: session.id,
-        error: `El identificador de captura '${captureId}' ya fue utilizado previamente.`,
-        failureCode: 'PAYPAL_CAPTURE_ALREADY_USED'
-      };
+    if (isProductionMode()) {
+      if (isPostgresConfigured() && prisma?.payment) {
+        const existingPayment = await prisma.payment.findFirst({
+          where: { providerTransactionId: captureId }
+        });
+        if (existingPayment) {
+          return {
+            success: false,
+            checkoutSessionId: session.id,
+            error: `El identificador de captura '${captureId}' ya fue utilizado previamente.`,
+            failureCode: 'PAYPAL_CAPTURE_ALREADY_USED'
+          };
+        }
+      }
+    } else {
+      if (PROVISIONED_CAPTURE_IDS.has(captureId)) {
+        return {
+          success: false,
+          checkoutSessionId: session.id,
+          error: `El identificador de captura '${captureId}' ya fue utilizado previamente.`,
+          failureCode: 'PAYPAL_CAPTURE_ALREADY_USED'
+        };
+      }
     }
 
     const cleanSlug = session.tenantSlug.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
@@ -203,24 +219,38 @@ export class SaaSProvisioningService {
     const displayKey = `${generatedRawKey.slice(0, 8)}••••••••••••`;
     const licenseKeyHash = LicenseService.hashKey(generatedRawKey);
 
+    let createdActivationToken: string | null = null;
+
     // 6. Transacción Atómica PostgreSQL
     if (isPostgresConfigured() && prisma?.tenant) {
       try {
         const txResult = await prisma.$transaction(async (tx: any) => {
-          // A. Crear o asegurar Usuario Propietario (OWNER)
+          // A. Crear o asegurar Usuario Propietario (OWNER) con estado PENDING_ACTIVATION
           let ownerUser = await tx.user.findUnique({ where: { email: session.customerEmail } });
           if (!ownerUser) {
-            const tempPassword = crypto.randomBytes(12).toString('hex');
-            const hashedPassword = await PasswordService.hashPassword(tempPassword);
+            const tempPassword = crypto.randomBytes(16).toString('hex');
+            const hashedPassword = PasswordService.hashPassword(tempPassword);
             ownerUser = await tx.user.create({
               data: {
                 name: session.customerName,
                 email: session.customerEmail,
-                password: hashedPassword,
+                passwordHash: hashedPassword,
                 role: 'OWNER',
-                status: 'ACTIVE'
+                status: 'PENDING'
               }
             });
+
+            // Generar token de activación seguro
+            const rawToken = crypto.randomBytes(32).toString('hex');
+            const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+            await tx.userActivationToken.create({
+              data: {
+                userId: ownerUser.id,
+                tokenHash,
+                expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+              }
+            });
+            createdActivationToken = rawToken;
           }
 
           // B. Crear Tenant
