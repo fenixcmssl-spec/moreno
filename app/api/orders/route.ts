@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { TenantContextHelper } from '@/lib/auth/tenantContext';
 import { OrderService } from '@/lib/services/order.service';
 import { AuditService } from '@/lib/services/audit.service';
+import { isProductionMode } from '@/lib/prisma';
 
 export async function GET(req: NextRequest) {
   try {
@@ -42,21 +43,21 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
     const {
       customerName,
       customerEmail,
       customerPhone,
       items = [],
       shippingAddress,
-      paymentMethod = 'stripe',
+      paymentMethod = 'paypal',
       shippingMethod = 'correos_express',
       couponCode,
       notes,
       idempotencyKey: bodyIdempotencyKey
     } = body;
 
-    // Resolve tenant from public domain/slug context, session or verified identifier
+    // 1. Resolve tenant strictly from verified public domain/host context or authenticated session
     let targetTenantId: string | undefined;
     const publicContext = await TenantContextHelper.resolvePublicTenant(req);
     if (publicContext?.tenant?.id) {
@@ -68,7 +69,8 @@ export async function POST(req: NextRequest) {
       targetTenantId = session.tenantId;
     }
 
-    if (!targetTenantId && body.tenantId) {
+    // In non-production only, allow dev fallback via tenant identifier if no domain header was attached
+    if (!targetTenantId && !isProductionMode() && body.tenantId) {
       const verifiedTenant = await TenantContextHelper.findTenantByIdOrSlug(body.tenantId);
       if (verifiedTenant) {
         targetTenantId = verifiedTenant.id;
@@ -76,32 +78,52 @@ export async function POST(req: NextRequest) {
     }
 
     if (!targetTenantId) {
-      return NextResponse.json({ error: 'No se pudo resolver la tienda asociada a este pedido' }, { status: 400 });
+      return NextResponse.json({ 
+        success: false, 
+        error: 'No se pudo resolver la tienda asociada a este pedido. Acceso denegado.',
+        failureCode: 'TENANT_NOT_RESOLVED'
+      }, { status: 400 });
     }
 
     if (!customerEmail || !customerEmail.includes('@')) {
-      return NextResponse.json({ error: 'Email de cliente inválido' }, { status: 400 });
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Email de cliente inválido.',
+        failureCode: 'INVALID_CUSTOMER_EMAIL' 
+      }, { status: 400 });
     }
 
     if (!items || !Array.isArray(items) || items.length === 0) {
-      return NextResponse.json({ error: 'El pedido debe contener al menos un producto' }, { status: 400 });
+      return NextResponse.json({ 
+        success: false, 
+        error: 'El pedido debe contener al menos un producto.',
+        failureCode: 'EMPTY_CART' 
+      }, { status: 400 });
+    }
+
+    // Validate shipping address (no fake default addresses)
+    if (!shippingAddress || typeof shippingAddress !== 'object' || !shippingAddress.address || !shippingAddress.city || !shippingAddress.country) {
+      return NextResponse.json({
+        success: false,
+        error: 'La dirección de envío completa es obligatoria (dirección, ciudad, código postal y país).',
+        failureCode: 'SHIPPING_ADDRESS_REQUIRED'
+      }, { status: 400 });
     }
 
     const idempotencyKey = req.headers.get('x-idempotency-key') || bodyIdempotencyKey || undefined;
 
-    const defaultAddress = shippingAddress || {
-      address: 'Dirección no especificada',
-      city: 'Madrid',
-      postalCode: '28001',
-      country: 'España'
-    };
-
     const result = await OrderService.createOrder({
       tenantId: targetTenantId,
-      customerName: customerName || 'Cliente',
-      customerEmail,
-      customerPhone,
-      shippingAddress: defaultAddress,
+      customerName: (customerName || 'Cliente').trim(),
+      customerEmail: customerEmail.trim().toLowerCase(),
+      customerPhone: customerPhone ? String(customerPhone).trim() : undefined,
+      shippingAddress: {
+        address: String(shippingAddress.address).trim(),
+        city: String(shippingAddress.city).trim(),
+        postalCode: String(shippingAddress.postalCode || '00000').trim(),
+        country: String(shippingAddress.country).trim(),
+        state: shippingAddress.state ? String(shippingAddress.state).trim() : undefined
+      },
       items: items.map((i: any) => ({
         productId: i.productId || i.id,
         quantity: Number(i.quantity) || 1,
@@ -109,18 +131,25 @@ export async function POST(req: NextRequest) {
       })),
       paymentMethod,
       shippingMethod,
-      couponCode,
-      notes,
+      couponCode: couponCode ? String(couponCode).trim() : undefined,
+      notes: notes ? String(notes).trim() : undefined,
       idempotencyKey
     });
 
     if (!result.success || !result.order) {
-      return NextResponse.json({ error: result.error || 'Error procesando el pedido' }, { status: 400 });
+      return NextResponse.json({ 
+        success: false, 
+        error: result.error || 'Error procesando el pedido.',
+        failureCode: 'ORDER_PROCESSING_FAILED'
+      }, { status: 400 });
     }
 
     return NextResponse.json({ success: true, order: result.order }, { status: 201 });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Error procesando pedido' }, { status: 500 });
+    return NextResponse.json({ 
+      success: false, 
+      error: error?.message || 'Error interno procesando pedido.' 
+    }, { status: 500 });
   }
 }
 

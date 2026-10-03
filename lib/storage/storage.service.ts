@@ -1,4 +1,6 @@
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import prisma from '@/lib/prisma';
 import { SecurityService } from '@/lib/security/security.service';
 
@@ -66,6 +68,28 @@ export class ManagedStorageProvider implements IStorageProvider {
       ? params.bufferOrUrl
       : `${this.cdnBaseUrl}/${storageKey}`;
 
+    // Physical disk write for persistent storage on VPS
+    try {
+      if (params.bufferOrUrl) {
+        const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'tenants', params.tenantId, 'uploads');
+        if (!fs.existsSync(uploadDir)) {
+          fs.mkdirSync(uploadDir, { recursive: true });
+        }
+
+        const filePath = path.join(uploadDir, `${timestamp}_${sanitizedFilename}`);
+        if (Buffer.isBuffer(params.bufferOrUrl)) {
+          await fs.promises.writeFile(filePath, params.bufferOrUrl);
+        } else if (typeof params.bufferOrUrl === 'string' && params.bufferOrUrl.startsWith('data:')) {
+          const base64Data = params.bufferOrUrl.split(';base64,').pop();
+          if (base64Data) {
+            await fs.promises.writeFile(filePath, Buffer.from(base64Data, 'base64'));
+          }
+        }
+      }
+    } catch (diskErr) {
+      console.warn('[ManagedStorageProvider] Disk write warning:', diskErr);
+    }
+
     return {
       url,
       storageKey,
@@ -75,6 +99,15 @@ export class ManagedStorageProvider implements IStorageProvider {
   }
 
   async delete(storageKey: string): Promise<boolean> {
+    try {
+      const cleanKey = storageKey.replace(/\.\./g, '');
+      const filePath = path.join(process.cwd(), 'public', 'uploads', cleanKey);
+      if (fs.existsSync(filePath)) {
+        await fs.promises.unlink(filePath);
+      }
+    } catch (delErr) {
+      console.warn('[ManagedStorageProvider] Disk unlink warning:', delErr);
+    }
     return true;
   }
 

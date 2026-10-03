@@ -1,5 +1,6 @@
 import { runFase1Tests } from '../tests/fenixcms-fase1.test';
 import { runFase2Tests } from '../tests/fenixcms-fase2.test';
+import { runFase4Tests } from '../tests/fenixcms-fase4-order-checkout.test';
 import { runMasterTestSuite } from '../tests/master-paso20.test';
 import { runFase20D1Tests } from '../tests/fase20-d1-persistence.test';
 import { runClassifiedsTestSuite } from '../tests/classifieds.test';
@@ -13,6 +14,7 @@ import { runFase28And29Tests } from '../tests/fase28-29-paypal-webhook.test';
 async function main() {
   await runFase1Tests();
   await runFase2Tests();
+  await runFase4Tests();
   await runMasterTestSuite();
   await runFase20D1Tests();
   await runClassifiedsTestSuite();
