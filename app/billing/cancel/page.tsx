@@ -1,6 +1,7 @@
 'use client';
 
 import React, { Suspense } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { XCircle, ArrowLeft, ShieldAlert } from 'lucide-react';
 
@@ -27,13 +28,13 @@ function BillingCancelContent() {
         </div>
 
         <div>
-          <a
+          <Link
             href="/#pricing"
             className="inline-flex items-center justify-center gap-2 w-full py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-sm transition shadow-lg shadow-amber-500/20"
           >
             <ArrowLeft className="w-4 h-4" />
             Volver al Catálogo de Planes
-          </a>
+          </Link>
         </div>
       </div>
     </div>

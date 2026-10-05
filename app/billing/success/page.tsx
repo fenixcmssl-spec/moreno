@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, Suspense } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { CheckCircle2, AlertCircle, Loader2, Store, ArrowRight, ShieldCheck } from 'lucide-react';
 
@@ -71,12 +72,12 @@ function BillingSuccessContent() {
           <h2 className="text-xl font-bold text-white">Error en la Verificación</h2>
           <p className="text-sm text-red-300">{error}</p>
           <div className="pt-4">
-            <a
+            <Link
               href="/#pricing"
               className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-sm transition"
             >
               Volver a Planes
-            </a>
+            </Link>
           </div>
         </div>
       </div>
@@ -118,19 +119,19 @@ function BillingSuccessContent() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-          <a
-            href={`/admin`}
+          <Link
+            href="/admin"
             className="w-full py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs transition flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20"
           >
             <Store className="w-4 h-4" />
             Acceder al Backoffice
-          </a>
-          <a
+          </Link>
+          <Link
             href="/"
             className="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs border border-slate-700 transition flex items-center justify-center gap-2"
           >
             Ir a Portada
-          </a>
+          </Link>
         </div>
       </div>
     </div>
