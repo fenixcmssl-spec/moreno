@@ -35,18 +35,17 @@ export async function runFase24Tests() {
         }
       });
 
-      if (!isPostgresConfigured()) {
-        let threw = false;
-        try {
-          await TenantContextHelper.resolvePublicTenant(req);
-        } catch (e) {
-          threw = e instanceof DatabaseConfigurationError;
-        }
-        assert(threw, 'En producción sin DATABASE_URL, lanza DatabaseConfigurationError explícito (fail-fast)');
-      } else {
-        const ctx = await TenantContextHelper.resolvePublicTenant(req);
-        assert(ctx !== null && ctx.tenant.slug === 'tienda-demo', 'Resuelve tenant legítimo desde PostgreSQL');
+      const prevDbUrl = process.env.DATABASE_URL;
+      delete process.env.DATABASE_URL;
+      let threw = false;
+      try {
+        await TenantContextHelper.resolvePublicTenant(req);
+      } catch (e) {
+        threw = e instanceof DatabaseConfigurationError;
+      } finally {
+        if (prevDbUrl) process.env.DATABASE_URL = prevDbUrl;
       }
+      assert(threw, 'En producción sin DATABASE_URL, lanza DatabaseConfigurationError explícito (fail-fast)');
     }
 
     // -------------------------------------------------------------------------

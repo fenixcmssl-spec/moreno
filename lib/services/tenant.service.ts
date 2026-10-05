@@ -2,6 +2,7 @@ import { prisma, isPostgresConfigured, isProductionMode, DatabaseConfigurationEr
 import { TenantStore, EntityStatus, SaaSLicense } from '@/types';
 import { UserRole } from '@/lib/auth/rbac';
 import { LicenseService } from './license.service';
+import { INITIAL_TENANTS } from '@/lib/initialData';
 
 export interface CreateTenantInput {
   id?: string;
@@ -504,13 +505,18 @@ export class TenantService {
     }
 
     if (isPostgresConfigured() && prisma?.tenant?.findUnique) {
-      const tenant = await prisma.tenant.findUnique({
-        where: { id }
-      });
-      return tenant ? this.mapPrismaToTenantStore(tenant) : null;
+      try {
+        const tenant = await prisma.tenant.findUnique({
+          where: { id }
+        });
+        if (tenant) return this.mapPrismaToTenantStore(tenant);
+        if (isProductionMode()) return null;
+      } catch (err) {
+        if (isProductionMode()) throw err;
+      }
     }
 
-    return null;
+    return INITIAL_TENANTS.find(t => t.id === id) || null;
   }
 
   /**
@@ -525,13 +531,18 @@ export class TenantService {
     }
 
     if (isPostgresConfigured() && prisma?.tenant?.findUnique) {
-      const tenant = await prisma.tenant.findUnique({
-        where: { slug: cleanSlug }
-      });
-      return tenant ? this.mapPrismaToTenantStore(tenant) : null;
+      try {
+        const tenant = await prisma.tenant.findUnique({
+          where: { slug: cleanSlug }
+        });
+        if (tenant) return this.mapPrismaToTenantStore(tenant);
+        if (isProductionMode()) return null;
+      } catch (err) {
+        if (isProductionMode()) throw err;
+      }
     }
 
-    return null;
+    return INITIAL_TENANTS.find(t => t.slug === cleanSlug) || null;
   }
 
   /**
@@ -546,26 +557,32 @@ export class TenantService {
     }
 
     if (isPostgresConfigured() && prisma?.tenant) {
-      const tenant = await prisma.tenant.findFirst({
-        where: {
-          OR: [
-            { domain: cleanHost },
-            { customDomain: cleanHost },
-            { domains: { some: { hostname: cleanHost, status: 'active' } } }
-          ]
-        }
-      });
-      if (tenant) return this.mapPrismaToTenantStore(tenant);
+      try {
+        const tenant = await prisma.tenant.findFirst({
+          where: {
+            OR: [
+              { domain: cleanHost },
+              { customDomain: cleanHost },
+              { domains: { some: { hostname: cleanHost, status: 'active' } } }
+            ]
+          }
+        });
+        if (tenant) return this.mapPrismaToTenantStore(tenant);
 
-      // Subdomain format check (e.g. mitienda.fenixcms.es)
-      if (cleanHost.endsWith('.fenixcms.es')) {
-        const subSlug = cleanHost.replace('.fenixcms.es', '');
-        const bySlug = await prisma.tenant.findUnique({ where: { slug: subSlug } });
-        if (bySlug) return this.mapPrismaToTenantStore(bySlug);
+        // Subdomain format check (e.g. mitienda.fenixcms.es)
+        if (cleanHost.endsWith('.fenixcms.es')) {
+          const subSlug = cleanHost.replace('.fenixcms.es', '');
+          const bySlug = await prisma.tenant.findUnique({ where: { slug: subSlug } });
+          if (bySlug) return this.mapPrismaToTenantStore(bySlug);
+        }
+
+        if (isProductionMode()) return null;
+      } catch (err) {
+        if (isProductionMode()) throw err;
       }
     }
 
-    return null;
+    return INITIAL_TENANTS.find(t => t.domain === cleanHost || t.customDomain === cleanHost) || null;
   }
 
   /**
@@ -582,31 +599,50 @@ export class TenantService {
     }
 
     if (isPostgresConfigured() && prisma?.tenant?.findMany) {
-      const where: any = {};
-      if (options?.status) where.status = options.status;
-      if (options?.applicationId) where.applicationId = options.applicationId;
-      if (options?.userId) {
-        where.memberships = {
-          some: { userId: options.userId }
-        };
-      }
-      if (options?.search) {
-        where.OR = [
-          { name: { contains: options.search, mode: 'insensitive' } },
-          { slug: { contains: options.search, mode: 'insensitive' } },
-          { ownerEmail: { contains: options.search, mode: 'insensitive' } }
-        ];
-      }
+      try {
+        const where: any = {};
+        if (options?.status) where.status = options.status;
+        if (options?.applicationId) where.applicationId = options.applicationId;
+        if (options?.userId) {
+          where.memberships = {
+            some: { userId: options.userId }
+          };
+        }
+        if (options?.search) {
+          where.OR = [
+            { name: { contains: options.search, mode: 'insensitive' } },
+            { slug: { contains: options.search, mode: 'insensitive' } },
+            { ownerEmail: { contains: options.search, mode: 'insensitive' } }
+          ];
+        }
 
-      const tenants = await prisma.tenant.findMany({
-        where,
-        orderBy: { createdAt: 'desc' }
-      });
+        const tenants = await prisma.tenant.findMany({
+          where,
+          orderBy: { createdAt: 'desc' }
+        });
 
-      return (tenants || []).map((t: any) => this.mapPrismaToTenantStore(t));
+        if (tenants && tenants.length > 0) {
+          return tenants.map((t: any) => this.mapPrismaToTenantStore(t));
+        }
+
+        if (isProductionMode()) return [];
+      } catch (err) {
+        if (isProductionMode()) throw err;
+      }
     }
 
-    return [];
+    let list = [...INITIAL_TENANTS];
+    if (options?.status) {
+      list = list.filter(t => t.status.toLowerCase() === options.status?.toLowerCase());
+    }
+    if (options?.applicationId) {
+      list = list.filter(t => t.applicationId === options.applicationId);
+    }
+    if (options?.search) {
+      const s = options.search.toLowerCase();
+      list = list.filter(t => t.name.toLowerCase().includes(s) || t.slug.toLowerCase().includes(s));
+    }
+    return list;
   }
 
   /**

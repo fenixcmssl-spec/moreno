@@ -39,36 +39,40 @@ export class ApplicationService {
     }
 
     if (isPostgresConfigured() && prisma?.application?.findMany) {
-      const where: any = {};
-      if (options?.status) {
-        where.status = options.status.toUpperCase();
-      }
-      if (options?.search) {
-        where.OR = [
-          { name: { contains: options.search, mode: 'insensitive' } },
-          { key: { contains: options.search, mode: 'insensitive' } },
-          { description: { contains: options.search, mode: 'insensitive' } },
-          { category: { contains: options.search, mode: 'insensitive' } }
-        ];
-      }
+      try {
+        const where: any = {};
+        if (options?.status) {
+          where.status = options.status.toUpperCase();
+        }
+        if (options?.search) {
+          where.OR = [
+            { name: { contains: options.search, mode: 'insensitive' } },
+            { key: { contains: options.search, mode: 'insensitive' } },
+            { description: { contains: options.search, mode: 'insensitive' } },
+            { category: { contains: options.search, mode: 'insensitive' } }
+          ];
+        }
 
-      const dbApps = await prisma.application.findMany({
-        where,
-        include: {
-          modules: {
-            orderBy: { createdAt: 'asc' }
-          }
-        },
-        orderBy: { createdAt: 'asc' }
-      });
+        const dbApps = await prisma.application.findMany({
+          where,
+          include: {
+            modules: {
+              orderBy: { createdAt: 'asc' }
+            }
+          },
+          orderBy: { createdAt: 'asc' }
+        });
 
-      if (dbApps && dbApps.length > 0) {
-        return dbApps.map(this.mapPrismaToAppDefinition);
-      }
+        if (dbApps && dbApps.length > 0) {
+          return dbApps.map(this.mapPrismaToAppDefinition);
+        }
 
-      // If database is empty and we are in production, return empty list (no fake data)
-      if (isProductionMode()) {
-        return [];
+        // If database is empty and we are in production, return empty list (no fake data)
+        if (isProductionMode()) {
+          return [];
+        }
+      } catch (err) {
+        if (isProductionMode()) throw err;
       }
     }
 
@@ -99,19 +103,23 @@ export class ApplicationService {
     }
 
     if (isPostgresConfigured() && prisma?.application?.findUnique) {
-      const dbApp = await prisma.application.findUnique({
-        where: { id },
-        include: {
-          modules: {
-            orderBy: { createdAt: 'asc' }
+      try {
+        const dbApp = await prisma.application.findUnique({
+          where: { id },
+          include: {
+            modules: {
+              orderBy: { createdAt: 'asc' }
+            }
           }
+        });
+
+        if (dbApp) return this.mapPrismaToAppDefinition(dbApp);
+
+        if (isProductionMode()) {
+          return null;
         }
-      });
-
-      if (dbApp) return this.mapPrismaToAppDefinition(dbApp);
-
-      if (isProductionMode()) {
-        return null;
+      } catch (err) {
+        if (isProductionMode()) throw err;
       }
     }
 
@@ -130,19 +138,23 @@ export class ApplicationService {
     }
 
     if (isPostgresConfigured() && prisma?.application?.findUnique) {
-      const dbApp = await prisma.application.findUnique({
-        where: { key: cleanKey },
-        include: {
-          modules: {
-            orderBy: { createdAt: 'asc' }
+      try {
+        const dbApp = await prisma.application.findUnique({
+          where: { key: cleanKey },
+          include: {
+            modules: {
+              orderBy: { createdAt: 'asc' }
+            }
           }
+        });
+
+        if (dbApp) return this.mapPrismaToAppDefinition(dbApp);
+
+        if (isProductionMode()) {
+          return null;
         }
-      });
-
-      if (dbApp) return this.mapPrismaToAppDefinition(dbApp);
-
-      if (isProductionMode()) {
-        return null;
+      } catch (err) {
+        if (isProductionMode()) throw err;
       }
     }
 

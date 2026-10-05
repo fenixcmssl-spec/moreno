@@ -27,6 +27,7 @@ export interface AuthSession {
 export class SessionService {
   private static readonly SESSION_COOKIE_NAME = 'fenix_session_token';
   private static readonly SESSION_TTL_HOURS = 24 * 7; // 7 days
+  private static memorySessions = new Map<string, any>();
 
   /**
    * Hashes a raw token for secure storage in PostgreSQL
@@ -63,17 +64,34 @@ export class SessionService {
     }
 
     if (prisma?.session?.create) {
-      await prisma.session.create({
-        data: {
-          id: sessionId,
-          tokenHash,
-          userId: user.id,
-          tenantId: user.tenantId || null,
-          role: user.role,
-          ipAddress: user.ipAddress || null,
-          userAgent: user.userAgent || null,
-          expiresAt: expiresDate
-        }
+      try {
+        await prisma.session.create({
+          data: {
+            id: sessionId,
+            tokenHash,
+            userId: user.id,
+            tenantId: user.tenantId || null,
+            role: user.role,
+            ipAddress: user.ipAddress || null,
+            userAgent: user.userAgent || null,
+            expiresAt: expiresDate
+          }
+        });
+      } catch (err) {
+        if (isProductionMode()) throw err;
+      }
+    }
+
+    if (!isProductionMode()) {
+      this.memorySessions.set(tokenHash, {
+        id: sessionId,
+        userId: user.id,
+        user: { id: user.id, email: user.email, name: user.name, status: 'ACTIVE' },
+        role: user.role,
+        tenantId: user.tenantId,
+        tenantSlug: user.tenantSlug,
+        expiresAt: expiresDate,
+        lastActiveAt: new Date()
       });
     }
 
@@ -106,47 +124,66 @@ export class SessionService {
     }
 
     if (prisma?.session?.findUnique) {
-      const sessionRecord = await prisma.session.findUnique({
-        where: { tokenHash },
-        include: {
-          user: true,
-          tenant: true
+      try {
+        const sessionRecord = await prisma.session.findUnique({
+          where: { tokenHash },
+          include: {
+            user: true,
+            tenant: true
+          }
+        });
+
+        if (sessionRecord) {
+          // Check Expiration
+          if (new Date(sessionRecord.expiresAt) < new Date()) {
+            await prisma.session.delete({ where: { id: sessionRecord.id } }).catch(() => {});
+            return null;
+          }
+
+          // Check User Status (account suspended/inactive invalidates session)
+          if (sessionRecord.user && sessionRecord.user.status && sessionRecord.user.status !== 'ACTIVE') {
+            await prisma.session.delete({ where: { id: sessionRecord.id } }).catch(() => {});
+            return null;
+          }
+
+          // Touch lastActiveAt
+          prisma.session.update({
+            where: { id: sessionRecord.id },
+            data: { lastActiveAt: new Date() }
+          }).catch(() => {});
+
+          return {
+            id: sessionRecord.id,
+            userId: sessionRecord.userId || sessionRecord.user?.id || '',
+            email: sessionRecord.user?.email || '',
+            name: sessionRecord.user?.name || '',
+            role: sessionRecord.role as UserRole,
+            tenantId: sessionRecord.tenantId || undefined,
+            tenantSlug: sessionRecord.tenant?.slug || undefined,
+            expiresAt: (sessionRecord.expiresAt instanceof Date ? sessionRecord.expiresAt : new Date(sessionRecord.expiresAt)).toISOString(),
+            lastActiveAt: (sessionRecord.lastActiveAt instanceof Date ? sessionRecord.lastActiveAt : new Date(sessionRecord.lastActiveAt || Date.now())).toISOString()
+          };
         }
-      });
-
-      if (!sessionRecord) {
-        return null;
+      } catch (err) {
+        if (isProductionMode()) throw err;
       }
+    }
 
-      // Check Expiration
-      if (new Date(sessionRecord.expiresAt) < new Date()) {
-        await prisma.session.delete({ where: { id: sessionRecord.id } }).catch(() => {});
-        return null;
+    if (!isProductionMode() && this.memorySessions.has(tokenHash)) {
+      const mem = this.memorySessions.get(tokenHash);
+      if (new Date(mem.expiresAt) >= new Date()) {
+        return {
+          id: mem.id,
+          userId: mem.userId,
+          email: mem.user?.email || '',
+          name: mem.user?.name || '',
+          role: mem.role as UserRole,
+          tenantId: mem.tenantId,
+          tenantSlug: mem.tenantSlug,
+          expiresAt: mem.expiresAt.toISOString ? mem.expiresAt.toISOString() : new Date(mem.expiresAt).toISOString(),
+          lastActiveAt: new Date().toISOString()
+        };
       }
-
-      // Check User Status (account suspended/inactive invalidates session)
-      if (sessionRecord.user && sessionRecord.user.status && sessionRecord.user.status !== 'ACTIVE') {
-        await prisma.session.delete({ where: { id: sessionRecord.id } }).catch(() => {});
-        return null;
-      }
-
-      // Touch lastActiveAt
-      prisma.session.update({
-        where: { id: sessionRecord.id },
-        data: { lastActiveAt: new Date() }
-      }).catch(() => {});
-
-      return {
-        id: sessionRecord.id,
-        userId: sessionRecord.userId || sessionRecord.user?.id || '',
-        email: sessionRecord.user?.email || '',
-        name: sessionRecord.user?.name || '',
-        role: sessionRecord.role as UserRole,
-        tenantId: sessionRecord.tenantId || undefined,
-        tenantSlug: sessionRecord.tenant?.slug || undefined,
-        expiresAt: (sessionRecord.expiresAt instanceof Date ? sessionRecord.expiresAt : new Date(sessionRecord.expiresAt)).toISOString(),
-        lastActiveAt: (sessionRecord.lastActiveAt instanceof Date ? sessionRecord.lastActiveAt : new Date(sessionRecord.lastActiveAt || Date.now())).toISOString()
-      };
     }
 
     return null;
@@ -174,17 +211,27 @@ export class SessionService {
     newExpiresAt.setHours(newExpiresAt.getHours() + this.SESSION_TTL_HOURS);
 
     if (prisma?.session?.updateMany) {
-      const result = await prisma.session.updateMany({
-        where: { 
-          tokenHash,
-          expiresAt: { gt: new Date() }
-        },
-        data: { 
-          expiresAt: newExpiresAt,
-          lastActiveAt: new Date()
-        }
-      });
-      return result.count > 0;
+      try {
+        const result = await prisma.session.updateMany({
+          where: { 
+            tokenHash,
+            expiresAt: { gt: new Date() }
+          },
+          data: { 
+            expiresAt: newExpiresAt,
+            lastActiveAt: new Date()
+          }
+        });
+        if (result.count > 0) return true;
+      } catch (err) {
+        if (isProductionMode()) throw err;
+      }
+    }
+
+    if (!isProductionMode() && this.memorySessions.has(tokenHash)) {
+      const mem = this.memorySessions.get(tokenHash);
+      mem.expiresAt = newExpiresAt;
+      return true;
     }
 
     return false;
@@ -198,9 +245,21 @@ export class SessionService {
     const tokenHash = this.hashToken(token);
 
     if (prisma?.session?.deleteMany) {
-      await prisma.session.deleteMany({
-        where: { tokenHash }
-      });
+      try {
+        await prisma.session.deleteMany({
+          where: { tokenHash }
+        });
+        if (!isProductionMode()) {
+          this.memorySessions.delete(tokenHash);
+        }
+        return true;
+      } catch (err) {
+        if (isProductionMode()) throw err;
+      }
+    }
+
+    if (!isProductionMode() && this.memorySessions.has(tokenHash)) {
+      this.memorySessions.delete(tokenHash);
       return true;
     }
 

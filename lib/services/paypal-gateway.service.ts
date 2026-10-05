@@ -117,7 +117,7 @@ export class PayPalGatewayService {
 
       return data.access_token;
     } catch (err: any) {
-      if (!isProductionMode() && (!clientId || clientId.startsWith('sb-') || clientId === 'dummy')) {
+      if (!isProductionMode() && (!clientId || clientId.startsWith('sb-') || clientId.startsWith('mock_') || clientId === 'dummy')) {
         return 'TEST_SANDBOX_ACCESS_TOKEN';
       }
       throw err;
@@ -132,7 +132,7 @@ export class PayPalGatewayService {
     const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
 
     // Entorno de prueba / test aislado sin credenciales activas
-    if (!isProductionMode() && (!clientId || !clientSecret || clientId.startsWith('sb-') || clientId === 'dummy')) {
+    if (!isProductionMode() && (!clientId || !clientSecret || clientId.startsWith('sb-') || clientId.startsWith('mock_') || clientId === 'dummy')) {
       const mockOrderId = `PP-ORDER-${Date.now()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
       return {
         orderId: mockOrderId,
@@ -212,7 +212,7 @@ export class PayPalGatewayService {
     const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
 
     // Simulación de prueba para entornos de tests aislados (cuando orderId es mock y no estamos en producción)
-    if (!isProductionMode() && (!clientId || !clientSecret || clientId.startsWith('sb-') || clientId === 'dummy')) {
+    if (!isProductionMode() && (!clientId || !clientSecret || clientId.startsWith('sb-') || clientId.startsWith('mock_') || clientId === 'dummy')) {
       const upperId = orderId.toUpperCase();
       if (upperId.includes('DENIED') || upperId.includes('INVALID') || upperId.includes('DECLINED') || upperId.includes('FAIL')) {
         return {

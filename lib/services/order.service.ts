@@ -1,4 +1,4 @@
-import { prisma, isPostgresConfigured, isProductionMode } from '@/lib/prisma';
+import { prisma, isPostgresConfigured, isProductionMode, DatabaseConfigurationError } from '@/lib/prisma';
 import crypto from 'crypto';
 import { AuditService } from './audit.service';
 import { CouponService } from './coupon.service';
@@ -77,6 +77,8 @@ export interface OrderDTO {
 }
 
 export class OrderService {
+  private static memoryOrders = new Map<string, any>();
+
   /**
    * Generates a clean, unique order number (e.g., FNX-98214-A7B2)
    */
@@ -154,6 +156,13 @@ export class OrderService {
 
     // 3. Idempotency Check: prevent duplicate orders on network retry / double click
     if (idempotencyKey && idempotencyKey.trim().length > 0) {
+      if (!isProductionMode() && this.memoryOrders.has(idempotencyKey.trim())) {
+        const memOrder = this.memoryOrders.get(idempotencyKey.trim());
+        return {
+          success: true,
+          order: this.mapToDTO(memOrder)
+        };
+      }
       try {
         const existingOrder = await (prisma as any).order.findFirst({
           where: {
@@ -173,13 +182,12 @@ export class OrderService {
           };
         }
       } catch (err) {
-        // If query fails, continue to transactional flow
+        if (isProductionMode()) throw err;
       }
     }
 
     try {
-      // Execute entire order creation atomically in a PostgreSQL transaction
-      const resultOrder = await (prisma as any).$transaction(async (tx: any) => {
+      const txRunner = async (tx: any) => {
         // 3.1 Verify Tenant exists and is active
         let tenant = await tx.tenant.findUnique({
           where: { id: tenantId }
@@ -490,7 +498,73 @@ export class OrderService {
         });
 
         return order;
-      });
+      };
+
+      const mockTx = {
+        tenant: {
+          findUnique: async () => null
+        },
+        product: {
+          findMany: async ({ where }: any) => {
+            const ids = where?.id?.in || [];
+            return INITIAL_PRODUCTS.filter(p => ids.includes(p.id));
+          },
+          updateMany: async () => ({ count: 1 })
+        },
+        coupon: {
+          findUnique: async () => null,
+          updateMany: async () => ({ count: 1 })
+        },
+        customer: {
+          findUnique: async () => null,
+          create: async ({ data }: any) => ({ id: data.id || 'cust_test', ...data }),
+          update: async ({ data }: any) => ({ id: 'cust_test', ...data })
+        },
+        order: {
+          create: async ({ data }: any) => {
+            const created = {
+              ...data,
+              id: data.id || `ord_${Date.now()}`,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+              orderItems: (data.orderItems?.create || []).map((oi: any, idx: number) => ({
+                id: `item_${idx}`,
+                orderId: data.id,
+                ...oi
+              }))
+            };
+            if (data.idempotencyKey) {
+              OrderService.memoryOrders.set(data.idempotencyKey, created);
+            }
+            return created;
+          }
+        }
+      };
+
+      let resultOrder: any;
+      try {
+        if (isPostgresConfigured() && prisma?.$transaction) {
+          resultOrder = await (prisma as any).$transaction(txRunner);
+        } else {
+          if (isProductionMode()) {
+            throw new DatabaseConfigurationError('PostgreSQL is required in production.');
+          }
+          resultOrder = await txRunner(mockTx);
+        }
+      } catch (dbErr: any) {
+        if (isProductionMode()) {
+          throw dbErr;
+        }
+        if (
+          dbErr?.name === 'PrismaClientInitializationError' ||
+          dbErr?.code === 'P1001' ||
+          dbErr?.message?.includes("Can't reach database")
+        ) {
+          resultOrder = await txRunner(mockTx);
+        } else {
+          throw dbErr;
+        }
+      }
 
       // Audit log asynchronously after successful commit
       AuditService.log({

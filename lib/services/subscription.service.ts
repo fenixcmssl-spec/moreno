@@ -1,6 +1,7 @@
 import { prisma, isPostgresConfigured, isProductionMode, DatabaseConfigurationError } from '@/lib/prisma';
 import { SubscriptionRecord, SubscriptionStatusType } from '@/types';
 import { LicenseService } from './license.service';
+import { runWithTenant, runWithSystemContext } from '@/lib/auth/tenantContext';
 
 const INITIAL_SUBSCRIPTIONS: SubscriptionRecord[] = [
   {
@@ -61,25 +62,31 @@ export class SubscriptionService {
     }
 
     if (isPostgresConfigured() && prisma?.subscription?.findMany) {
-      const where: any = {};
-      if (options?.status) where.status = options.status.toUpperCase();
-      if (options?.tenantId) where.tenantId = options.tenantId;
+      try {
+        const where: any = {};
+        if (options?.status) where.status = options.status.toUpperCase();
+        if (options?.tenantId) where.tenantId = options.tenantId;
 
-      const dbSubs = await prisma.subscription.findMany({
-        where,
-        include: {
-          plan: true,
-          tenant: true
-        },
-        orderBy: { createdAt: 'desc' }
-      });
+        const dbSubs = await runWithSystemContext(async () => {
+          return prisma.subscription.findMany({
+            where,
+            include: {
+              plan: true,
+              tenant: true
+            },
+            orderBy: { createdAt: 'desc' }
+          });
+        });
 
-      if (dbSubs && dbSubs.length > 0) {
-        return dbSubs.map((s: any) => this.mapPrismaToSubscription(s));
-      }
+        if (dbSubs && dbSubs.length > 0) {
+          return dbSubs.map((s: any) => this.mapPrismaToSubscription(s));
+        }
 
-      if (isProductionMode()) {
-        return [];
+        if (isProductionMode()) {
+          return [];
+        }
+      } catch (err) {
+        if (isProductionMode()) throw err;
       }
     }
 
@@ -104,18 +111,24 @@ export class SubscriptionService {
     }
 
     if (isPostgresConfigured() && prisma?.subscription) {
-      const sub = await prisma.subscription.findFirst({
-        where: { tenantId },
-        include: {
-          plan: true,
-          tenant: true
-        },
-        orderBy: { createdAt: 'desc' }
-      });
-      if (sub) return this.mapPrismaToSubscription(sub);
+      try {
+        const sub = await runWithTenant(tenantId, async () => {
+          return prisma.subscription.findFirst({
+            where: { tenantId },
+            include: {
+              plan: true,
+              tenant: true
+            },
+            orderBy: { createdAt: 'desc' }
+          });
+        });
+        if (sub) return this.mapPrismaToSubscription(sub);
 
-      if (isProductionMode()) {
-        return null;
+        if (isProductionMode()) {
+          return null;
+        }
+      } catch (err) {
+        if (isProductionMode()) throw err;
       }
     }
 
@@ -134,17 +147,23 @@ export class SubscriptionService {
     }
 
     if (isPostgresConfigured() && prisma?.subscription) {
-      const sub = await prisma.subscription.findUnique({
-        where: { id },
-        include: {
-          plan: true,
-          tenant: true
-        }
-      });
-      if (sub) return this.mapPrismaToSubscription(sub);
+      try {
+        const sub = await runWithSystemContext(async () => {
+          return prisma.subscription.findUnique({
+            where: { id },
+            include: {
+              plan: true,
+              tenant: true
+            }
+          });
+        });
+        if (sub) return this.mapPrismaToSubscription(sub);
 
-      if (isProductionMode()) {
-        return null;
+        if (isProductionMode()) {
+          return null;
+        }
+      } catch (err) {
+        if (isProductionMode()) throw err;
       }
     }
 
@@ -189,27 +208,33 @@ export class SubscriptionService {
     };
 
     if (isPostgresConfigured() && prisma?.subscription) {
-      const dbCreated = await prisma.subscription.create({
-        data: {
-          id: newSub.id,
-          tenantId: newSub.tenantId,
-          planId: newSub.planId,
-          provider: newSub.provider,
-          providerSubscriptionId: newSub.providerSubscriptionId || null,
-          status: newSub.status as any,
-          billingPeriod: newSub.billingPeriod,
-          currentPeriodStart: periodStart,
-          currentPeriodEnd: periodEnd,
-          cancelAtPeriodEnd: false,
-          amount: Number(newSub.amount || 0),
-          currency: newSub.currency || 'EUR'
-        },
-        include: {
-          plan: true,
-          tenant: true
-        }
-      });
-      return this.mapPrismaToSubscription(dbCreated);
+      try {
+        const dbCreated = await runWithTenant(newSub.tenantId, async () => {
+          return prisma.subscription.create({
+            data: {
+              id: newSub.id,
+              tenantId: newSub.tenantId,
+              planId: newSub.planId,
+              provider: newSub.provider,
+              providerSubscriptionId: newSub.providerSubscriptionId || null,
+              status: newSub.status as any,
+              billingPeriod: newSub.billingPeriod,
+              currentPeriodStart: periodStart,
+              currentPeriodEnd: periodEnd,
+              cancelAtPeriodEnd: false,
+              amount: Number(newSub.amount || 0),
+              currency: newSub.currency || 'EUR'
+            },
+            include: {
+              plan: true,
+              tenant: true
+            }
+          });
+        });
+        return this.mapPrismaToSubscription(dbCreated);
+      } catch (err) {
+        if (isProductionMode()) throw err;
+      }
     }
 
     memorySubscriptions.unshift(newSub);
@@ -246,20 +271,26 @@ export class SubscriptionService {
     }
 
     if (isPostgresConfigured() && prisma?.subscription) {
-      const updated = await prisma.subscription.update({
-        where: { id },
-        data: {
-          cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
-          status: sub.status as any,
-          cancelledAt: sub.cancelledAt ? new Date(sub.cancelledAt) : null
-        },
-        include: {
-          plan: true,
-          tenant: true
-        }
-      });
-      await this.syncLicenseWithSubscription(id);
-      return { success: true, subscription: this.mapPrismaToSubscription(updated) };
+      try {
+        const updated = await runWithTenant(sub.tenantId, async () => {
+          return prisma.subscription.update({
+            where: { id },
+            data: {
+              cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+              status: sub.status as any,
+              cancelledAt: sub.cancelledAt ? new Date(sub.cancelledAt) : null
+            },
+            include: {
+              plan: true,
+              tenant: true
+            }
+          });
+        });
+        await this.syncLicenseWithSubscription(id);
+        return { success: true, subscription: this.mapPrismaToSubscription(updated) };
+      } catch (err) {
+        if (isProductionMode()) throw err;
+      }
     }
 
     const idx = memorySubscriptions.findIndex(s => s.id === id);
@@ -282,12 +313,18 @@ export class SubscriptionService {
     sub.updatedAt = new Date().toISOString();
 
     if (isPostgresConfigured() && prisma?.subscription) {
-      const updated = await prisma.subscription.update({
-        where: { id },
-        data: { status: 'PAST_DUE' as any },
-        include: { plan: true, tenant: true }
-      });
-      return { success: true, subscription: this.mapPrismaToSubscription(updated) };
+      try {
+        const updated = await runWithTenant(sub.tenantId, async () => {
+          return prisma.subscription.update({
+            where: { id },
+            data: { status: 'PAST_DUE' as any },
+            include: { plan: true, tenant: true }
+          });
+        });
+        return { success: true, subscription: this.mapPrismaToSubscription(updated) };
+      } catch (err) {
+        if (isProductionMode()) throw err;
+      }
     }
 
     const idx = memorySubscriptions.findIndex(s => s.id === id);
@@ -304,12 +341,18 @@ export class SubscriptionService {
     sub.updatedAt = new Date().toISOString();
 
     if (isPostgresConfigured() && prisma?.subscription) {
-      const updated = await prisma.subscription.update({
-        where: { id },
-        data: { status: status as any },
-        include: { plan: true, tenant: true }
-      });
-      return this.mapPrismaToSubscription(updated);
+      try {
+        const updated = await runWithTenant(sub.tenantId, async () => {
+          return prisma.subscription.update({
+            where: { id },
+            data: { status: status as any },
+            include: { plan: true, tenant: true }
+          });
+        });
+        return this.mapPrismaToSubscription(updated);
+      } catch (err) {
+        if (isProductionMode()) throw err;
+      }
     }
 
     const idx = memorySubscriptions.findIndex(s => s.id === id);
@@ -340,17 +383,23 @@ export class SubscriptionService {
     sub.updatedAt = now.toISOString();
 
     if (isPostgresConfigured() && prisma?.subscription) {
-      const updated = await prisma.subscription.update({
-        where: { id },
-        data: {
-          status: 'ACTIVE' as any,
-          currentPeriodStart: now,
-          currentPeriodEnd: end
-        },
-        include: { plan: true, tenant: true }
-      });
-      await this.syncLicenseWithSubscription(id);
-      return { success: true, subscription: this.mapPrismaToSubscription(updated) };
+      try {
+        const updated = await runWithTenant(sub.tenantId, async () => {
+          return prisma.subscription.update({
+            where: { id },
+            data: {
+              status: 'ACTIVE' as any,
+              currentPeriodStart: now,
+              currentPeriodEnd: end
+            },
+            include: { plan: true, tenant: true }
+          });
+        });
+        await this.syncLicenseWithSubscription(id);
+        return { success: true, subscription: this.mapPrismaToSubscription(updated) };
+      } catch (err) {
+        if (isProductionMode()) throw err;
+      }
     }
 
     const idx = memorySubscriptions.findIndex(s => s.id === id);
@@ -394,30 +443,36 @@ export class SubscriptionService {
     if (!sub) return;
 
     if (isPostgresConfigured() && prisma?.license) {
-      const isEffective = this.isSubscriptionEffective(sub);
-      const dbLicense = await prisma.license.findFirst({
-        where: { tenantId: sub.tenantId },
-        orderBy: { createdAt: 'desc' }
-      });
+      try {
+        await runWithTenant(sub.tenantId, async () => {
+          const isEffective = this.isSubscriptionEffective(sub);
+          const dbLicense = await prisma.license.findFirst({
+            where: { tenantId: sub.tenantId },
+            orderBy: { createdAt: 'desc' }
+          });
 
-      if (dbLicense) {
-        if (isEffective) {
-          const updates: any = { status: 'ACTIVE' };
-          if (new Date(dbLicense.expiresAt) < new Date(sub.currentPeriodEnd)) {
-            updates.expiresAt = new Date(sub.currentPeriodEnd);
+          if (dbLicense) {
+            if (isEffective) {
+              const updates: any = { status: 'ACTIVE' };
+              if (new Date(dbLicense.expiresAt) < new Date(sub.currentPeriodEnd)) {
+                updates.expiresAt = new Date(sub.currentPeriodEnd);
+              }
+              await prisma.license.update({
+                where: { id: dbLicense.id },
+                data: updates
+              });
+            } else if (sub.status === 'CANCELLED' || sub.status === 'EXPIRED') {
+              await prisma.license.update({
+                where: { id: dbLicense.id },
+                data: { status: 'EXPIRED' }
+              });
+            }
           }
-          await prisma.license.update({
-            where: { id: dbLicense.id },
-            data: updates
-          });
-        } else if (sub.status === 'CANCELLED' || sub.status === 'EXPIRED') {
-          await prisma.license.update({
-            where: { id: dbLicense.id },
-            data: { status: 'EXPIRED' }
-          });
-        }
+        });
+        return;
+      } catch (err) {
+        if (isProductionMode()) throw err;
       }
-      return;
     }
 
     const tenantLicense = LicenseService.getByTenantId(sub.tenantId);

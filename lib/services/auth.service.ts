@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { PasswordService } from '../auth/password';
 import { SessionService, AuthSession } from '../auth/session';
 import { UserRole } from '../auth/rbac';

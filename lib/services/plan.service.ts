@@ -109,45 +109,49 @@ export class PlanService {
     }
 
     if (isPostgresConfigured() && prisma?.plan?.findMany) {
-      const where: any = {};
-      if (options?.status) {
-        where.status = options.status.toUpperCase();
-      }
-      if (options?.applicationId) {
-        where.OR = [
-          { applicationId: options.applicationId },
-          { application: { key: options.applicationId.toUpperCase() } },
-          { application: { slug: options.applicationId.toLowerCase() } }
-        ];
-      }
-      if (options?.search) {
-        where.OR = [
-          { name: { contains: options.search, mode: 'insensitive' } },
-          { slug: { contains: options.search, mode: 'insensitive' } },
-          { description: { contains: options.search, mode: 'insensitive' } }
-        ];
-      }
+      try {
+        const where: any = {};
+        if (options?.status) {
+          where.status = options.status.toUpperCase();
+        }
+        if (options?.applicationId) {
+          where.OR = [
+            { applicationId: options.applicationId },
+            { application: { key: options.applicationId.toUpperCase() } },
+            { application: { slug: options.applicationId.toLowerCase() } }
+          ];
+        }
+        if (options?.search) {
+          where.OR = [
+            { name: { contains: options.search, mode: 'insensitive' } },
+            { slug: { contains: options.search, mode: 'insensitive' } },
+            { description: { contains: options.search, mode: 'insensitive' } }
+          ];
+        }
 
-      const dbPlans = await prisma.plan.findMany({
-        where,
-        include: {
-          entitlements: true,
-          _count: {
-            select: {
-              licenses: true,
-              subscriptions: true
+        const dbPlans = await prisma.plan.findMany({
+          where,
+          include: {
+            entitlements: true,
+            _count: {
+              select: {
+                licenses: true,
+                subscriptions: true
+              }
             }
-          }
-        },
-        orderBy: { monthlyPrice: 'asc' }
-      });
+          },
+          orderBy: { monthlyPrice: 'asc' }
+        });
 
-      if (dbPlans && dbPlans.length > 0) {
-        return dbPlans.map((p: any) => this.mapPrismaToSaaSPlan(p));
-      }
+        if (dbPlans && dbPlans.length > 0) {
+          return dbPlans.map((p: any) => this.mapPrismaToSaaSPlan(p));
+        }
 
-      if (isProductionMode()) {
-        return [];
+        if (isProductionMode()) {
+          return [];
+        }
+      } catch (err) {
+        if (isProductionMode()) throw err;
       }
     }
 
@@ -173,25 +177,29 @@ export class PlanService {
     }
 
     if (isPostgresConfigured() && prisma?.plan?.findUnique) {
-      const dbPlan = await prisma.plan.findUnique({
-        where: { id },
-        include: {
-          entitlements: true,
-          _count: {
-            select: {
-              licenses: true,
-              subscriptions: true
+      try {
+        const dbPlan = await prisma.plan.findUnique({
+          where: { id },
+          include: {
+            entitlements: true,
+            _count: {
+              select: {
+                licenses: true,
+                subscriptions: true
+              }
             }
           }
+        });
+
+        if (dbPlan) {
+          return this.mapPrismaToSaaSPlan(dbPlan);
         }
-      });
 
-      if (dbPlan) {
-        return this.mapPrismaToSaaSPlan(dbPlan);
-      }
-
-      if (isProductionMode()) {
-        return null;
+        if (isProductionMode()) {
+          return null;
+        }
+      } catch (err) {
+        if (isProductionMode()) throw err;
       }
     }
 
@@ -210,25 +218,29 @@ export class PlanService {
     }
 
     if (isPostgresConfigured() && prisma?.plan?.findUnique) {
-      const dbPlan = await prisma.plan.findUnique({
-        where: { slug: cleanSlug },
-        include: {
-          entitlements: true,
-          _count: {
-            select: {
-              licenses: true,
-              subscriptions: true
+      try {
+        const dbPlan = await prisma.plan.findUnique({
+          where: { slug: cleanSlug },
+          include: {
+            entitlements: true,
+            _count: {
+              select: {
+                licenses: true,
+                subscriptions: true
+              }
             }
           }
+        });
+
+        if (dbPlan) {
+          return this.mapPrismaToSaaSPlan(dbPlan);
         }
-      });
 
-      if (dbPlan) {
-        return this.mapPrismaToSaaSPlan(dbPlan);
-      }
-
-      if (isProductionMode()) {
-        return null;
+        if (isProductionMode()) {
+          return null;
+        }
+      } catch (err) {
+        if (isProductionMode()) throw err;
       }
     }
 

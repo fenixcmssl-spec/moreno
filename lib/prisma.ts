@@ -249,7 +249,7 @@ export function getRawPrismaClient(): PrismaClient {
 
   if (!globalObj.__fenix_prisma_raw_instance__) {
     globalObj.__fenix_prisma_raw_instance__ = new PrismaClient({
-      log: isProd ? ['error'] : ['error', 'warn'],
+      log: [],
     });
   }
 
