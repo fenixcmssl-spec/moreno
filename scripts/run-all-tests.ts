@@ -12,6 +12,7 @@ import { runFase25Tests } from '../tests/fase25-prisma-failclosed.test';
 import { runFase26Tests } from '../tests/fase26-api-contract.test';
 import { runFase27Tests } from '../tests/fase27-money-precision.test';
 import { runFase28And29Tests } from '../tests/fase28-29-paypal-webhook.test';
+import { runI18nTests } from '../tests/i18n-service.test';
 
 async function main() {
   await runFase1Tests();
@@ -28,6 +29,7 @@ async function main() {
   await runFase26Tests();
   await runFase27Tests();
   await runFase28And29Tests();
+  await runI18nTests();
 }
 
 main().catch((err) => {

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { I18nService } from '@/lib/services/i18n.service';
 
 /**
  * =========================================================================
@@ -130,6 +131,21 @@ export function middleware(request: NextRequest) {
   requestHeaders.set('x-resolved-hostname', cleanHost);
   requestHeaders.set('x-pathname', pathname);
 
+  // Automatic i18n detection from Query, Cookie, Subdomain, or Accept-Language headers
+  const queryLang = request.nextUrl.searchParams.get('lang') || request.nextUrl.searchParams.get('locale');
+  const cookieLang = request.cookies.get('fenix_locale')?.value || request.cookies.get('NEXT_LOCALE')?.value;
+  
+  const detectedLocale = I18nService.detectLocale({
+    headers: request.headers,
+    host: cleanHost,
+    subdomain: classification.type === 'tenant_subdomain' ? classification.slug : null,
+    queryLang,
+    cookieLang,
+  });
+
+  requestHeaders.set('x-detected-locale', detectedLocale);
+  requestHeaders.set('x-supported-locales', 'it,es,en,fr,de,pt,ht');
+
   let targetTenantSlug: string | null = null;
 
   if (classification.type === 'tenant_subdomain') {
@@ -173,6 +189,14 @@ export function middleware(request: NextRequest) {
       headers: requestHeaders,
     },
   });
+
+  if (queryLang && I18nService.isSupportedLocale(queryLang)) {
+    response.cookies.set('fenix_locale', detectedLocale, {
+      path: '/',
+      maxAge: 60 * 60 * 24 * 365, // 1 year
+      sameSite: 'lax',
+    });
+  }
 
   // 6. Production-Grade Edge Security Headers
   response.headers.set('X-Content-Type-Options', 'nosniff');
