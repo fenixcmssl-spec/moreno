@@ -40,6 +40,16 @@ const nextConfig: NextConfig = {
     ],
   },
   output: 'standalone',
+  outputFileTracingExcludes: {
+    '*': [
+      'node_modules/@swc/core-linux-x64-gnu',
+      'node_modules/@swc/core-linux-x64-musl',
+      'node_modules/@esbuild',
+      'docs/**',
+      'tests/**',
+      'scripts/**',
+    ],
+  },
   transpilePackages: ['motion', 'lucide-react'],
   webpack: (config, {dev}) => {
     config.resolve = config.resolve || {};
