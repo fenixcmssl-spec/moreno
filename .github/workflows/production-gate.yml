@@ -11,6 +11,13 @@ jobs:
   production-gate:
     name: Validate Production Readiness & Zero Fallbacks
     runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://ci_user:ci_password@localhost:5432/fenixcms_ci?schema=public
+      APP_URL: http://localhost:3000
+      PAYPAL_MODE: sandbox
+      JWT_SECRET: ci_jwt_secret_token_fenixcms_validation_only_32bytes_minimum
+      NEXTAUTH_SECRET: ci_nextauth_secret_token_fenixcms_validation_only
 
     steps:
       - name: Checkout code
