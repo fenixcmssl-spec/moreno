@@ -2,6 +2,7 @@ import { prisma, isPostgresConfigured, isProductionMode, DatabaseConfigurationEr
 import { DomainItem, TenantStore } from '@/types';
 import { INITIAL_TENANTS } from '@/lib/initialData';
 import { EntitlementService } from './entitlement.service';
+import { runWithSystemContext } from '@/lib/auth/tenantContext';
 
 let memoryDomains: DomainItem[] = [
   {
@@ -106,15 +107,17 @@ export class DomainService {
     // 1. Try resolving via PostgreSQL if available
     try {
       if (isPostgresConfigured() && prisma?.domain) {
-        // Query verified & active domains
-        const dbDomain = await prisma.domain.findFirst({
-          where: {
-            hostname: hostname,
-            status: 'active'
-          },
-          include: {
-            tenant: true
-          }
+        // Query verified & active domains within system bypass context for gateway resolution
+        const dbDomain = await runWithSystemContext(async () => {
+          return prisma.domain.findFirst({
+            where: {
+              hostname: hostname,
+              status: 'active'
+            },
+            include: {
+              tenant: true
+            }
+          });
         });
 
         if (dbDomain && dbDomain.tenant) {
@@ -163,13 +166,15 @@ export class DomainService {
         }
 
         // Direct fallback query on Tenant table
-        const directTenant = await prisma.tenant.findFirst({
-          where: {
-            OR: [
-              { domain: hostname },
-              { customDomain: hostname }
-            ]
-          }
+        const directTenant = await runWithSystemContext(async () => {
+          return prisma.tenant.findFirst({
+            where: {
+              OR: [
+                { domain: hostname },
+                { customDomain: hostname }
+              ]
+            }
+          });
         });
 
         if (directTenant) {

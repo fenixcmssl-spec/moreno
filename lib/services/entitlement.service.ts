@@ -786,6 +786,14 @@ export class EntitlementService {
   // =========================================================================
   // Legacy compatibility helpers
   // =========================================================================
+  static getPlanEntitlements(planId: string): PlanEntitlements {
+    const found = INITIAL_PLANS.find(p => p.id === planId || p.slug === planId);
+    if (!found) {
+      return this.getTenantEntitlements();
+    }
+    return this.getTenantEntitlements(found.entitlements);
+  }
+
   static getTenantEntitlements(planEntitlements?: PlanEntitlements): PlanEntitlements {
     return {
       'products.max': 100,

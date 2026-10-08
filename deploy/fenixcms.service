@@ -1,0 +1,47 @@
+[Unit]
+Description=FenixCMS SaaS Core Application Service
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=fenixcms
+Group=fenixcms
+WorkingDirectory=/var/www/fenixcms
+EnvironmentFile=/var/www/fenixcms/.env
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOSTNAME=127.0.0.1
+
+# Execution command (Next.js production server)
+ExecStart=/usr/bin/npm start
+
+# Restart policies on failure
+Restart=always
+RestartSec=5s
+KillMode=process
+TimeoutStopSec=20s
+
+# Security Hardening & Sandboxing
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+
+# Resource Limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Logging
+StandardOutput=append:/var/log/fenixcms/app.log
+StandardError=append:/var/log/fenixcms/error.log
+SyslogIdentifier=fenixcms
+
+[Install]
+WantedBy=multi-user.target

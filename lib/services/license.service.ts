@@ -790,33 +790,39 @@ export class LicenseService {
     }
 
     if (isPostgresConfigured() && prisma?.license) {
-      const created = await prisma.license.create({
-        data: {
-          licenseKeyHash: keyHash,
-          displayKey,
-          tenantId: params.tenantId,
-          applicationId: params.applicationId || 'ECOMMERCE',
-          planId: params.planId,
-          status: 'ACTIVE',
-          startsAt: now,
-          expiresAt: validTo,
-          activationLimit: params.activationLimit || 1,
-          activationCount: 0,
-          customerName: params.customerName.trim(),
-          customerEmail: params.customerEmail.trim().toLowerCase(),
-          price: Number(params.price ?? 79),
-          currency: params.currency || 'EUR',
-          billingPeriod: params.billingPeriod || 'monthly'
-        },
-        include: {
-          tenant: true,
-          plan: { include: { entitlements: true } }
-        }
-      });
+      try {
+        const created = await prisma.license.create({
+          data: {
+            licenseKeyHash: keyHash,
+            displayKey,
+            tenantId: params.tenantId,
+            applicationId: params.applicationId || 'ECOMMERCE',
+            planId: params.planId,
+            status: 'ACTIVE',
+            startsAt: now,
+            expiresAt: validTo,
+            activationLimit: params.activationLimit || 1,
+            activationCount: 0,
+            customerName: params.customerName.trim(),
+            customerEmail: params.customerEmail.trim().toLowerCase(),
+            price: Number(params.price ?? 79),
+            currency: params.currency || 'EUR',
+            billingPeriod: params.billingPeriod || 'monthly'
+          },
+          include: {
+            tenant: true,
+            plan: { include: { entitlements: true } }
+          }
+        });
 
-      const mapped = this.mapPrismaToSaaSLicense(created);
-      this.memoryLicenses.unshift(mapped);
-      return mapped as SaaSLicense & { displayKey: string };
+        const mapped = this.mapPrismaToSaaSLicense(created);
+        this.memoryLicenses.unshift(mapped);
+        return mapped as SaaSLicense & { displayKey: string };
+      } catch (dbErr) {
+        if (isProductionMode()) {
+          throw dbErr;
+        }
+      }
     }
 
     // Fallback for memory dev

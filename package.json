@@ -12,7 +12,12 @@
     "audit:secrets": "tsx scripts/audit-production-secrets.ts",
     "check:production-env": "tsx scripts/check-production-env.ts",
     "audit:production": "npm run audit:runtime && npm run audit:secrets && npm run check:production-env",
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx prisma/seed.ts",
+    "seed:production": "tsx prisma/bootstrap-production.ts",
+    "seed:demo": "tsx prisma/seeds/demo-data.ts",
+    "db:verify-integrity": "tsx scripts/verify-backup-integrity.ts",
+    "validate:post-deploy": "tsx scripts/post-deployment-validation.ts",
+    "production:gate": "tsx scripts/production-gate-final.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

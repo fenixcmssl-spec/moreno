@@ -13,6 +13,13 @@ import { runFase26Tests } from '../tests/fase26-api-contract.test';
 import { runFase27Tests } from '../tests/fase27-money-precision.test';
 import { runFase28And29Tests } from '../tests/fase28-29-paypal-webhook.test';
 import { runI18nTests } from '../tests/i18n-service.test';
+import { runFase21_2Tests } from '../tests/fase21-2-postgresql-production-seed.test';
+import { runFase21_3Tests } from '../tests/fase21-3-money-licenses-multitenant-domains.test';
+import { runFase21_4Tests } from '../tests/fase21-4-payments-webhooks-provisioning.test';
+import { runFase21_5Tests } from '../tests/fase21-5-production-security-hardening.test';
+import { runFase21_6Tests } from '../tests/fase21-6-backup-and-restore.test';
+import { runFase23Tests } from '../tests/fase23-vps-deployment.test';
+import { runFase24PostDeployTests } from '../tests/fase24-post-deployment-validation.test';
 
 async function main() {
   await runFase1Tests();
@@ -30,6 +37,13 @@ async function main() {
   await runFase27Tests();
   await runFase28And29Tests();
   await runI18nTests();
+  await runFase21_2Tests();
+  await runFase21_3Tests();
+  await runFase21_4Tests();
+  await runFase21_5Tests();
+  await runFase21_6Tests();
+  await runFase23Tests();
+  await runFase24PostDeployTests();
 }
 
 main().catch((err) => {

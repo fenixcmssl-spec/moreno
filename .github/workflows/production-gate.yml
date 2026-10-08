@@ -47,5 +47,8 @@ jobs:
       - name: Run Production Audit (Fallbacks, Secrets & Env)
         run: npm run audit:production
 
+      - name: Run Production Gate Master Certification
+        run: npm run production:gate
+
       - name: Compile & Build Application
         run: npm run build
