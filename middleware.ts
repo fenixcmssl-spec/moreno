@@ -180,11 +180,8 @@ export function middleware(request: NextRequest) {
     }
   }
 
-  // 5. Build Response with Route Rewrite / Forwarding
-  const rewriteUrl = request.nextUrl.clone();
-  
-  // Next.js Route Rewrite forwarding with enriched context headers
-  const response = NextResponse.rewrite(rewriteUrl, {
+  // 5. Continue normal routing while forwarding enriched context headers.
+  const response = NextResponse.next({
     request: {
       headers: requestHeaders,
     },

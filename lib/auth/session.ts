@@ -287,6 +287,41 @@ export class SessionService {
   }
 
   /**
+   * Revokes every session for a user except the current authenticated session.
+   */
+  static async revokeOtherUserSessions(
+    userId: string,
+    currentSessionId: string
+  ): Promise<boolean> {
+    if (!userId || !currentSessionId) return false;
+
+    if (isProductionMode() && (!isPostgresConfigured() || !prisma?.session?.deleteMany)) {
+      throw new DatabaseConfigurationError(
+        'Cannot revoke sessions without the production PostgreSQL session store.'
+      );
+    }
+
+    if (prisma?.session?.deleteMany) {
+      await prisma.session.deleteMany({
+        where: {
+          userId,
+          id: { not: currentSessionId }
+        }
+      });
+    }
+
+    if (!isProductionMode()) {
+      for (const [tokenHash, mem] of this.memorySessions.entries()) {
+        if (mem.userId === userId && mem.id !== currentSessionId) {
+          this.memorySessions.delete(tokenHash);
+        }
+      }
+    }
+
+    return true;
+  }
+
+  /**
    * Switches the active tenant context for an existing authenticated session.
    * Validates membership against PostgreSQL before updating.
    */

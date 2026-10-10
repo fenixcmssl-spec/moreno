@@ -7,7 +7,8 @@ import { SaaSLicense, SaaSPlan, MarketplaceItem } from '@/types';
 import { 
   Shield, 
   Store, 
-  Key, 
+  Key,
+  KeyRound,
   Plus, 
   CheckCircle, 
   XCircle, 
@@ -64,6 +65,7 @@ import { DomainsManager } from './DomainsManager';
 import { UsersManager } from './UsersManager';
 import { AuditLogsViewer } from './AuditLogsViewer';
 import { PlatformSettingsManager } from './PlatformSettingsManager';
+import { AccountSecurityManager } from './AccountSecurityManager';
 import { DashboardMetrics } from '@/lib/services/super-admin.service';
 
 type SuperAdminTab = 
@@ -82,7 +84,8 @@ type SuperAdminTab =
   | 'plugins'
   | 'users'
   | 'audit'
-  | 'settings';
+  | 'settings'
+  | 'account';
 
 export function SuperAdminPortal() {
   const { 
@@ -280,6 +283,7 @@ export function SuperAdminPortal() {
     { id: 'users', label: 'Users', icon: Users },
     { id: 'audit', label: 'Audit Logs', icon: History },
     { id: 'settings', label: 'Settings', icon: SettingsIcon },
+    { id: 'account', label: 'Mi cuenta', icon: KeyRound },
   ];
 
   return (
@@ -813,6 +817,9 @@ export function SuperAdminPortal() {
 
           {/* TAB 16: SETTINGS */}
           {activeTab === 'settings' && <PlatformSettingsManager />}
+
+          {/* TAB: ACCOUNT SECURITY */}
+          {activeTab === 'account' && <AccountSecurityManager />}
 
         </main>
       </div>

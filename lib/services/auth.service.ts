@@ -661,13 +661,18 @@ export class AuthService {
     currentPassword: string;
     newPassword: string;
     revokeOtherSessions?: boolean;
+    currentSessionId?: string;
   }): Promise<{ success: boolean; error?: string }> {
     if (!params.userId || !params.currentPassword || !params.newPassword) {
       return { success: false, error: 'Todos los campos son requeridos' };
     }
 
-    if (params.newPassword.length < 8) {
-      return { success: false, error: 'La nueva contraseña debe tener al menos 8 caracteres' };
+    if (params.newPassword.length < 12 || params.newPassword.length > 128) {
+      return { success: false, error: 'La nueva contraseña debe tener entre 12 y 128 caracteres' };
+    }
+
+    if (params.newPassword === params.currentPassword) {
+      return { success: false, error: 'La nueva contraseña debe ser distinta de la actual' };
     }
 
     if (isPostgresConfigured() && prisma?.user?.findUnique) {
@@ -689,7 +694,14 @@ export class AuthService {
           });
 
           if (params.revokeOtherSessions) {
-            await SessionService.revokeAllUserSessions(params.userId);
+            if (params.currentSessionId) {
+              await SessionService.revokeOtherUserSessions(
+                params.userId,
+                params.currentSessionId
+              );
+            } else {
+              await SessionService.revokeAllUserSessions(params.userId);
+            }
           }
 
           AuditService.log({

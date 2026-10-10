@@ -28,19 +28,49 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const body = await req.json();
-    const { currentPassword, newPassword, revokeOtherSessions = true } = body;
+    const body = await req.json().catch(() => null);
 
-    if (!currentPassword || !newPassword) {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
       return NextResponse.json(
-        { success: false, error: 'Contraseña actual y nueva contraseña son requeridas.' },
+        { success: false, error: 'Solicitud inválida.' },
         { status: 400 }
       );
     }
 
-    // Always use session.userId - NEVER trust client body for userId
+    const { currentPassword, newPassword, revokeOtherSessions = true } = body;
+
+    if (
+      typeof currentPassword !== 'string' ||
+      currentPassword.length < 1 ||
+      currentPassword.length > 128 ||
+      typeof newPassword !== 'string' ||
+      newPassword.length < 12 ||
+      newPassword.length > 128
+    ) {
+      return NextResponse.json(
+        { success: false, error: 'La contraseña actual es obligatoria y la nueva debe tener entre 12 y 128 caracteres.' },
+        { status: 400 }
+      );
+    }
+
+    if (currentPassword === newPassword) {
+      return NextResponse.json(
+        { success: false, error: 'La nueva contraseña debe ser distinta de la actual.' },
+        { status: 400 }
+      );
+    }
+
+    if (typeof revokeOtherSessions !== 'boolean') {
+      return NextResponse.json(
+        { success: false, error: 'Opción de sesiones inválida.' },
+        { status: 400 }
+      );
+    }
+
+    // Identifiers always come from the validated server session.
     const result = await AuthService.changePassword({
       userId: session.userId,
+      currentSessionId: session.id,
       currentPassword,
       newPassword,
       revokeOtherSessions
