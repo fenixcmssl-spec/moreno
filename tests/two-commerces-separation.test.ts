@@ -38,7 +38,7 @@ async function runTwoCommercesSeparationTests() {
   const ecommerceApp = apps.find(a => a.id === 'app_ecommerce');
   assert(ecommerceApp !== undefined && ecommerceApp.modules.length >= 4, 'Aplicación E-commerce cuenta con módulos definidos');
 
-  const plans = SaaSCheckoutService.getPlans('app_ecommerce');
+  const plans = SaaSCheckoutService.getPlans().filter((plan) => plan.applicationId === 'app_ecommerce');
   assert(plans.length >= 3, `Aplicación E-commerce cuenta con ${plans.length} planes de precios (Starter, Pro, Enterprise)`);
 
   // 1.2 Initialize SaaS Checkout Session
@@ -217,7 +217,7 @@ async function runTwoCommercesSeparationTests() {
   console.log('\n--- 3. ABSOLUTE LOGICAL SEPARATION & INTEGRITY TESTS ---');
 
   // 3.1 Storefront Order does NOT touch SaaS Subscriptions
-  const saasPayments = await SaaSCheckoutService.getPayments('tenant_boutiquevalencia');
+  const saasPayments = await PaymentService.getSaaSPayments({ tenantId: 'tenant_boutiquevalencia' });
   assert(
     saasPayments.every((p: any) => p.paymentType === 'SAAS_LICENSE' || p.paymentType === 'SAAS_SUBSCRIPTION'),
     'El ledger de pagos SaaS contiene únicamente cobros de licencias/suscripciones FenixCMS (cero pedidos de tienda)'

@@ -89,16 +89,20 @@ export async function runFase7Tests(): Promise<{ passed: number; failed: number 
   // P05: Anti-Tenant Spoofing en Producción: fallbackSlug se ignora en producción
   try {
     const originalEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
-    
-    // StorefrontService en producción ignora fallbackSlug si no hay DB o no coincide
-    const resolution = await StorefrontService.resolveStorefront('tenant-a.fenixcms.es', {
-      fallbackSlug: 'tenant-b'
-    }).catch(() => null);
+    try {
+      Reflect.set(process.env, 'NODE_ENV', 'production');
 
-    // No debe resolver tenant-b
-    assert(!resolution || resolution?.tenant?.slug !== 'tenant-b', 'P05 - StorefrontService rechaza fallbackSlug en producción');
-    process.env.NODE_ENV = originalEnv;
+      // StorefrontService en producción ignora fallbackSlug si no hay DB o no coincide
+      const resolution = await StorefrontService.resolveStorefront('tenant-a.fenixcms.es', {
+        fallbackSlug: 'tenant-b'
+      }).catch(() => null);
+
+      // No debe resolver tenant-b
+      assert(!resolution || resolution?.tenant?.slug !== 'tenant-b', 'P05 - StorefrontService rechaza fallbackSlug en producción');
+    } finally {
+      if (originalEnv === undefined) Reflect.deleteProperty(process.env, 'NODE_ENV');
+      else Reflect.set(process.env, 'NODE_ENV', originalEnv);
+    }
   } catch (err: any) {
     assert(false, 'P05 - Rechazo de fallbackSlug en producción', err?.message);
   }
@@ -115,10 +119,14 @@ export async function runFase7Tests(): Promise<{ passed: number; failed: number 
   // P07: DB empty != DB down (SuperAdminService maneja estado vacío sin caer a demo data)
   try {
     const originalEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'development';
-    const metrics = await SuperAdminService.getDashboardMetrics().catch(() => null);
-    assert(metrics !== null && typeof metrics?.mrr === 'number', 'P07 - Dashboard metrics estructurados correctamente');
-    process.env.NODE_ENV = originalEnv;
+    try {
+      Reflect.set(process.env, 'NODE_ENV', 'development');
+      const metrics = await SuperAdminService.getDashboardMetrics().catch(() => null);
+      assert(metrics !== null && typeof metrics?.mrr === 'number', 'P07 - Dashboard metrics estructurados correctamente');
+    } finally {
+      if (originalEnv === undefined) Reflect.deleteProperty(process.env, 'NODE_ENV');
+      else Reflect.set(process.env, 'NODE_ENV', originalEnv);
+    }
   } catch (err: any) {
     assert(false, 'P07 - Dashboard metrics', err?.message);
   }

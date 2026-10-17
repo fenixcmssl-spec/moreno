@@ -3,6 +3,7 @@ import { prisma, isPostgresConfigured, isProductionMode, DatabaseConfigurationEr
 import { AuditService } from './audit.service';
 import { LicenseService } from './license.service';
 import { PasswordService } from '../auth/password';
+import { runWithSystemContext } from '../auth/tenantContext';
 import { TenantStore, SaaSLicense } from '@/types';
 
 export interface ProvisionFromCheckoutParams {
@@ -180,9 +181,11 @@ export class SaaSProvisioningService {
     // 5. Validar que el captureId no haya sido reutilizado
     if (isProductionMode()) {
       if (isPostgresConfigured() && prisma?.payment) {
-        const existingPayment = await prisma.payment.findFirst({
-          where: { providerTransactionId: captureId }
-        });
+        const existingPayment = await runWithSystemContext(() =>
+          prisma.payment.findFirst({
+            where: { providerTransactionId: captureId }
+          })
+        );
         if (existingPayment) {
           return {
             success: false,
@@ -215,8 +218,8 @@ export class SaaSProvisioningService {
     const validFrom = new Date();
     const validTo = new Date(Date.now() + (isYearly ? 365 : 30) * 24 * 60 * 60 * 1000);
 
-    const generatedRawKey = `FNX-${cleanSlug.toUpperCase().slice(0, 4)}-${Math.floor(1000 + Math.random() * 9000)}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
-    const displayKey = `${generatedRawKey.slice(0, 8)}••••••••••••`;
+    const generatedRawKey = `FNX-${cleanSlug.toUpperCase().slice(0, 4)}-${crypto.randomBytes(16).toString('hex').toUpperCase()}`;
+    const displayKey = `${generatedRawKey.slice(0, 8)}-${crypto.randomBytes(8).toString("hex").toUpperCase()}-••••`;
     const licenseKeyHash = LicenseService.hashKey(generatedRawKey);
 
     let createdActivationToken: string | null = null;
@@ -224,7 +227,7 @@ export class SaaSProvisioningService {
     // 6. Transacción Atómica PostgreSQL
     if (isPostgresConfigured() && prisma?.tenant) {
       try {
-        const txResult = await prisma.$transaction(async (tx: any) => {
+        const txResult = await runWithSystemContext(() => prisma.$transaction(async (tx: any) => {
           // A. Crear o asegurar Usuario Propietario (OWNER) con estado PENDING_ACTIVATION
           let ownerUser = await tx.user.findUnique({ where: { email: session.customerEmail } });
           if (!ownerUser) {
@@ -310,7 +313,7 @@ export class SaaSProvisioningService {
           await tx.domain.create({
             data: {
               tenantId: createdTenant.id,
-              domain: `${cleanSlug}.fenixcms.es`,
+              hostname: `${cleanSlug}.fenixcms.es`,
               type: 'SYSTEM_SUBDOMAIN',
               verified: true,
               isPrimary: true,
@@ -318,15 +321,47 @@ export class SaaSProvisioningService {
             }
           });
 
+          // Resolver los IDs relacionales reales en PostgreSQL.
+          // Tenant conserva la clave funcional; License necesita Application.id.
+          const licenseApplication = await tx.application.findFirst({
+            where: {
+              OR: [
+                { id: session.applicationId },
+                { key: String(session.applicationId).toUpperCase() },
+                { slug: String(session.applicationId).toLowerCase() }
+              ]
+            },
+            select: { id: true }
+          });
+
+          if (!licenseApplication) {
+            throw new Error(`Aplicación no encontrada para licencia: ${session.applicationId}`);
+          }
+
+          const licensePlan = await tx.plan.findFirst({
+            where: {
+              id: session.planId,
+              applicationId: licenseApplication.id,
+              status: 'ACTIVE'
+            },
+            select: { id: true }
+          });
+
+          if (!licensePlan) {
+            throw new Error(`Plan activo no encontrado para la aplicación: ${session.planId}`);
+          }
+
           // E. Crear Licencia SaaS
           const createdLicense = await tx.license.create({
             data: {
               id: licenseId,
               tenantId: createdTenant.id,
-              applicationId: session.applicationId,
-              planId: session.planId,
+              applicationId: licenseApplication.id,
+              planId: licensePlan.id,
               licenseKeyHash,
               displayKey,
+              customerName: session.customerName,
+              customerEmail: session.customerEmail,
               status: 'ACTIVE',
               startsAt: validFrom,
               expiresAt: validTo,
@@ -393,6 +428,15 @@ export class SaaSProvisioningService {
               billingName: session.customerName,
               billingEmail: session.customerEmail,
               billingAddress: session.billingAddress || {},
+              items: [
+                {
+                  description: `Licencia FenixCMS - ${session.planId}`,
+                  quantity: 1,
+                  unitPrice: capturedAmount,
+                  total: capturedAmount,
+                  currency: capturedCurrency
+                }
+              ],
               paidAt: validFrom
             }
           });
@@ -418,7 +462,7 @@ export class SaaSProvisioningService {
             invoice: createdInvoice,
             payment: createdPayment
           };
-        });
+        }));
 
         PROVISIONED_CAPTURE_IDS.add(captureId);
 
@@ -449,7 +493,7 @@ export class SaaSProvisioningService {
 
       } catch (err: any) {
         console.error('CRITICAL TRANSACTION ERROR during SaaS provisioning:', err);
-        if (isProductionMode()) {
+        if (isProductionMode() || isPostgresConfigured()) {
           throw err;
         }
       }

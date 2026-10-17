@@ -741,7 +741,7 @@ export async function runMasterTestSuite() {
 
     const prod1Translations = PRODUCT_TRANSLATIONS_CATALOG['prod_1'];
     assert(prod1Translations !== undefined, 'Catálogo dispone de traducciones dinámicas por producto');
-    assert(prod1Translations.es.title.length > 0 && prod1Translations.it.title.length > 0, 'Producto dispone de título y descripción localizadas');
+    assert((prod1Translations?.es?.title?.length ?? 0) > 0 && (prod1Translations?.it?.title?.length ?? 0) > 0, 'Producto dispone de título y descripción localizadas');
   }
 
   // ===========================================================================

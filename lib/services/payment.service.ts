@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { prisma, isPostgresConfigured, isProductionMode, DatabaseConfigurationError } from '@/lib/prisma';
+import { runWithSystemContext } from '@/lib/auth/tenantContext';
 import { AuditService } from './audit.service';
 import { LicenseService } from './license.service';
 import { SubscriptionService } from './subscription.service';
@@ -312,36 +313,50 @@ export class PaymentService {
       };
     }
 
-    // 2. Fetch existing payment record
+    // 2. Fetch existing payment record.
+    // Provider verification has succeeded; use explicit system context for this platform-level lookup.
     let payment: any = null;
-    if (process.env.DATABASE_URL && prisma?.payment) {
+    if (isPostgresConfigured() && prisma?.payment) {
       try {
-        if (params.paymentId) {
-          payment = await prisma.payment.findUnique({ where: { id: params.paymentId } });
-        }
-        if (!payment && params.sessionId) {
-          payment = await prisma.payment.findFirst({
-            where: {
-              metadata: {
-                path: ['sessionId'],
-                equals: params.sessionId
+        payment = await runWithSystemContext(async () => {
+          let existingPayment: any = null;
+
+          if (params.paymentId) {
+            existingPayment = await prisma.payment.findUnique({
+              where: { id: params.paymentId }
+            });
+          }
+
+          if (!existingPayment && params.sessionId) {
+            existingPayment = await prisma.payment.findFirst({
+              where: {
+                metadata: {
+                  path: ['sessionId'],
+                  equals: params.sessionId
+                }
               }
-            }
-          });
-        }
-        if (!payment && params.providerPaymentId) {
-          payment = await prisma.payment.findUnique({
-            where: { providerTransactionId: params.providerPaymentId }
-          });
-        }
+            });
+          }
+
+          if (!existingPayment && params.providerPaymentId) {
+            existingPayment = await prisma.payment.findUnique({
+              where: { providerTransactionId: params.providerPaymentId }
+            });
+          }
+
+          return existingPayment;
+        });
       } catch (err: any) {
-        console.warn('Prisma lookup failed:', err?.message);
+        console.error('Prisma payment lookup failed after provider verification:', err?.message);
+        // PostgreSQL is authoritative: don't hide lookup errors behind in-memory fallback.
+        throw err;
       }
     }
 
-    if (!payment) {
-      payment = FALLBACK_PAYMENTS.find(p => 
-        p.id === params.paymentId || 
+    // In-memory fallback is allowed only when PostgreSQL is not configured.
+    if (!payment && !isPostgresConfigured()) {
+      payment = FALLBACK_PAYMENTS.find(p =>
+        p.id === params.paymentId ||
         p.providerTransactionId === params.providerPaymentId ||
         p.metadata?.sessionId === params.sessionId
       );

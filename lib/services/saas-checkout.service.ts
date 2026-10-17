@@ -274,7 +274,7 @@ export class SaaSCheckoutService {
             providerPaymentId: orderId,
             amount: 0,
             currency: 'EUR',
-            status: (captureResult.status as any) || 'FAILED',
+            status: captureResult.status === 'PENDING' ? 'PENDING' : 'FAILED',
             createdAt: new Date().toISOString()
           }
         };
@@ -312,9 +312,27 @@ export class SaaSCheckoutService {
         };
       }
 
+      const resultPayment: any = provResult.payment;
+      const rawPaidAt = resultPayment?.paidAt;
+      let paidAtIso: string | undefined;
+
+      if (rawPaidAt instanceof Date && !Number.isNaN(rawPaidAt.getTime())) {
+        paidAtIso = rawPaidAt.toISOString();
+      } else if (
+        typeof rawPaidAt === 'string' &&
+        !Number.isNaN(Date.parse(rawPaidAt))
+      ) {
+        paidAtIso = new Date(rawPaidAt).toISOString();
+      }
+
       return {
         success: true,
-        payment: provResult.payment,
+        payment: resultPayment
+          ? {
+              ...resultPayment,
+              ...(paidAtIso ? { paidAt: paidAtIso } : {})
+            }
+          : resultPayment,
         subscription: provResult.subscription,
         license: provResult.license,
         invoice: provResult.invoice,

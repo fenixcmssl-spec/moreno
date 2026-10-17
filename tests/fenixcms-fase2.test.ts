@@ -54,7 +54,9 @@ async function runFase2Tests() {
         planId: 'plan_growth',
         customerName: 'Test Buyer',
         customerEmail: 'buyer@test.es',
+        tenantName: 'Admin Test Store',
         tenantSlug: 'admin',
+        provider: 'PAYPAL',
         billingPeriod: 'monthly'
       });
     } catch (err: any) {
@@ -81,7 +83,7 @@ async function runFase2Tests() {
     assert(typeof session.sessionId === 'string' && session.sessionId.startsWith('cs_'), 'Crea CheckoutSession con ID único de plataforma');
     assert(session.amount > 0, 'Snapshot comercial: importe calculado por el servidor');
     assert(session.currency === 'EUR', 'Snapshot comercial: moneda calculada por el servidor');
-    assert(session.checkoutUrl.includes('paypal.com'), 'Entrega approvalUrl legítima de PayPal');
+    assert(typeof session.checkoutUrl === 'string' && session.checkoutUrl.includes('paypal.com'), 'Entrega approvalUrl legítima de PayPal');
   } catch (err: any) {
     assert(false, 'Fallo creando CheckoutSession', err?.message);
   }
@@ -142,7 +144,7 @@ async function runFase2Tests() {
 
     assert(provResult.success === true, 'Aprovisionamiento atómico completado con éxito');
     assert(!!provResult.tenant && provResult.tenant.slug === 'tiendadeana', 'Tenant creado con slug del snapshot');
-    assert(!!provResult.license && provResult.license.displayKey?.startsWith('FNX-'), 'Licencia creada con clave oficial FNX-...');
+    assert(Boolean(provResult.license && provResult.license.displayKey?.startsWith('FNX-')), 'Licencia creada con clave oficial FNX-...');
     assert(!!provResult.subscription, 'Suscripción SaaS creada con estado ACTIVE');
     assert(!!provResult.invoice && provResult.invoice.status === 'PAID', 'Factura SaaS emitida con estado PAID');
     assert(!!provResult.payment && provResult.payment.status === 'COMPLETED', 'Registro Payment completado con ID de captura');
@@ -175,7 +177,9 @@ async function runFase2Tests() {
       planId: 'plan_starter',
       customerName: 'Otro Comprador',
       customerEmail: 'otro@test.es',
+      tenantName: 'Otra Tienda',
       tenantSlug: 'otratienda',
+      provider: 'PAYPAL',
       billingPeriod: 'monthly'
     });
 

@@ -22,7 +22,7 @@ export async function runFase24Tests() {
     // -------------------------------------------------------------------------
     // 1. Regla de Producción: Fail-Fast sin PostgreSQL
     // -------------------------------------------------------------------------
-    process.env.NODE_ENV = 'production';
+    Reflect.set(process.env, 'NODE_ENV', 'production');
     delete process.env.ALLOW_DEV_TENANT_SIMULATION;
 
     console.log('\n📋 [1/5] REGLA DE PRODUCCIÓN: FAIL-FAST SI NO HAY POSTGRESQL');
@@ -51,7 +51,7 @@ export async function runFase24Tests() {
     // -------------------------------------------------------------------------
     // 2. Modo Desarrollo con simulación desactivada (Modo seguro por defecto)
     // -------------------------------------------------------------------------
-    process.env.NODE_ENV = 'development';
+    Reflect.set(process.env, 'NODE_ENV', 'development');
     delete process.env.ALLOW_DEV_TENANT_SIMULATION;
 
     console.log('\n📋 [2/5] RESOLUCIÓN: DOMINIO INEXISTENTE');
@@ -117,7 +117,7 @@ export async function runFase24Tests() {
     console.log('🎉 TODOS LOS TESTS DE LA FASE 24 COMPLETADOS CON ÉXITO');
     console.log('================================================================================\n');
   } finally {
-    process.env.NODE_ENV = originalEnv;
+    if (originalEnv === undefined) Reflect.deleteProperty(process.env, 'NODE_ENV'); else Reflect.set(process.env, 'NODE_ENV', originalEnv);
     if (originalSim !== undefined) {
       process.env.ALLOW_DEV_TENANT_SIMULATION = originalSim;
     }

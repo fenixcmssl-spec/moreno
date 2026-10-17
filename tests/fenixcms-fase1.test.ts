@@ -91,7 +91,7 @@ async function runFase1Tests() {
       'Genera paymentId persistente para trazabilidad'
     );
     assert(
-      session.checkoutUrl.includes('paypal.com'),
+      typeof session.checkoutUrl === 'string' && session.checkoutUrl.includes('paypal.com'),
       'Genera enlace legítimo de checkout con PayPal'
     );
   } catch (err: any) {
@@ -168,9 +168,10 @@ async function runFase1Tests() {
     });
 
     assert(deniedResult.success === false, 'Pago con captura DENIED es rechazado');
+    assert(deniedResult.payment?.status === 'FAILED', 'Pago DENIED devuelve estado FAILED');
     assert(
-      deniedResult.payment?.status === 'DENIED' || deniedResult.payment?.status === 'FAILED',
-      'No se crea licencia ni suscripción ante pago denegado'
+      !deniedResult.license && !deniedResult.subscription,
+      'Pago DENIED no entrega licencia ni suscripción'
     );
 
     const pendingResult = await SaaSCheckoutService.verifyAndProcessPayment({
@@ -180,6 +181,11 @@ async function runFase1Tests() {
     });
 
     assert(pendingResult.success === false, 'Pago con captura PENDING no genera licencia final');
+    assert(pendingResult.payment?.status === 'PENDING', 'Pago PENDING conserva estado PENDING');
+    assert(
+      !pendingResult.license && !pendingResult.subscription,
+      'Pago PENDING no entrega licencia ni suscripción'
+    );
   } catch (err: any) {
     assert(false, 'Fallo en prueba de captura no completada', err?.message);
   }

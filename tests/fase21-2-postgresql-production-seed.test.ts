@@ -57,7 +57,7 @@ export async function runFase21_2Tests() {
   const prevEnv = process.env.NODE_ENV;
   const prevAllow = process.env.ALLOW_DEMO_SEED;
   try {
-    process.env.NODE_ENV = 'production';
+    Reflect.set(process.env, 'NODE_ENV', 'production');
     delete process.env.ALLOW_DEMO_SEED;
 
     let threw = false;
@@ -70,7 +70,7 @@ export async function runFase21_2Tests() {
     assert.ok(threw, 'seedDemoData debe lanzar un error y bloquear la ejecución cuando NODE_ENV=production');
     console.log('  ✅ [PASS] El guardián de seguridad rechaza estrictamente la inserción de datos demo en producción');
   } finally {
-    process.env.NODE_ENV = prevEnv;
+    if (prevEnv === undefined) Reflect.deleteProperty(process.env, 'NODE_ENV'); else Reflect.set(process.env, 'NODE_ENV', prevEnv);
     if (prevAllow !== undefined) {
       process.env.ALLOW_DEMO_SEED = prevAllow;
     } else {

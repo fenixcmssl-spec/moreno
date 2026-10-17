@@ -13,7 +13,7 @@ export async function runFase21_5Tests() {
   console.log('📋 [1/5] ZERO SEGUNDA REALIDAD: FAIL-CLOSED EN PRODUCCIÓN SIN FALLBACK SILENCIOSO');
   const prevEnv = process.env.NODE_ENV;
   try {
-    process.env.NODE_ENV = 'production';
+    Reflect.set(process.env, 'NODE_ENV', 'production');
 
     // En producción, si un dominio no existe o la BD está aislada, NUNCA debe resolver una tienda demo ficticia
     let resolvedTenant: any = null;
@@ -31,7 +31,7 @@ export async function runFase21_5Tests() {
     assert.strictEqual(resolvedTenant, null, 'En producción está estrictamente prohibido resolver tiendas demo sintéticas');
     console.log('  ✅ [PASS] Modo producción no activa tiendas demo ni fallback silencioso a memoria');
   } finally {
-    process.env.NODE_ENV = prevEnv;
+    if (prevEnv === undefined) Reflect.deleteProperty(process.env, 'NODE_ENV'); else Reflect.set(process.env, 'NODE_ENV', prevEnv);
   }
 
   // 2. Aislamiento Estricto Tenant vs Tenant (Negative Tests)
