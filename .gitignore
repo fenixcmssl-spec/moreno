@@ -5,3 +5,17 @@ coverage/
 *.log
 .env*
 !.env.example
+.env
+.env.*
+**/.env
+**/.env.*
+!**/.env.example
+dist/
+out/
+*.dump
+*.bak
+*.pem
+*.key
+*.sqlite
+*.sqlite3
+*.db

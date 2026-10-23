@@ -165,8 +165,8 @@ export class ProductService {
         sku,
         barcode: input.barcode?.trim() || null,
         category: categoryName,
-        images: Array.isArray(input.images) && input.images.length > 0 
-          ? input.images 
+        images: Array.isArray(input.images)
+          ? input.images
           : ['https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&q=80'],
         featured: Boolean(input.featured),
         isBestSeller: Boolean(input.isBestSeller),

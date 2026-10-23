@@ -236,7 +236,7 @@ export function MerchantAdmin() {
   // Fenix All Import Pro State
   const [importStep, setImportStep] = useState<1 | 2 | 3 | 4>(1);
   const [importSourceMode, setImportSourceMode] = useState<'url' | 'upload' | 'demo' | 'raw'>('url');
-  const [importUrl, setImportUrl] = useState<string>('https://feeds.dropshipping-hub.es/catalogo/tecnologia-2026.csv');
+  const [importUrl, setImportUrl] = useState<string>('');
   const [isFetchingUrl, setIsFetchingUrl] = useState<boolean>(false);
   const [urlFetchError, setUrlFetchError] = useState<string | null>(null);
   const [importFileContent, setImportFileContent] = useState<string>('');
@@ -266,7 +266,14 @@ export function MerchantAdmin() {
     fallbackStock: 30
   });
   const [isImportRunning, setIsImportRunning] = useState(false);
-  const [importResult, setImportResult] = useState<{ total: number; categoriesCount: number } | null>(null);
+  const [importResult, setImportResult] = useState<{
+    total: number;
+    createdCount: number;
+    updatedCount: number;
+    failedCount: number;
+    categoriesCount: number;
+    errors: Array<{ row: number; sku?: string; message: string }>;
+  } | null>(null);
   const [isSeoModalOpen, setIsSeoModalOpen] = useState(false);
 
   // Parsing functions for Fenix All Import Pro
@@ -434,109 +441,111 @@ export function MerchantAdmin() {
 
   const handleFetchFromUrl = async (customUrl?: string) => {
     const targetUrl = (customUrl || importUrl).trim();
+
     if (!targetUrl) {
-      setUrlFetchError('Por favor ingresa una URL válida del feed.');
+      setUrlFetchError('Introduce la URL real del feed del proveedor.');
       return;
     }
+
+    let parsedUrl: URL;
+
+    try {
+      parsedUrl = new URL(targetUrl);
+    } catch {
+      setUrlFetchError('La URL no es válida.');
+      return;
+    }
+
+    if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
+      setUrlFetchError('Solo se admiten direcciones HTTP o HTTPS.');
+      return;
+    }
+
+    const MAX_FEED_BYTES = 5 * 1024 * 1024;
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 20000);
 
     setIsFetchingUrl(true);
     setUrlFetchError(null);
 
     try {
-      if (targetUrl.includes('dropshipping-hub') || targetUrl.includes('tecnologia-2026.csv')) {
-        await new Promise(r => setTimeout(r, 600));
-        const feedCSV = `title,price,compare_price,sku,stock,category,image,description,tags
-"Auriculares Inalámbricos Pro ANC 45h",79.90,129.00,"AU-PRO-ANC-BLK",85,"Audio & Sonido","https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&q=80","Auriculares bluetooth con cancelación activa de ruido híbrida de 40dB, sonido espacial HD y batería de 45 horas.","audio, bluetooth, anc"
-"Smartwatch Deportivo GPS Sumergible 5ATM",119.00,169.00,"SW-DEP-5ATM-SLV",40,"Wearables & Smart","https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&q=80","Reloj inteligente con sensor cardíaco biométrico 24/7, GPS GLONASS y más de 100 modos deportivos.","smartwatch, gps, fitness"
-"Teclado Mecánico RGB Switch Red Hot-Swap",89.50,119.00,"TC-MEC-RGB-SW",60,"Gaming & Setup","https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=800&q=80","Teclado mecánico gamer compacto 75% con switches lineales intercambiables en caliente e iluminación RGB por tecla.","gaming, teclado, rgb"
-"Cámara Seguridad WiFi 360 Exterior 2K",49.99,75.00,"CAM-SEC-360-EXT",110,"Hogar Inteligente","https://images.unsplash.com/photo-1557597774-9d273605dfa9?w=800&q=80","Cámara IP de vigilancia panorámica con visión nocturna a color, detección humana por IA y audio bidireccional.","seguridad, camara, domotica"
-"Altavoz Portátil Resistente al Agua IPX7",39.90,59.90,"ALT-POR-IPX7-BLU",95,"Audio & Sonido","https://images.unsplash.com/photo-1545454675-3531b543be5d?w=800&q=80","Altavoz inalámbrico compacto con bajos reforzados BassBoost, resistente al agua y polvo IPX7 y 18h de reproducción.","audio, altavoz, portatil"
-"Lámpara de Escritorio LED con Carga Inalámbrica",34.50,49.00,"LAMP-LED-QI-WHT",75,"Hogar & Oficina","https://images.unsplash.com/photo-1507473885765-e6ed057f782c?w=800&q=80","Lámpara articulada con control táctil de temperatura de color y base con cargador inalámbrico Qi de 15W.","iluminacion, led, oficina"`;
-        processImportData(feedCSV, 'tecnologia-2026.csv', 'csv');
-      } else if (targetUrl.includes('products-feed.xml') || targetUrl.includes('.xml')) {
-        await new Promise(r => setTimeout(r, 600));
-        const feedXML = `<?xml version="1.0" encoding="UTF-8"?>
-<catalog>
-  <product>
-    <title>Cafetera Espresso Automática 20 Bares</title>
-    <price>149.90</price>
-    <compare_price>199.00</compare_price>
-    <sku>CAF-ESP-20B-INOX</sku>
-    <stock>35</stock>
-    <category>Electrodomésticos</category>
-    <image>https://images.unsplash.com/photo-1517668808822-9ebb02f2a0e6?w=800&q=80</image>
-    <description>Cafetera express para café molido y monodosis con bomba italiana de 20 bares y vaporizador orientable.</description>
-  </product>
-  <product>
-    <title>Mochila Antirrobo Urbana para Portátil 15.6</title>
-    <price>39.90</price>
-    <compare_price>59.00</compare_price>
-    <sku>MOC-URB-ANT-GRY</sku>
-    <stock>120</stock>
-    <category>Accesorios & Viaje</category>
-    <image>https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=800&q=80</image>
-    <description>Mochila impermeable con cremalleras ocultas, puerto de carga USB exterior y compartimento acolchado para laptop.</description>
-  </product>
-  <product>
-    <title>Set de Sartenes Antiadherentes Piedra Volcánica 3 Piezas</title>
-    <price>59.00</price>
-    <compare_price>89.00</compare_price>
-    <sku>SAR-VOL-3P-SET</sku>
-    <stock>50</stock>
-    <category>Hogar y Cocina</category>
-    <image>https://images.unsplash.com/photo-1584990347449-397a610ef3a7?w=800&q=80</image>
-    <description>Juego de sartenes de 20, 24 y 28cm libres de PFOA aptas para inducción y lavavajillas.</description>
-  </product>
-</catalog>`;
-        processImportData(feedXML, 'products-feed.xml', 'xml');
-      } else if (targetUrl.includes('products.json') || targetUrl.includes('.json')) {
-        await new Promise(r => setTimeout(r, 600));
-        const feedJSON = JSON.stringify({
-          supplier: "Distribuidor Central España",
-          products: [
-            {
-              title: "Silla Ergonómica de Oficina con Reposacabezas 3D",
-              price: 189.00,
-              compare_price: 249.00,
-              sku: "SIL-ERG-OFF-PRO",
-              stock: 28,
-              category: "Mobiliario y Oficina",
-              image: "https://images.unsplash.com/photo-1580481077198-c847ad436168?w=800&q=80",
-              description: "Silla de escritorio transpirable con soporte lumbar ajustable, brazos 3D y reclinación sincrónica."
-            },
-            {
-              title: "Pack 2 Bombillas Inteligentes LED WiFi RGB+CCT 10W",
-              price: 19.99,
-              compare_price: 29.99,
-              sku: "BOM-WIFI-RGB-P2",
-              stock: 150,
-              category: "Hogar Inteligente",
-              image: "https://images.unsplash.com/photo-1550985543-f47f38aeee65?w=800&q=80",
-              description: "Bombillas compatibles con Alexa y Google Home con 16 millones de colores y programación horaria."
-            }
-          ]
-        }, null, 2);
-        processImportData(feedJSON, 'products.json', 'json');
-      } else {
-        try {
-          const response = await fetch(targetUrl);
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          const text = await response.text();
-          const filename = targetUrl.split('/').pop() || 'remote_feed.csv';
-          const ok = processImportData(text, filename);
-          if (!ok) throw new Error('Formato no reconocido');
-        } catch {
-          // Robust fallback mock for user URLs
-          const filename = targetUrl.split('/').pop() || 'feed_importado_url.csv';
-          const fallbackCSV = `title,price,compare_price,sku,stock,category,image,description,tags
-"Producto Sincronizado desde Feed Web URL",69.90,99.00,"URL-IMP-${Math.floor(1000+Math.random()*9000)}",45,"Catálogo URL","https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&q=80","Producto obtenido exitosamente desde la URL remota: ${targetUrl}","url, feed, sync"
-"Artículo Mayorista Dropshipping Sincronizado",129.00,179.00,"URL-DIST-${Math.floor(1000+Math.random()*9000)}",30,"Distribución","https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&q=80","Artículo sincronizado mediante Fenix All Import Pro via enlace web de catálogo.","dropshipping, mayorista"`;
-          processImportData(fallbackCSV, filename, 'csv');
-        }
+      const response = await fetch(parsedUrl.toString(), {
+        method: 'GET',
+        credentials: 'omit',
+        signal: controller.signal,
+        redirect: 'follow'
+      });
+
+      if (!response.ok) {
+        throw new Error(`El proveedor respondió HTTP ${response.status}.`);
       }
-    } catch (err: any) {
-      setUrlFetchError(err?.message || 'Error al conectar con la URL');
+
+      if (
+        response.url &&
+        !['http:', 'https:'].includes(new URL(response.url).protocol)
+      ) {
+        throw new Error('La descarga terminó en una dirección no admitida.');
+      }
+
+      const declaredSize = Number(response.headers.get('content-length') || 0);
+      if (declaredSize > MAX_FEED_BYTES) {
+        throw new Error('El feed supera el límite de 5 MB.');
+      }
+
+      let content: string;
+      const reader = response.body?.getReader();
+
+      if (!reader) {
+        content = await response.text();
+        if (new TextEncoder().encode(content).byteLength > MAX_FEED_BYTES) {
+          throw new Error('El feed supera el límite de 5 MB.');
+        }
+      } else {
+        const chunks: Uint8Array[] = [];
+        let totalBytes = 0;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!value) continue;
+
+          totalBytes += value.byteLength;
+
+          if (totalBytes > MAX_FEED_BYTES) {
+            await reader.cancel().catch(() => {});
+            throw new Error('El feed supera el límite de 5 MB.');
+          }
+
+          chunks.push(value);
+        }
+
+        const combined = new Uint8Array(totalBytes);
+        let offset = 0;
+
+        for (const chunk of chunks) {
+          combined.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
+
+        content = new TextDecoder('utf-8').decode(combined);
+      }
+
+      const filename = parsedUrl.pathname.split('/').pop() || 'feed_importado';
+      const parsed = processImportData(content, filename);
+
+      if (!parsed) {
+        setUrlFetchError(
+          'La descarga se completó, pero el contenido no contiene registros reconocibles. Comprueba el formato y las cabeceras.'
+        );
+      }
+    } catch (error: any) {
+      const message = error?.name === 'AbortError'
+        ? 'La descarga superó el límite de 20 segundos.'
+        : error?.message || 'No se pudo descargar el feed. Comprueba la URL, la conexión y los permisos CORS del proveedor.';
+
+      setUrlFetchError(message);
     } finally {
+      window.clearTimeout(timeoutId);
       setIsFetchingUrl(false);
     }
   };
@@ -564,61 +573,134 @@ export function MerchantAdmin() {
 
   const handleExecuteImport = async () => {
     setIsImportRunning(true);
-    await new Promise(r => setTimeout(r, 1200));
+    setUrlFetchError(null);
 
-    const markupMultiplier = importRules.applyPriceMarkup ? (1 + (importRules.markupPercentage / 100)) : 1;
+    try {
+      const markupMultiplier = importRules.applyPriceMarkup
+        ? 1 + importRules.markupPercentage / 100
+        : 1;
 
-    const formattedProducts = parsedImportRows.map(row => {
-      const rawPrice = parseFloat(row[columnMapping.price]) || 29.99;
-      const finalPrice = Number((rawPrice * markupMultiplier).toFixed(2));
-      const rawComparePrice = columnMapping.compareAtPrice && row[columnMapping.compareAtPrice] 
-        ? parseFloat(row[columnMapping.compareAtPrice]) 
-        : undefined;
-      const finalComparePrice = rawComparePrice ? Number((rawComparePrice * markupMultiplier).toFixed(2)) : undefined;
+      const parseMappedNumber = (value: unknown): number | null => {
+        if (typeof value === 'number') {
+          return Number.isFinite(value) ? value : null;
+        }
 
-      const rawTitle = row[columnMapping.title] || 'Producto Importado';
-      const rawSku = (columnMapping.sku && row[columnMapping.sku]) 
-        ? row[columnMapping.sku] 
-        : `SKU-IMP-${Math.floor(1000 + Math.random() * 9000)}`;
-      const rawStock = (columnMapping.stock && row[columnMapping.stock]) 
-        ? parseInt(row[columnMapping.stock]) || importRules.fallbackStock 
-        : importRules.fallbackStock;
-      const rawCategory = (columnMapping.category && row[columnMapping.category]) 
-        ? row[columnMapping.category] 
-        : 'General';
-      const rawDesc = (columnMapping.description && row[columnMapping.description]) 
-        ? row[columnMapping.description] 
-        : 'Descripción importada vía Fenix All Import Pro.';
-      const rawImage = (columnMapping.image && row[columnMapping.image]) 
-        ? row[columnMapping.image] 
-        : 'https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=800&q=80';
-      const rawTags = (columnMapping.tags && row[columnMapping.tags]) 
-        ? String(row[columnMapping.tags]).split(',').map(t => t.trim()) 
-        : ['importado', 'fenix-all-import'];
+        if (typeof value !== 'string' || !value.trim()) return null;
 
-      return {
-        title: rawTitle,
-        price: finalPrice,
-        compareAtPrice: finalComparePrice,
-        sku: rawSku,
-        stock: rawStock,
-        category: rawCategory,
-        description: rawDesc,
-        images: [rawImage],
-        tags: rawTags,
-        status: importRules.status
+        let normalized = value.trim().replace(/\s/g, '').replace(/[€$£]/g, '');
+        const comma = normalized.lastIndexOf(',');
+        const dot = normalized.lastIndexOf('.');
+
+        if (comma >= 0 && dot >= 0) {
+          normalized = comma > dot
+            ? normalized.replace(/\./g, '').replace(',', '.')
+            : normalized.replace(/,/g, '');
+        } else if (comma >= 0) {
+          normalized = normalized.replace(',', '.');
+        }
+
+        const parsed = Number(normalized);
+        return Number.isFinite(parsed) ? parsed : null;
       };
-    });
 
-    await importProductsBatch(formattedProducts);
-    
-    const uniqueCats = new Set(formattedProducts.map(p => p.category));
+      const formattedProducts = parsedImportRows.map((row, index) => {
+        const priceText = columnMapping.price
+          ? String(row[columnMapping.price] ?? '').trim()
+          : '';
+        const parsedPrice = parseMappedNumber(priceText);
+        const finalPrice = parsedPrice === null
+          ? Number.NaN
+          : Number((parsedPrice * markupMultiplier).toFixed(2));
 
-    setIsImportRunning(false);
-    setImportResult({ total: formattedProducts.length, categoriesCount: uniqueCats.size });
-    setImportStep(4);
+        const compareText = columnMapping.compareAtPrice
+          ? String(row[columnMapping.compareAtPrice] ?? '').trim()
+          : '';
+        const parsedComparePrice = compareText
+          ? parseMappedNumber(compareText)
+          : null;
+        const finalComparePrice = !compareText
+          ? undefined
+          : parsedComparePrice === null
+            ? -1
+            : Number((parsedComparePrice * markupMultiplier).toFixed(2));
+
+        const title = columnMapping.title
+          ? String(row[columnMapping.title] ?? '').trim()
+          : '';
+
+        const sku = columnMapping.sku
+          ? String(row[columnMapping.sku] ?? '').trim()
+          : '';
+
+        const stockText = columnMapping.stock
+          ? String(row[columnMapping.stock] ?? '').trim()
+          : '';
+        const parsedStock = stockText ? parseMappedNumber(stockText) : importRules.fallbackStock;
+        const stock = parsedStock === null || !Number.isSafeInteger(parsedStock)
+          ? Number.NaN
+          : parsedStock;
+
+        const category = columnMapping.category
+          ? String(row[columnMapping.category] ?? '').trim() || undefined
+          : undefined;
+
+        const description = columnMapping.description
+          ? String(row[columnMapping.description] ?? '').trim()
+          : undefined;
+
+        const image = columnMapping.image
+          ? String(row[columnMapping.image] ?? '').trim()
+          : '';
+
+        const tags = columnMapping.tags
+          ? String(row[columnMapping.tags] ?? '').split(',').map((tag: string) => tag.trim()).filter(Boolean)
+          : undefined;
+
+        return {
+          title,
+          price: finalPrice,
+          comparePrice: finalComparePrice,
+          sku,
+          stock,
+          ...(category !== undefined ? { category } : {}),
+          ...(description !== undefined ? { description } : {}),
+          images: image ? [image] : undefined,
+          ...(tags !== undefined ? { tags } : {}),
+          status: importRules.status.toLowerCase() as any,
+          sourceRow: index + 2
+        };
+      });
+
+      const result = await importProductsBatch(formattedProducts, {
+        updateExistingBySku: importRules.updateExistingBySku
+      });
+
+      const uniqueCats = new Set(
+        formattedProducts.map(product => product.category || 'General')
+      );
+
+      setImportResult({
+        total: result.importedCount,
+        createdCount: result.createdCount,
+        updatedCount: result.updatedCount,
+        failedCount: result.failedCount,
+        errors: result.errors,
+        categoriesCount: uniqueCats.size
+      });
+
+      if (result.failedCount > 0) {
+        setUrlFetchError(
+          `Importación terminada con ${result.failedCount} fila(s) con errores. Consulta el informe antes de repetirla.`
+        );
+      }
+
+      setImportStep(4);
+    } catch (error: any) {
+      setUrlFetchError(error?.message || 'No se pudo completar la importación.');
+    } finally {
+      setIsImportRunning(false);
+    }
   };
-
 
   // If not authenticated, render secure backend login gate
   if (!isAuthenticated) {
@@ -1653,55 +1735,16 @@ export function MerchantAdmin() {
                         </p>
                       </div>
 
-                      {/* Preset Feeds */}
-                      <div className="space-y-2">
-                        <p className="text-xs font-bold text-slate-300">O prueba con uno de nuestros Feeds de proveedores listos:</p>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                          <button
-                            onClick={() => {
-                              const url = 'https://feeds.dropshipping-hub.es/catalogo/tecnologia-2026.csv';
-                              setImportUrl(url);
-                              handleFetchFromUrl(url);
-                            }}
-                            className="p-3 bg-slate-950/60 hover:bg-slate-800/80 border border-slate-800 hover:border-amber-500/50 rounded-xl text-left transition group cursor-pointer"
-                          >
-                            <div className="flex items-center justify-between text-xs font-bold text-white group-hover:text-amber-400">
-                              <span>Feed Tecnología & Gadgets</span>
-                              <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-300 rounded text-[10px] font-mono">.CSV</span>
-                            </div>
-                            <p className="text-[11px] text-slate-400 mt-1">6 productos electrónicos con imágenes HD y tags.</p>
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              const url = 'https://mayorista-hogar.es/api/products-feed.xml';
-                              setImportUrl(url);
-                              handleFetchFromUrl(url);
-                            }}
-                            className="p-3 bg-slate-950/60 hover:bg-slate-800/80 border border-slate-800 hover:border-amber-500/50 rounded-xl text-left transition group cursor-pointer"
-                          >
-                            <div className="flex items-center justify-between text-xs font-bold text-white group-hover:text-amber-400">
-                              <span>Feed Hogar & Menaje</span>
-                              <span className="px-1.5 py-0.5 bg-blue-500/20 text-blue-300 rounded text-[10px] font-mono">.XML</span>
-                            </div>
-                            <p className="text-[11px] text-slate-400 mt-1">Catálogo estructurado XML estándar de electrodomésticos.</p>
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              const url = 'https://api.distribuidor-oficina.com/v2/products.json';
-                              setImportUrl(url);
-                              handleFetchFromUrl(url);
-                            }}
-                            className="p-3 bg-slate-950/60 hover:bg-slate-800/80 border border-slate-800 hover:border-amber-500/50 rounded-xl text-left transition group cursor-pointer"
-                          >
-                            <div className="flex items-center justify-between text-xs font-bold text-white group-hover:text-amber-400">
-                              <span>Feed Oficina & Domótica</span>
-                              <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-300 rounded text-[10px] font-mono">.JSON</span>
-                            </div>
-                            <p className="text-[11px] text-slate-400 mt-1">Feed REST API de mobiliario y bombillas WiFi.</p>
-                          </button>
-                        </div>
+                      <div className="p-4 bg-slate-950/60 border border-slate-800 rounded-xl space-y-2">
+                        <p className="text-xs font-bold text-slate-200">
+                          Importar un catálogo
+                        </p>
+                        <p className="text-xs text-slate-400">
+                          Se han retirado los enlaces de proveedores de demostración porque no están verificados.
+                        </p>
+                        <p className="text-xs text-slate-400">
+                          Para importar datos reales, introduce arriba la URL del feed de tu proveedor o utiliza la pestaña de subida de archivos. Para probar el funcionamiento sin datos externos, utiliza Catálogos de Prueba.
+                        </p>
                       </div>
                     </div>
                   )}
@@ -2190,28 +2233,58 @@ export function MerchantAdmin() {
                     <Check className="w-8 h-8" />
                   </div>
                   <div className="space-y-1">
-                    <h3 className="text-xl font-extrabold text-white">¡Catálogo Importado Exitosamente!</h3>
+                    <h3 className="text-xl font-extrabold text-white">
+                      {importResult?.failedCount
+                        ? 'Importación finalizada con incidencias'
+                        : '¡Catálogo Importado Exitosamente!'}
+                    </h3>
                     <p className="text-xs text-slate-300 max-w-md mx-auto">
-                      Se han procesado e insertado <span className="text-amber-400 font-bold">{importResult?.total}</span> nuevos productos en el catálogo de <span className="font-semibold text-white">{tenant.name}</span>.
+                      Resultado para <span className="font-semibold text-white">{tenant.name}</span>: <span className="text-emerald-400">{importResult?.createdCount ?? 0} creados</span>, <span className="text-blue-400">{importResult?.updatedCount ?? 0} actualizados</span> y <span className="text-rose-400">{importResult?.failedCount ?? 0} fallidos</span>.
                     </p>
                   </div>
 
-                  <div className="inline-flex items-center gap-4 p-3 bg-slate-950/80 border border-slate-800 rounded-xl text-xs font-mono">
-                    <div>
-                      <span className="text-slate-500 block text-[10px]">Productos Creados</span>
-                      <span className="text-emerald-400 font-bold text-sm">{importResult?.total}</span>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
+                    <div className="p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+                      <span className="text-slate-400 block text-[10px]">Creados</span>
+                      <span className="text-emerald-400 font-bold text-lg">{importResult?.createdCount ?? 0}</span>
                     </div>
-                    <div className="h-6 w-px bg-slate-800" />
-                    <div>
-                      <span className="text-slate-500 block text-[10px]">Categorías Asignadas</span>
-                      <span className="text-amber-400 font-bold text-sm">{importResult?.categoriesCount}</span>
+                    <div className="p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+                      <span className="text-slate-400 block text-[10px]">Actualizados</span>
+                      <span className="text-blue-400 font-bold text-lg">{importResult?.updatedCount ?? 0}</span>
                     </div>
-                    <div className="h-6 w-px bg-slate-800" />
-                    <div>
-                      <span className="text-slate-500 block text-[10px]">Estado</span>
-                      <span className="text-blue-400 font-bold text-sm">SINCRONIZADO</span>
+                    <div className="p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+                      <span className="text-slate-400 block text-[10px]">Fallidos</span>
+                      <span className="text-rose-400 font-bold text-lg">{importResult?.failedCount ?? 0}</span>
+                    </div>
+                    <div className="p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+                      <span className="text-slate-400 block text-[10px]">Categorías detectadas</span>
+                      <span className="text-amber-400 font-bold text-lg">{importResult?.categoriesCount ?? 0}</span>
                     </div>
                   </div>
+
+                  {importResult?.errors && importResult.errors.length > 0 && (
+                    <div className="mt-5 p-4 text-left bg-rose-950/20 border border-rose-500/30 rounded-xl space-y-3">
+                      <h4 className="text-sm font-bold text-rose-300">
+                        Filas que necesitan revisión ({importResult.errors.length})
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        Se muestran como máximo 50 errores. Corrige las filas indicadas antes de volver a importar esos productos.
+                      </p>
+                      <div className="max-h-80 overflow-y-auto space-y-2">
+                        {importResult.errors.slice(0, 50).map((error, index) => (
+                          <div
+                            key={`${error.row}-${error.sku || 'sin-sku'}-${index}`}
+                            className="p-3 bg-slate-950/70 border border-slate-800 rounded-lg"
+                          >
+                            <div className="text-xs font-bold text-white">
+                              Fila {error.row}{error.sku ? ` · SKU: ${error.sku}` : ''}
+                            </div>
+                            <p className="mt-1 text-xs text-rose-300 break-words">{error.message}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   <div className="flex flex-wrap justify-center gap-3 pt-3">
                     <button

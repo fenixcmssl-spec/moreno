@@ -170,7 +170,16 @@ interface StoreContextType {
   setActiveThemeId: (themeId: string) => void;
   installNewTheme: (theme: ThemeDefinition) => Promise<void>;
   
-  importProductsBatch: (products: Partial<ProductItem>[]) => Promise<{ importedCount: number }>;
+  importProductsBatch: (
+    products: Partial<ProductItem>[],
+    options?: { updateExistingBySku?: boolean }
+  ) => Promise<{
+    importedCount: number;
+    createdCount: number;
+    updatedCount: number;
+    failedCount: number;
+    errors: Array<{ row: number; sku?: string; message: string }>;
+  }>;
   resetToDemoData: () => void;
   isDbConnected: boolean;
 }
@@ -806,37 +815,66 @@ export function StoreProvider({
     setMarketplaceItems(prev => prev.filter(i => i.id !== id));
   };
 
-  const importProductsBatch = async (newProducts: Partial<ProductItem>[]) => {
-    const created: ProductItem[] = [];
-    for (const p of newProducts) {
-      try {
-        const res = await apiClient.post('/api/products', {
-          title: p.title || 'Producto Importado',
-          slug: (p.title || 'producto-importado').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-          description: p.description || '',
-          category: p.category || 'General',
-          price: Number(p.price) || 19.99,
-          compareAtPrice: p.compareAtPrice ? Number(p.compareAtPrice) : undefined,
-          sku: p.sku || `SKU-IMP-${Math.floor(1000 + Math.random() * 9000)}`,
-          stock: Number(p.stock) || 10,
-          images: p.images && p.images.length ? p.images : ['https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&q=80'],
-          tags: p.tags || ['importado'],
-          status: 'ACTIVE',
-          tenantId: tenant?.id
-        });
-        if (res?.product) {
-          created.push(res.product);
-        }
-      } catch (err) {
-        console.warn('Batch item import server notice:', err);
-      }
+  const importProductsBatch = async (
+    newProducts: Partial<ProductItem>[],
+    options?: { updateExistingBySku?: boolean }
+  ): Promise<{
+    importedCount: number;
+    createdCount: number;
+    updatedCount: number;
+    failedCount: number;
+    errors: Array<{ row: number; sku?: string; message: string }>;
+  }> => {
+    const result = await apiClient.post<{
+      success: boolean;
+      createdCount: number;
+      updatedCount: number;
+      failedCount: number;
+      errors: Array<{ row: number; sku?: string; message: string }>;
+      createdProducts: ProductItem[];
+      updatedProducts: ProductItem[];
+    }>('/api/products/import', {
+      tenantId: tenant?.id,
+      products: newProducts,
+      updateExistingBySku: options?.updateExistingBySku ?? true
+    });
+
+    if (!result || !Array.isArray(result.createdProducts) ||
+        !Array.isArray(result.updatedProducts) || !Array.isArray(result.errors)) {
+      throw new Error('El servidor devolvió una respuesta de importación no válida.');
     }
 
-    if (created.length > 0) {
-      setProducts(prev => [...created, ...prev]);
+    const createdProducts = result.createdProducts;
+    const updatedProducts = result.updatedProducts;
+
+    if (createdProducts.length > 0 || updatedProducts.length > 0) {
+      setProducts(prev => {
+        const byId = new Map(prev.map(product => [product.id, product]));
+
+        for (const product of [...updatedProducts, ...createdProducts]) {
+          byId.set(product.id, {
+            ...(byId.get(product.id) || {}),
+            ...product
+          });
+        }
+
+        return Array.from(byId.values());
+      });
     }
-    logAction('PRODUCTS_IMPORTED_BATCH', 'Product', { count: created.length });
-    return { importedCount: created.length };
+
+    logAction('PRODUCTS_IMPORTED_BATCH', 'Product', {
+      createdCount: createdProducts.length,
+      updatedCount: updatedProducts.length,
+      failedCount: result.errors.length
+    });
+
+    return {
+      importedCount: createdProducts.length + updatedProducts.length,
+      createdCount: createdProducts.length,
+      updatedCount: updatedProducts.length,
+      failedCount: result.errors.length,
+      errors: result.errors
+    };
   };
 
   const resetToDemoData = () => {
