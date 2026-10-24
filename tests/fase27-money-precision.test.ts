@@ -19,13 +19,13 @@ export async function runFase27Tests() {
     const totals = await StorefrontCheckoutService.calculateSecureTotals(
       'tenant_demo',
       [
-        { productId: 'prod_1', quantity: 2 }, // Auriculares 79.99 * 2 = 159.98
+        { productId: 'prod_a_headphones', quantity: 2 }, // Precio oficial PostgreSQL: 89.99 * 2 = 179.98
       ],
       undefined,
       'correos_express'
     );
 
-    assert(totals.subtotal > 0, `Subtotal calculado por servidor: ${totals.subtotal}€`);
+    assert(totals.subtotal === 179.98, `Subtotal del catálogo PostgreSQL (89.99 × 2): ${totals.subtotal}€`);
     assert(totals.total >= totals.subtotal, `Total incluye desglose de impuestos y costes: ${totals.total}€`);
     assert(Number.isFinite(totals.total), 'El total es un número finito sin pérdidas de precisión');
   }
@@ -43,7 +43,7 @@ export async function runFase27Tests() {
   {
     const totalsWithDiscount = await StorefrontCheckoutService.calculateSecureTotals(
       'tenant_demo',
-      [{ productId: 'prod_1', quantity: 1 }],
+      [{ productId: 'prod_a_headphones', quantity: 1 }],
       'PROMO10'
     );
 

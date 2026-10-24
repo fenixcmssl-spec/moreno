@@ -21,6 +21,8 @@ import { AuthService } from '../lib/services/auth.service';
  */
 
 async function runFase2Tests() {
+  // Slug único por ejecución para permitir repetir la suite CI.
+  const testTenantSlug = `tiendadeana-${Date.now()}`;
   console.log('\n================================================================================');
   console.log('🧪 SUITE DE PRUEBAS FENIXCMS_2: CHECKOUTSESSION, CAPTURA Y PROVISIONING ATÓMICO');
   console.log('================================================================================');
@@ -70,7 +72,7 @@ async function runFase2Tests() {
       planId: 'plan_starter',
       customerName: 'Ana García',
       customerEmail: 'ana.garcia@tiendafenix.es',
-      tenantSlug: 'tiendadeana',
+      tenantSlug: testTenantSlug,
       tenantName: 'Tienda de Ana',
       billingPeriod: 'monthly',
       provider: 'PAYPAL'
@@ -143,7 +145,7 @@ async function runFase2Tests() {
     });
 
     assert(provResult.success === true, 'Aprovisionamiento atómico completado con éxito');
-    assert(!!provResult.tenant && provResult.tenant.slug === 'tiendadeana', 'Tenant creado con slug del snapshot');
+    assert(!!provResult.tenant && provResult.tenant.slug === testTenantSlug, 'Tenant creado con slug del snapshot');
     assert(Boolean(provResult.license && provResult.license.displayKey?.startsWith('FNX-')), 'Licencia creada con clave oficial FNX-...');
     assert(!!provResult.subscription, 'Suscripción SaaS creada con estado ACTIVE');
     assert(!!provResult.invoice && provResult.invoice.status === 'PAID', 'Factura SaaS emitida con estado PAID');
@@ -167,7 +169,7 @@ async function runFase2Tests() {
 
     assert(duplicateResult.success === true, 'Petición repetida devuelve éxito sin error');
     assert(
-      duplicateResult.tenant?.slug === 'tiendadeana',
+      duplicateResult.tenant?.slug === testTenantSlug,
       'Devuelve el tenant existente previamente aprovisionado sin duplicar'
     );
 

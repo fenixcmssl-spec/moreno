@@ -105,7 +105,7 @@ export class StorefrontCheckoutService {
       }
     }
 
-    if (!isProductionMode() && (!dbProducts || dbProducts.length === 0)) {
+    if (!isProductionMode() && !isPostgresConfigured() && (!dbProducts || dbProducts.length === 0)) {
       dbProducts = INITIAL_PRODUCTS.filter(p => p.tenantId === tenantId && productIds.includes(p.id));
       if (dbProducts.length === 0) {
         // Fallback for tests if product exists in INITIAL_PRODUCTS

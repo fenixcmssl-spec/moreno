@@ -5,6 +5,7 @@ import { SaaSProvisioningService } from '../lib/services/saas-provisioning.servi
 import { SubscriptionService } from '../lib/services/subscription.service';
 import { PaymentService } from '../lib/services/payment.service';
 import { runWithSystemContext } from '../lib/auth/tenantContext';
+import { prisma, isPostgresConfigured } from '../lib/prisma';
 
 export async function runFase21_4Tests() {
   console.log('\n================================================================================');
@@ -111,6 +112,16 @@ export async function runFase21_4Tests() {
     expiresAt: new Date(Date.now() + 3600000)
   };
 
+  // En CI con PostgreSQL, persistir la sesión antes de probar el provisioning.
+  if (isPostgresConfigured()) {
+    await runWithSystemContext(async () => {
+      await (prisma as any).checkoutSession.create({
+        data: testCheckoutSession
+      });
+    });
+  }
+
+  // Mantener el registro en memoria para los escenarios sin PostgreSQL.
   SaaSProvisioningService.recordMemorySession(testCheckoutSession);
 
   const provResult = await runWithSystemContext(async () => {

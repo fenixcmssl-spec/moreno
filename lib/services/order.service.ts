@@ -1,4 +1,5 @@
 import { prisma, isPostgresConfigured, isProductionMode, DatabaseConfigurationError } from '@/lib/prisma';
+import { runWithTenant } from '@/lib/auth/tenantContext';
 import crypto from 'crypto';
 import { AuditService } from './audit.service';
 import { CouponService } from './coupon.service';
@@ -164,16 +165,18 @@ export class OrderService {
         };
       }
       try {
-        const existingOrder = await (prisma as any).order.findFirst({
-          where: {
-            tenantId,
-            idempotencyKey: idempotencyKey.trim()
-          },
-          include: {
-            orderItems: true,
-            customer: true
-          }
-        });
+        const existingOrder = await runWithTenant(tenantId, async () => await
+          (prisma as any).order.findFirst({
+            where: {
+              tenantId,
+              idempotencyKey: idempotencyKey.trim()
+            },
+            include: {
+              orderItems: true,
+              customer: true
+            }
+          })
+        );
 
         if (existingOrder) {
           return {
@@ -212,7 +215,7 @@ export class OrderService {
           }
         });
 
-        if ((!allDbProducts || allDbProducts.length === 0) && !isProductionMode()) {
+        if ((!allDbProducts || allDbProducts.length === 0) && !isPostgresConfigured() && !isProductionMode()) {
           allDbProducts = INITIAL_PRODUCTS.filter(p => productIds.includes(p.id));
         }
 
@@ -544,7 +547,7 @@ export class OrderService {
       let resultOrder: any;
       try {
         if (isPostgresConfigured() && prisma?.$transaction) {
-          resultOrder = await (prisma as any).$transaction(txRunner);
+          resultOrder = await runWithTenant(tenantId, async () => await (prisma as any).$transaction(txRunner));
         } else {
           if (isProductionMode()) {
             throw new DatabaseConfigurationError('PostgreSQL is required in production.');
@@ -567,7 +570,7 @@ export class OrderService {
       }
 
       // Audit log asynchronously after successful commit
-      AuditService.log({
+      await runWithTenant(tenantId, async () => await AuditService.log({
         tenantId,
         userEmail: customerEmail,
         action: 'STOREFRONT_ORDER_CREATED',
@@ -580,7 +583,7 @@ export class OrderService {
           paymentStatus: resultOrder.paymentStatus,
           idempotencyKey: idempotencyKey || null
         }
-      });
+      }));
 
       return {
         success: true,
@@ -601,19 +604,21 @@ export class OrderService {
   static async getOrder(tenantId: string, orderIdOrNumber: string): Promise<OrderDTO | null> {
     if (!tenantId || !orderIdOrNumber) return null;
 
-    const order = await (prisma as any).order.findFirst({
-      where: {
-        tenantId,
-        OR: [
-          { id: orderIdOrNumber },
-          { orderNumber: orderIdOrNumber }
-        ]
-      },
-      include: {
-        orderItems: true,
-        customer: true
-      }
-    });
+    const order = await runWithTenant(tenantId, async () => await
+      (prisma as any).order.findFirst({
+        where: {
+          tenantId,
+          OR: [
+            { id: orderIdOrNumber },
+            { orderNumber: orderIdOrNumber }
+          ]
+        },
+        include: {
+          orderItems: true,
+          customer: true
+        }
+      })
+    );
 
     if (!order) return null;
     return this.mapToDTO(order);
@@ -657,7 +662,7 @@ export class OrderService {
     }
 
     const [items, total] = await Promise.all([
-      (prisma as any).order.findMany({
+      runWithTenant(tenantId, async () => await (prisma as any).order.findMany({
         where: whereClause,
         orderBy: { createdAt: 'desc' },
         take: options?.limit || 100,
@@ -665,8 +670,8 @@ export class OrderService {
         include: {
           orderItems: true
         }
-      }),
-      (prisma as any).order.count({ where: whereClause })
+      })),
+      runWithTenant(tenantId, async () => await (prisma as any).order.count({ where: whereClause }))
     ]);
 
     return {
@@ -693,10 +698,12 @@ export class OrderService {
       throw new Error('Tenant ID y Order ID son obligatorios');
     }
 
-    const existing = await (prisma as any).order.findFirst({
-      where: { id: orderId, tenantId },
-      include: { orderItems: true }
-    });
+    const existing = await runWithTenant(tenantId, async () => await
+      (prisma as any).order.findFirst({
+        where: { id: orderId, tenantId },
+        include: { orderItems: true }
+      })
+    );
 
     if (!existing) {
       throw new Error('Pedido no encontrado o no pertenece a este comercio');
@@ -707,16 +714,18 @@ export class OrderService {
     const wasAlreadyCancelled = existing.status === 'cancelled' || existing.status === 'refunded';
 
     if (isNowCancelled && !wasAlreadyCancelled) {
-      await (prisma as any).$transaction(async (tx: any) => {
-        for (const item of existing.orderItems) {
-          if (item.productId) {
-            await tx.product.updateMany({
-              where: { id: item.productId, tenantId },
-              data: { stock: { increment: item.quantity } }
-            }).catch(() => {});
+      await runWithTenant(tenantId, async () => await
+        (prisma as any).$transaction(async (tx: any) => {
+          for (const item of existing.orderItems) {
+            if (item.productId) {
+              await tx.product.updateMany({
+                where: { id: item.productId, tenantId },
+                data: { stock: { increment: item.quantity } }
+              }).catch(() => {});
+            }
           }
-        }
-      });
+        })
+      );
     }
 
     const data: any = {};
@@ -726,11 +735,13 @@ export class OrderService {
     if (updates.trackingNumber !== undefined) data.trackingNumber = updates.trackingNumber;
     if (updates.carrier !== undefined) data.carrier = updates.carrier;
 
-    const updated = await (prisma as any).order.update({
-      where: { id: orderId },
-      data,
-      include: { orderItems: true }
-    });
+    const updated = await runWithTenant(tenantId, async () => await
+      (prisma as any).order.update({
+        where: { id: orderId, tenantId },
+        data,
+        include: { orderItems: true }
+      })
+    );
 
     return this.mapToDTO(updated);
   }

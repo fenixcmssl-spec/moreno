@@ -594,7 +594,7 @@ export async function runMasterTestSuite() {
       },
       items: [
         {
-          productId: 'prod_1',
+          productId: 'prod_a_headphones',
           title: 'Auriculares Inalámbricos Noise Cancelling Pro ANC',
           price: 49.99,
           quantity: 1,
@@ -603,7 +603,7 @@ export async function runMasterTestSuite() {
       ],
       paymentMethod: 'stripe'
     });
-    assert(storeOrder.success && storeOrder.order?.subtotal === 49.99, 'Crea pedido de e-commerce en storefront calculando importes correctos');
+    assert(storeOrder.success && storeOrder.order?.subtotal === 89.99, 'Crea pedido de e-commerce en storefront usando el precio real de PostgreSQL e ignorando el precio enviado por el cliente');
   }
 
   // ===========================================================================

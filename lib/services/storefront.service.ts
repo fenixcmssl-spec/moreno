@@ -1,4 +1,5 @@
 import prisma, { isPostgresConfigured, isProductionMode, DatabaseConfigurationError } from '@/lib/prisma';
+import { runWithSystemContext, runWithTenant } from '@/lib/auth/tenantContext';
 import { DomainResolutionResult, DomainService } from './domain.service';
 import { LicenseService } from './license.service';
 import { ThemeService, ThemeRecord } from './theme.service';
@@ -148,6 +149,7 @@ export class StorefrontService {
 
     if (isPostgresConfigured() && prisma) {
       try {
+        await runWithSystemContext(async () => {
         // Step 2a: Lookup in Domain table by verified hostname (Custom Domain or Subdomain)
         if (hostname) {
           const domainMatch = await (prisma as any).domain.findFirst({
@@ -202,6 +204,7 @@ export class StorefrontService {
           });
           if (tenantRecord) resolvedVia = 'postgresql_tenant';
         }
+        });
       } catch (err) {
         if (isProductionMode()) throw err;
         console.warn('PostgreSQL storefront resolution lookup error, checking memory in dev:', err);
@@ -258,6 +261,7 @@ export class StorefrontService {
 
     if (isPostgresConfigured() && prisma) {
       try {
+        await runWithTenant(tenantId, async () => {
         // Fetch products strictly by tenantId
         const dbProducts = await (prisma as any).product.findMany({
           where: {
@@ -386,6 +390,7 @@ export class StorefrontService {
             createdAt: a.createdAt instanceof Date ? a.createdAt.toISOString() : a.createdAt
           }));
         }
+        });
       } catch (err) {
         if (isProductionMode()) throw err;
         console.warn('PostgreSQL content query warning in dev:', err);

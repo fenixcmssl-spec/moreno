@@ -2,6 +2,8 @@ import { OrderService } from '../lib/services/order.service';
 import { ProductService } from '../lib/services/product.service';
 import { CouponService } from '../lib/services/coupon.service';
 import { TenantService } from '../lib/services/tenant.service';
+import prisma from '../lib/prisma';
+import { runWithSystemContext } from '../lib/auth/tenantContext';
 
 /**
  * =========================================================================
@@ -57,7 +59,7 @@ export async function runFase4Tests() {
       },
       items: [
         {
-          productId: 'prod_1', // Smartwatch con precio oficial de catálogo
+          productId: 'prod_a_headphones', // Auriculares con precio oficial de catálogo
           quantity: 2,
           // Intento de inyectar precio fraudulento
           ...({ price: 0.01, lineTotal: 0.02 } as any)
@@ -87,7 +89,7 @@ export async function runFase4Tests() {
         postalCode: '28013',
         country: 'España'
       },
-      items: [{ productId: 'prod_1', quantity: -5 }],
+      items: [{ productId: 'prod_a_headphones', quantity: -5 }],
       paymentMethod: 'paypal'
     });
     assert(orderNegQty.success === false, 'Rechaza cantidad negativa (-5) con error explícito');
@@ -103,7 +105,7 @@ export async function runFase4Tests() {
         postalCode: '28013',
         country: 'España'
       },
-      items: [{ productId: 'prod_1', quantity: 1.5 }],
+      items: [{ productId: 'prod_a_headphones', quantity: 1.5 }],
       paymentMethod: 'paypal'
     });
     assert(orderFloatQty.success === false, 'Rechaza cantidad decimal (1.5) no entera');
@@ -116,7 +118,20 @@ export async function runFase4Tests() {
   // ---------------------------------------------------------------------------
   console.log('\n📋 [2/6] PROTECCIÓN CONTRA ATAQUES CROSS-TENANT (IDOR)');
   try {
-    // Intentar comprar en Tienda A un producto perteneciente a Tienda B
+    // Confirmar primero que el producto existe realmente y pertenece a Tenant B.
+    const foreignProduct = await runWithSystemContext(async () => await
+      (prisma as any).product.findFirst({
+        where: { id: 'prod_b_bag', tenantId: tenantBId },
+        select: { id: true, tenantId: true }
+      })
+    );
+
+    assert(
+      foreignProduct?.tenantId === tenantBId,
+      'Precondición: prod_b_bag existe y pertenece a Tenant B'
+    );
+
+    // Intentar comprar desde Tenant A un producto confirmado de Tenant B.
     const crossTenantOrder = await OrderService.createOrder({
       tenantId: tenantAId,
       customerName: 'Atacante Cross-Tenant',
@@ -129,7 +144,7 @@ export async function runFase4Tests() {
       },
       items: [
         {
-          productId: 'prod_milano_1', // Producto perteneciente a tenant_milano
+          productId: 'prod_b_bag', // Producto perteneciente a tenant_milano
           quantity: 1
         }
       ],
@@ -162,7 +177,7 @@ export async function runFase4Tests() {
       },
       items: [
         {
-          productId: 'prod_1',
+          productId: 'prod_a_headphones',
           quantity: 99999 // Cantidad intencionalmente superior al stock
         }
       ],
@@ -193,7 +208,7 @@ export async function runFase4Tests() {
         postalCode: '28028',
         country: 'España'
       },
-      items: [{ productId: 'prod_2', quantity: 1 }],
+      items: [{ productId: 'prod_a_smartwatch', quantity: 1 }],
       couponCode: 'FENIX10',
       paymentMethod: 'paypal'
     });
@@ -215,7 +230,7 @@ export async function runFase4Tests() {
         postalCode: '28028',
         country: 'España'
       },
-      items: [{ productId: 'prod_2', quantity: 1 }],
+      items: [{ productId: 'prod_a_smartwatch', quantity: 1 }],
       couponCode: 'CUPON_FALSO_INEXISTENTE_999',
       paymentMethod: 'paypal'
     });
@@ -243,7 +258,7 @@ export async function runFase4Tests() {
         postalCode: '48001',
         country: 'España'
       },
-      items: [{ productId: 'prod_3', quantity: 1 }],
+      items: [{ productId: 'prod_a_keyboard', quantity: 1 }],
       idempotencyKey: testIdempotencyKey,
       paymentMethod: 'paypal'
     });
@@ -261,7 +276,7 @@ export async function runFase4Tests() {
         postalCode: '48001',
         country: 'España'
       },
-      items: [{ productId: 'prod_3', quantity: 1 }],
+      items: [{ productId: 'prod_a_keyboard', quantity: 1 }],
       idempotencyKey: testIdempotencyKey,
       paymentMethod: 'paypal'
     });
