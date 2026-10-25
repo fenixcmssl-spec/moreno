@@ -665,12 +665,7 @@ export function SuperAdminPortal() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {(tenantsList.length > 0 ? tenantsList : [
-                  { id: 't_demo_store', name: 'Tienda Oficial FenixCMS', slug: 'demo', status: 'ACTIVE', planName: 'Enterprise Scale', domains: ['tienda.fenixcms.es'] },
-                  { id: 't_madrid_shop', name: 'Madrid Boutique Store', slug: 'madrid', status: 'ACTIVE', planName: 'Pro Storefront', domains: ['madridboutique.es'] },
-                  { id: 't_valencia_shoes', name: 'Calzados Mediterráneo', slug: 'valencia', status: 'ACTIVE', planName: 'Starter Basic', domains: ['calzadosvalencia.com'] }
-                ])
-                .filter(t => t.name.toLowerCase().includes(tenantSearchQuery.toLowerCase()) || t.slug.toLowerCase().includes(tenantSearchQuery.toLowerCase()))
+                {tenantsList.filter(t => String(t?.name ?? '').toLowerCase().includes(tenantSearchQuery.toLowerCase()) || String(t?.slug ?? '').toLowerCase().includes(tenantSearchQuery.toLowerCase()))
                 .map(t => (
                   <div key={t.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
                     <div className="flex items-start justify-between">
@@ -690,11 +685,21 @@ export function SuperAdminPortal() {
                       </div>
                       <div className="flex justify-between text-slate-400">
                         <span>Dominio:</span>
-                        <span className="text-cyan-400 font-mono text-[11px]">{t.domains?.[0] || `${t.slug}.fenixcms.es`}</span>
+                        <span className="text-cyan-400 font-mono text-[11px]">{(typeof t.domains?.[0] === 'string' ? t.domains[0] : t.domains?.[0]?.hostname) || t.customDomain || t.domain || `${t.slug}.fenixcms.es`}</span>
                       </div>
                     </div>
                   </div>
                 ))}
+                {tenantsList.filter(t =>
+                  String(t?.name ?? '').toLowerCase().includes(tenantSearchQuery.toLowerCase()) ||
+                  String(t?.slug ?? '').toLowerCase().includes(tenantSearchQuery.toLowerCase())
+                ).length === 0 && (
+                  <div className="col-span-full rounded-2xl border border-slate-800 bg-slate-900 p-6 text-center text-sm text-slate-400">
+                    {tenantsList.length === 0
+                      ? 'Todavía no hay tiendas o tenants registrados.'
+                      : 'No se encontraron tiendas con ese nombre o identificador.'}
+                  </div>
+                )}
               </div>
             </div>
           )}
