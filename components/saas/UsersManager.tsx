@@ -26,9 +26,20 @@ interface UserItem {
   lastActive?: string;
 }
 
+interface TenantOption {
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+}
+
 export function UsersManager() {
   const [users, setUsers] = useState<UserItem[]>([]);
+  const [tenants, setTenants] = useState<TenantOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingTenants, setIsLoadingTenants] = useState(true);
+  const [tenantLoadError, setTenantLoadError] = useState<string | null>(null);
+  const [isCreatingUser, setIsCreatingUser] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [isNewUserModalOpen, setIsNewUserModalOpen] = useState(false);
@@ -39,6 +50,7 @@ export function UsersManager() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState('STAFF');
+  const [tenantId, setTenantId] = useState('');
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -49,18 +61,83 @@ export function UsersManager() {
 
   useEffect(() => {
     let isMounted = true;
-    fetch('/api/admin/users')
-      .then(res => res.json())
-      .then(data => {
-        if (isMounted && data.success && Array.isArray(data.users)) {
+
+    const loadUsers = async () => {
+      try {
+        const res = await fetch('/api/admin/users', { cache: 'no-store' });
+        const data = await res.json();
+
+        if (!res.ok || data?.success !== true) {
+          throw new Error(data?.error || 'Error cargando usuarios');
+        }
+
+        if (isMounted && Array.isArray(data.users)) {
           setUsers(data.users);
         }
-      })
-      .catch(e => console.error('Error loading users:', e))
-      .finally(() => {
+      } catch (error) {
+        console.error('Error loading users:', error);
+        if (isMounted) {
+          showToast('No se pudieron cargar los usuarios desde el servidor.');
+        }
+      } finally {
         if (isMounted) setIsLoading(false);
-      });
-    return () => { isMounted = false; };
+      }
+    };
+
+    const loadTenants = async () => {
+      setIsLoadingTenants(true);
+
+      try {
+        const res = await fetch('/api/admin/tenants', { cache: 'no-store' });
+        const data = await res.json();
+
+        if (!res.ok || data?.success !== true ||
+            !Array.isArray(data.tenants)) {
+          throw new Error(data?.error || 'No se pudieron cargar las tiendas');
+        }
+
+        const available: TenantOption[] = data.tenants.filter(
+          (tenant: TenantOption) =>
+            tenant &&
+            typeof tenant.id === 'string' &&
+            typeof tenant.name === 'string' &&
+            typeof tenant.slug === 'string' &&
+            ['active', 'trial'].includes(String(tenant.status).toLowerCase())
+        );
+
+        if (!isMounted) return;
+
+        setTenants(available);
+        setTenantId(current =>
+          available.some(tenant => tenant.id === current)
+            ? current
+            : (available[0]?.id || '')
+        );
+        setTenantLoadError(
+          available.length === 0
+            ? 'No hay tiendas activas o en prueba disponibles.'
+            : null
+        );
+      } catch (error) {
+        console.error('Error loading tenants:', error);
+        if (isMounted) {
+          setTenants([]);
+          setTenantId('');
+          setTenantLoadError(
+            'No se pudieron cargar las tiendas. Recarga el panel antes de crear el usuario.'
+          );
+        }
+      } finally {
+        if (isMounted) setIsLoadingTenants(false);
+      }
+    };
+
+    void loadUsers();
+    void loadTenants();
+
+    return () => {
+      isMounted = false;
+    };
   }, [refreshIndex]);
 
   const handleRefresh = () => {
@@ -105,27 +182,70 @@ export function UsersManager() {
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !email || !password) return;
+
+    const cleanName = name.trim();
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (!cleanName || !cleanEmail || !password) {
+      showToast('Completa el nombre, el correo y la contraseña.');
+      return;
+    }
+
+    if (password.length < 12 || password.length > 128) {
+      showToast('La contraseña debe tener entre 12 y 128 caracteres.');
+      return;
+    }
+
+    if (password !== password.trim()) {
+      showToast('La contraseña no puede empezar ni terminar con espacios.');
+      return;
+    }
+
+    if (role !== 'SUPER_ADMIN' && !tenantId) {
+      showToast('Selecciona una tienda para asociar este usuario.');
+      return;
+    }
+
+    setIsCreatingUser(true);
 
     try {
+      const payload = {
+        name: cleanName,
+        email: cleanEmail,
+        password,
+        role,
+        ...(role === 'SUPER_ADMIN' ? {} : { tenantId }),
+      };
+
       const res = await fetch('/api/admin/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password, role })
+        body: JSON.stringify(payload),
       });
+
       const data = await res.json();
-      if (data.success) {
-        showToast('Usuario registrado exitosamente en PostgreSQL');
+
+      if (res.ok && data?.success === true) {
+        showToast(
+          role === 'SUPER_ADMIN'
+            ? 'Superadministrador registrado correctamente.'
+            : 'Usuario creado y asociado a la tienda seleccionada.'
+        );
+
         setIsNewUserModalOpen(false);
         setName('');
         setEmail('');
         setPassword('');
+        setRole('STAFF');
         handleRefresh();
       } else {
-        showToast(data.error || 'Error creando usuario');
+        showToast(data?.error || 'No se pudo crear el usuario.');
       }
-    } catch (e) {
-      showToast('Error en la llamada de creación de usuario');
+    } catch (error) {
+      console.error('Error creating user:', error);
+      showToast('Error de conexión al crear el usuario.');
+    } finally {
+      setIsCreatingUser(false);
     }
   };
 
@@ -336,6 +456,9 @@ export function UsersManager() {
                 <input
                   type="password"
                   required
+                  minLength={12}
+                  maxLength={128}
+                  autoComplete="new-password"
                   placeholder="••••••••••••"
                   value={password}
                   onChange={e => setPassword(e.target.value)}
@@ -358,6 +481,41 @@ export function UsersManager() {
                 </select>
               </div>
 
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Tienda asociada
+                </label>
+                <select
+                  value={role === 'SUPER_ADMIN' ? '' : tenantId}
+                  onChange={e => setTenantId(e.target.value)}
+                  required={role !== 'SUPER_ADMIN'}
+                  disabled={role === 'SUPER_ADMIN' || isLoadingTenants || tenants.length === 0}
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white disabled:opacity-50"
+                >
+                  <option value="">
+                    {isLoadingTenants ? 'Cargando tiendas...' : 'Selecciona una tienda...'}
+                  </option>
+                  {tenants.map(tenant => (
+                    <option key={tenant.id} value={tenant.id}>
+                      {tenant.name} ({tenant.slug})
+                    </option>
+                  ))}
+                </select>
+                {role === 'SUPER_ADMIN' ? (
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    El superadministrador es una cuenta global y no se asocia a una tienda.
+                  </p>
+                ) : tenantLoadError ? (
+                  <p role="alert" className="mt-1 text-[11px] text-red-300">
+                    {tenantLoadError}
+                  </p>
+                ) : (
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    La cuenta quedará vinculada a esta tienda con el rol seleccionado.
+                  </p>
+                )}
+              </div>
+
               <div className="pt-2 flex justify-end gap-2">
                 <button
                   type="button"
@@ -368,9 +526,10 @@ export function UsersManager() {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs"
+                  disabled={isCreatingUser}
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Registrar en PostgreSQL
+                  {isCreatingUser ? 'Creando usuario...' : 'Registrar en PostgreSQL'}
                 </button>
               </div>
             </form>
