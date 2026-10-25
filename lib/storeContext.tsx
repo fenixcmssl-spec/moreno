@@ -258,17 +258,54 @@ export function StoreProvider({
     async function syncSession() {
       try {
         const sessionData = await apiClient.get('/api/auth/session');
-        if (isMounted && sessionData?.user) {
-          const role = sessionData.user.role === 'SUPER_ADMIN' ? 'super_admin' : 'merchant_admin';
+        const session = sessionData?.authenticated && sessionData?.session
+          ? sessionData.session
+          : null;
+
+        if (isMounted && session?.email && session?.role) {
+          const role = session.role === 'SUPER_ADMIN'
+            ? 'super_admin'
+            : session.role === 'CUSTOMER'
+              ? 'customer'
+              : 'merchant_admin';
+
           const u = {
-            email: sessionData.user.email,
-            name: sessionData.user.name || sessionData.user.email,
+            email: session.email,
+            name: session.name || session.email,
             role
           };
+
           setServerUser(u as any);
+
+          try {
+            localStorage.setItem('fenix_backend_auth', JSON.stringify(u));
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new Event('fenix_auth_update'));
+            }
+          } catch {}
+        } else if (isMounted) {
+          setServerUser(null);
+
+          try {
+            localStorage.removeItem('fenix_backend_auth');
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new Event('fenix_auth_update'));
+            }
+          } catch {}
         }
       } catch {
-        // Unauthenticated or service unavailable
+        // La sesión del servidor es la autoridad; ante un error, no confiar
+        // en una sesión antigua guardada únicamente en el navegador.
+        if (isMounted) {
+          setServerUser(null);
+
+          try {
+            localStorage.removeItem('fenix_backend_auth');
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new Event('fenix_auth_update'));
+            }
+          } catch {}
+        }
       }
     }
 
