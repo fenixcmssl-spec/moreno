@@ -3,10 +3,12 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 
-type AuthLoginMode = 'saas' | 'superadmin';
+type AuthLoginMode = 'saas' | 'superadmin' | 'tenant';
 
 interface AuthLoginFormProps {
   mode: AuthLoginMode;
+  tenantSlug?: string;
+  tenantName?: string;
 }
 
 interface LoginResponse {
@@ -19,8 +21,9 @@ interface LoginResponse {
   error?: string;
 }
 
-export function AuthLoginForm({ mode }: AuthLoginFormProps) {
+export function AuthLoginForm({ mode, tenantSlug, tenantName }: AuthLoginFormProps) {
   const isSuperAdmin = mode === 'superadmin';
+  const isTenant = mode === 'tenant';
   const accent = isSuperAdmin
     ? 'red'
     : 'amber';
@@ -50,6 +53,7 @@ export function AuthLoginForm({ mode }: AuthLoginFormProps) {
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
           password,
+          ...(tenantSlug ? { tenantSlug } : {}),
         }),
       });
 
@@ -102,7 +106,9 @@ export function AuthLoginForm({ mode }: AuthLoginFormProps) {
         setErrorMessage(
           isSuperAdmin
             ? 'Acceso denegado. Esta cuenta no tiene el rol SUPER_ADMIN.'
-            : 'Esta cuenta debe entrar por el acceso de superadministración.'
+            : isTenant
+              ? 'Esta cuenta no tiene un rol de gestión de tienda.'
+              : 'Esta cuenta debe entrar por el acceso de superadministración.'
         );
         return;
       }
@@ -110,7 +116,7 @@ export function AuthLoginForm({ mode }: AuthLoginFormProps) {
       // La autorización definitiva de las funciones administrativas
       // corresponde a las comprobaciones del servidor.
       window.location.assign(
-        isSuperAdmin ? '/superadmin' : '/portal'
+        isSuperAdmin ? '/superadmin' : isTenant ? '/admin' : '/portal'
       );
     } catch {
       setErrorMessage(
@@ -191,13 +197,17 @@ export function AuthLoginForm({ mode }: AuthLoginFormProps) {
           <h1 className="text-2xl font-extrabold tracking-tight text-white">
             {isSuperAdmin
               ? 'Superadministración'
-              : 'Portal de clientes'}
+              : isTenant
+                ? `Administración de ${tenantName || 'tienda'}`
+                : 'Portal de clientes'}
           </h1>
 
           <p className="mt-2 text-sm leading-6 text-slate-400">
             {isSuperAdmin
               ? 'Acceso exclusivo para cuentas con rol SUPER_ADMIN.'
-              : 'Accede a tu cuenta de cliente de FenixCMS.'}
+              : isTenant
+                ? `Inicia sesión para administrar ${tenantName || 'tu tienda'}.`
+                : 'Accede a tu cuenta de cliente de FenixCMS.'}
           </p>
         </header>
 
@@ -281,7 +291,9 @@ export function AuthLoginForm({ mode }: AuthLoginFormProps) {
               ? 'Verificando acceso…'
               : isSuperAdmin
                 ? 'Entrar a Superadministración'
-                : 'Entrar al portal de clientes'}
+                : isTenant
+                  ? 'Entrar a mi tienda'
+                  : 'Entrar al portal de clientes'}
           </button>
         </form>
 

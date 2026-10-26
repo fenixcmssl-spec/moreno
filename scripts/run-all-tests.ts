@@ -2,6 +2,7 @@ import { runFase1Tests } from '../tests/fenixcms-fase1.test';
 import { runFase2Tests } from '../tests/fenixcms-fase2.test';
 import { runFase4Tests } from '../tests/fenixcms-fase4-order-checkout.test';
 import { runFase5Tests } from '../tests/fenixcms-fase5.test';
+import { runAuthTenantLoginTests } from '../tests/auth-tenant-login.test';
 import { runFase7Tests } from '../tests/fenixcms-fase7.test';
 import { runMasterTestSuite } from '../tests/master-paso20.test';
 import { runFase20D1Tests } from '../tests/fase20-d1-persistence.test';
@@ -26,6 +27,7 @@ async function main() {
   await runFase2Tests();
   await runFase4Tests();
   await runFase5Tests();
+  await runAuthTenantLoginTests();
   await runFase7Tests();
   await runMasterTestSuite();
   await runFase20D1Tests();

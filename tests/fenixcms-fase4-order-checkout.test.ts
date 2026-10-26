@@ -41,6 +41,55 @@ export async function runFase4Tests() {
   const tenantAId = 'tenant_demo';
   const tenantBId = 'tenant_milano';
 
+  // U5.4: fixture de inventario aislado.
+  // Solo se permite alterar el producto de prueba en la base fenixcms_ci.
+  const ciDatabaseName = (() => {
+    try {
+      return new URL(process.env.DATABASE_URL || '').pathname
+        .split('/')
+        .filter(Boolean)
+        .pop() || '';
+    } catch {
+      return '';
+    }
+  })();
+
+  if (ciDatabaseName !== 'fenixcms_ci') {
+    throw new Error(
+      'Fase 4 requiere DATABASE_URL apuntando exactamente a fenixcms_ci; ' +
+      'no se modificará inventario en otra base de datos.'
+    );
+  }
+
+  await runWithSystemContext(async () => {
+    const testProduct = await (prisma as any).product.findFirst({
+      where: {
+        id: 'prod_a_headphones',
+        tenantId: tenantAId,
+      },
+      select: { id: true, stock: true },
+    });
+
+    if (!testProduct) {
+      throw new Error(
+        'No existe prod_a_headphones en tenant_demo; ' +
+        'se requiere preparar los datos de prueba antes de ejecutar Fase 4.'
+      );
+    }
+
+    console.log(
+      `[U5.4] Stock anterior de prod_a_headphones: ${testProduct.stock}`
+    );
+
+    await (prisma as any).product.update({
+      where: { id: testProduct.id },
+      data: { stock: 45 },
+    });
+
+    console.log('[U5.4] Fixture restablecido: stock de prueba = 45.');
+  });
+
+
   // ---------------------------------------------------------------------------
   // [1/6] AUTORIDAD DE PRECIOS EN SERVIDOR (ANTI-TAMPERING)
   // ---------------------------------------------------------------------------

@@ -110,6 +110,13 @@ export class AuthService {
           return { success: false, error: 'Credenciales inválidas' };
         }
 
+        if (params.tenantSlug && user.role === 'SUPER_ADMIN') {
+          return {
+            success: false,
+            error: 'El acceso de superadministración no está disponible en el login de una tienda',
+          };
+        }
+
         let effectiveTenantId: string | undefined = undefined;
         let effectiveTenantSlug: string | undefined = undefined;
         let effectiveRole: UserRole = user.role as UserRole;
@@ -117,16 +124,25 @@ export class AuthService {
         if (user.role !== 'SUPER_ADMIN') {
           const userMemberships = user.memberships || [];
           if (params.tenantSlug) {
-            const matchedMembership = userMemberships.find((m: any) => m.tenant?.slug === params.tenantSlug);
-            if (matchedMembership) {
-              effectiveTenantId = matchedMembership.tenantId;
-              effectiveTenantSlug = matchedMembership.tenant?.slug;
-              effectiveRole = matchedMembership.role as UserRole;
-            } else if (userMemberships.length > 0) {
-              effectiveTenantId = userMemberships[0].tenantId;
-              effectiveTenantSlug = userMemberships[0].tenant?.slug;
-              effectiveRole = userMemberships[0].role as UserRole;
+            const matchedMembership = userMemberships.find(
+              (m: any) =>
+                m.tenant?.slug === params.tenantSlug &&
+                m.status === 'ACTIVE' &&
+                ['ACTIVE', 'TRIAL'].includes(
+                  String(m.tenant?.status || '').toUpperCase()
+                )
+            );
+
+            if (!matchedMembership) {
+              return {
+                success: false,
+                error: 'La cuenta no está asociada a esta tienda o la membresía está inactiva',
+              };
             }
+
+            effectiveTenantId = matchedMembership.tenantId;
+            effectiveTenantSlug = matchedMembership.tenant?.slug;
+            effectiveRole = matchedMembership.role as UserRole;
           } else if (userMemberships.length > 0) {
             effectiveTenantId = userMemberships[0].tenantId;
             effectiveTenantSlug = userMemberships[0].tenant?.slug;
@@ -177,13 +193,41 @@ export class AuthService {
         });
 
         if (user && user.status === 'ACTIVE') {
-          const isMatch = PasswordService.verifyPassword(cleanPassword, user.passwordHash) ||
-            cleanPassword === user.passwordHash;
+          const isMatch = PasswordService.verifyPassword(cleanPassword, user.passwordHash);
 
           if (isMatch) {
+            if (params.tenantSlug && user.role === 'SUPER_ADMIN') {
+              return {
+                success: false,
+                error: 'El acceso de superadministración no está disponible en el login de una tienda',
+              };
+            }
+
             let effectiveTenantId: string | undefined = undefined;
             let effectiveTenantSlug: string | undefined = undefined;
             let effectiveRole: UserRole = user.role as UserRole;
+
+            if (params.tenantSlug) {
+              const matchedMembership = (user.memberships || []).find(
+                (m: any) =>
+                  m.tenant?.slug === params.tenantSlug &&
+                  m.status === 'ACTIVE' &&
+                  ['ACTIVE', 'TRIAL'].includes(
+                    String(m.tenant?.status || '').toUpperCase()
+                  )
+              );
+
+              if (!matchedMembership) {
+                return {
+                  success: false,
+                  error: 'La cuenta no está asociada a esta tienda o la membresía está inactiva',
+                };
+              }
+
+              effectiveTenantId = matchedMembership.tenantId;
+              effectiveTenantSlug = matchedMembership.tenant?.slug;
+              effectiveRole = matchedMembership.role as UserRole;
+            }
 
             const { token, session } = await SessionService.createSession({
               id: user.id,
@@ -200,6 +244,16 @@ export class AuthService {
           }
         }
       } catch {}
+    }
+
+    // La autenticación de una tienda requiere una membresía verificada
+    // mediante PostgreSQL. Nunca inferir el tenant desde datos en memoria
+    // ni confiar en el tenantSlug recibido del cliente.
+    if (params.tenantSlug) {
+      return {
+        success: false,
+        error: 'No se pudo verificar la membresía de esta tienda',
+      };
     }
 
     // Dev fallback using hashed password check
