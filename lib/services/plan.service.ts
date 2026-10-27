@@ -1,6 +1,7 @@
 import { prisma, isPostgresConfigured, isProductionMode, DatabaseConfigurationError } from '@/lib/prisma';
 import { SaaSPlan, PlanEntitlements, EntityStatus } from '@/types';
 import { INITIAL_PLANS } from '@/lib/initialData';
+import { runWithSystemContext } from '@/lib/auth/tenantContext';
 
 export class PlanService {
   /**
@@ -473,27 +474,49 @@ export class PlanService {
   /**
    * Checks if a plan can be safely deleted or if active tenants/licenses depend on it
    */
-  static async canDelete(id: string): Promise<{ canDelete: boolean; activeLicensesCount: number; reason?: string }> {
-    if (isPostgresConfigured() && prisma?.license?.count) {
-      const activeLicensesCount = await prisma.license.count({
-        where: {
-          planId: id,
-          status: { in: ['ACTIVE', 'TRIAL'] }
+  static async canDelete(id: string): Promise<{
+    canDelete: boolean;
+    activeLicensesCount: number;
+    totalLicensesCount: number;
+    subscriptionsCount: number;
+    reason?: string;
+  }> {
+    if (isPostgresConfigured() && prisma?.license?.count && prisma?.subscription?.count) {
+      return runWithSystemContext(async () => {
+        const [activeLicensesCount, totalLicensesCount, subscriptionsCount] = await Promise.all([
+          prisma.license.count({
+            where: { planId: id, status: { in: ['ACTIVE', 'TRIAL'] } }
+          }),
+          // Keep historical records intact: any license retains a reference to the plan.
+          prisma.license.count({ where: { planId: id } }),
+          prisma.subscription.count({ where: { planId: id } })
+        ]);
+
+        if (totalLicensesCount > 0 || subscriptionsCount > 0) {
+          const dependencies = [
+            totalLicensesCount > 0 ? `${totalLicensesCount} licencia(s)` : '',
+            subscriptionsCount > 0 ? `${subscriptionsCount} suscripción(es)` : ''
+          ].filter(Boolean).join(' y ');
+
+          return {
+            canDelete: false,
+            activeLicensesCount,
+            totalLicensesCount,
+            subscriptionsCount,
+            reason: `No se puede eliminar el plan porque tiene ${dependencies} vinculadas. Para conservar el historial, desactívalo en lugar de borrarlo.`
+          };
         }
+
+        return { canDelete: true, activeLicensesCount, totalLicensesCount, subscriptionsCount };
       });
-
-      if (activeLicensesCount > 0) {
-        return {
-          canDelete: false,
-          activeLicensesCount,
-          reason: `No se puede eliminar el plan porque existen ${activeLicensesCount} licencias activas asociadas.`
-        };
-      }
-
-      return { canDelete: true, activeLicensesCount: 0 };
     }
 
-    return { canDelete: true, activeLicensesCount: 0 };
+    return {
+      canDelete: true,
+      activeLicensesCount: 0,
+      totalLicensesCount: 0,
+      subscriptionsCount: 0
+    };
   }
 
   /**

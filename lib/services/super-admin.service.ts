@@ -1,4 +1,5 @@
 import { prisma, isPostgresConfigured, isProductionMode, DatabaseConfigurationError } from '../prisma';
+import { runWithSystemContext } from '../auth/tenantContext';
 import { AuditService } from './audit.service';
 import { PasswordService } from '../auth/password';
 import { UserRole } from '../auth/rbac';
@@ -64,6 +65,10 @@ export class SuperAdminService {
    * 1. DASHBOARD METRICS FROM POSTGRESQL
    */
   static async getDashboardMetrics(): Promise<DashboardMetrics> {
+    return runWithSystemContext(() => this.getDashboardMetricsInternal());
+  }
+
+  private static async getDashboardMetricsInternal(): Promise<DashboardMetrics> {
     if (isProductionMode()) {
       if (!isPostgresConfigured() || !prisma) {
         throw new DatabaseConfigurationError('Super Admin metrics require active PostgreSQL in production.');
@@ -338,6 +343,10 @@ export class SuperAdminService {
    * 5. LICENSES FROM POSTGRESQL
    */
   static async getLicenses(filters?: { status?: string; tenantId?: string }) {
+    return runWithSystemContext(() => this.getLicensesInternal(filters));
+  }
+
+  private static async getLicensesInternal(filters?: { status?: string; tenantId?: string }) {
     if (isProductionMode() && !isPostgresConfigured()) {
       throw new DatabaseConfigurationError('getLicenses requires PostgreSQL in production mode.');
     }
@@ -393,6 +402,10 @@ export class SuperAdminService {
    * 6. ACTIVATIONS FROM POSTGRESQL
    */
   static async getActivations() {
+    return runWithSystemContext(() => this.getActivationsInternal());
+  }
+
+  private static async getActivationsInternal() {
     if (isProductionMode() && !isPostgresConfigured()) {
       throw new DatabaseConfigurationError('getActivations requires PostgreSQL in production mode.');
     }
@@ -443,6 +456,10 @@ export class SuperAdminService {
    * 7. SUBSCRIPTIONS FROM POSTGRESQL
    */
   static async getSubscriptions() {
+    return runWithSystemContext(() => this.getSubscriptionsInternal());
+  }
+
+  private static async getSubscriptionsInternal() {
     if (isProductionMode() && !isPostgresConfigured()) {
       throw new DatabaseConfigurationError('getSubscriptions requires PostgreSQL in production mode.');
     }
@@ -471,6 +488,10 @@ export class SuperAdminService {
    * 8. PAYMENTS FROM POSTGRESQL
    */
   static async getPayments() {
+    return runWithSystemContext(() => this.getPaymentsInternal());
+  }
+
+  private static async getPaymentsInternal() {
     if (isProductionMode() && !isPostgresConfigured()) {
       throw new DatabaseConfigurationError('getPayments requires PostgreSQL in production mode.');
     }
@@ -498,6 +519,10 @@ export class SuperAdminService {
    * 9. INVOICES FROM POSTGRESQL
    */
   static async getInvoices() {
+    return runWithSystemContext(() => this.getInvoicesInternal());
+  }
+
+  private static async getInvoicesInternal() {
     if (isProductionMode() && !isPostgresConfigured()) {
       throw new DatabaseConfigurationError('getInvoices requires PostgreSQL in production mode.');
     }
@@ -523,6 +548,10 @@ export class SuperAdminService {
    * 10. TENANTS FROM POSTGRESQL
    */
   static async getTenants() {
+    return runWithSystemContext(() => this.getTenantsInternal());
+  }
+
+  private static async getTenantsInternal() {
     if (isProductionMode() && !isPostgresConfigured()) {
       throw new DatabaseConfigurationError('getTenants requires PostgreSQL in production mode.');
     }
@@ -557,6 +586,10 @@ export class SuperAdminService {
    * 11. DOMAINS FROM POSTGRESQL
    */
   static async getDomains() {
+    return runWithSystemContext(() => this.getDomainsInternal());
+  }
+
+  private static async getDomainsInternal() {
     if (isProductionMode() && !isPostgresConfigured()) {
       throw new DatabaseConfigurationError('getDomains requires PostgreSQL in production mode.');
     }
@@ -582,6 +615,10 @@ export class SuperAdminService {
    * 12. THEMES FROM POSTGRESQL
    */
   static async getThemes() {
+    return runWithSystemContext(() => this.getThemesInternal());
+  }
+
+  private static async getThemesInternal() {
     if (isProductionMode() && !isPostgresConfigured()) {
       throw new DatabaseConfigurationError('getThemes requires PostgreSQL in production mode.');
     }
@@ -609,6 +646,10 @@ export class SuperAdminService {
    * 13. PLUGINS FROM POSTGRESQL
    */
   static async getPlugins() {
+    return runWithSystemContext(() => this.getPluginsInternal());
+  }
+
+  private static async getPluginsInternal() {
     if (isProductionMode() && !isPostgresConfigured()) {
       throw new DatabaseConfigurationError('getPlugins requires PostgreSQL in production mode.');
     }
@@ -636,6 +677,10 @@ export class SuperAdminService {
    * 14. USERS FROM POSTGRESQL
    */
   static async getUsers() {
+    return runWithSystemContext(() => this.getUsersInternal());
+  }
+
+  private static async getUsersInternal() {
     if (isProductionMode() && !isPostgresConfigured()) {
       throw new DatabaseConfigurationError('getUsers requires PostgreSQL in production mode.');
     }
@@ -676,6 +721,10 @@ export class SuperAdminService {
    * 15. AUDIT LOGS FROM POSTGRESQL
    */
   static async getAuditLogs(limit: number = 50) {
+    return runWithSystemContext(() => this.getAuditLogsInternal(limit));
+  }
+
+  private static async getAuditLogsInternal(limit: number = 50) {
     try {
       if (prisma && typeof (prisma as any).auditLog?.findMany === 'function') {
         const logs = await (prisma as any).auditLog.findMany({

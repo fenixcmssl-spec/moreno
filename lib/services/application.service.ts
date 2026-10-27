@@ -1,6 +1,7 @@
 import { prisma, isPostgresConfigured, isProductionMode, DatabaseConfigurationError } from '@/lib/prisma';
 import { ApplicationDefinition, ApplicationModuleDef, ApplicationTypeKey } from '@/types';
 import { INITIAL_APPLICATIONS } from '@/lib/initialData';
+import { runWithSystemContext } from '@/lib/auth/tenantContext';
 
 export class ApplicationService {
   /**
@@ -411,10 +412,39 @@ export class ApplicationService {
     }
 
     if (isPostgresConfigured() && prisma?.application?.delete) {
-      await prisma.application.delete({
-        where: { id }
+      return runWithSystemContext(async () => {
+        const existing = await prisma.application.findUnique({
+          where: { id },
+          select: { id: true, key: true, slug: true, name: true }
+        });
+
+        if (!existing) return false;
+
+        // Global SaaS administration may inspect cross-tenant dependencies only in system context.
+        const [licensesCount, subscriptionsCount, tenantsCount] = await Promise.all([
+          prisma.license.count({ where: { applicationId: id } }),
+          prisma.subscription.count({ where: { plan: { is: { applicationId: id } } } }),
+          prisma.tenant.count({
+            where: { applicationId: { in: [existing.id, existing.key, existing.slug] } }
+          })
+        ]);
+
+        if (licensesCount > 0 || subscriptionsCount > 0 || tenantsCount > 0) {
+          const dependencies = [
+            licensesCount > 0 ? `${licensesCount} licencia(s)` : '',
+            subscriptionsCount > 0 ? `${subscriptionsCount} suscripción(es)` : '',
+            tenantsCount > 0 ? `${tenantsCount} comercio(s)` : ''
+          ].filter(Boolean).join(', ');
+
+          throw new Error(
+            `No se puede eliminar la aplicación "${existing.name}" porque tiene dependencias: ${dependencies}. Desactívala para conservar los datos y el historial.`
+          );
+        }
+
+        // Schema cascades Application -> modules/plans. The checks above protect tenant and billing history.
+        await prisma.application.delete({ where: { id } });
+        return true;
       });
-      return true;
     }
 
     return false;

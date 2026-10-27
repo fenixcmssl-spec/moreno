@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ApplicationService } from '@/lib/services/application.service';
 import { AuditService } from '@/lib/services/audit.service';
 import { TenantContextHelper } from '@/lib/auth/tenantContext';
+import { requireSuperAdmin, adminUnauthorizedResponse } from '@/lib/auth/admin-guard';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -124,9 +125,10 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
 export async function DELETE(req: NextRequest, { params }: RouteParams) {
   try {
-    const auth = await TenantContextHelper.requireTenantRole(req, 'SUPER_ADMIN');
-    if (!auth.success) {
-      return auth.response;
+    // Global application management must not require a tenant assignment.
+    const auth = await requireSuperAdmin(req);
+    if (!auth.authorized) {
+      return adminUnauthorizedResponse(auth);
     }
 
     const { id } = await params;
@@ -145,7 +147,8 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       action: 'APPLICATION_DELETED',
       entity: 'Application',
       entityId: id,
-      userId: auth.context.session?.userId,
+      userId: auth.session?.userId,
+      userEmail: auth.session?.email,
       details: {
         deletedKey: existing.key,
         deletedName: existing.name
@@ -154,10 +157,12 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ success: true, message: 'Aplicación eliminada de PostgreSQL exitosamente' });
   } catch (error: any) {
+    const message = error?.message || 'Error eliminando aplicación';
     console.error('Error deleting application:', error);
+    const isDependencyBlock = message.startsWith('No se puede eliminar la aplicación');
     return NextResponse.json(
-      { error: error?.message || 'Error eliminando aplicación' },
-      { status: 500 }
+      { success: false, error: message },
+      { status: isDependencyBlock ? 409 : 500 }
     );
   }
 }
