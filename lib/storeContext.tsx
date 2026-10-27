@@ -526,7 +526,8 @@ export function StoreProvider({
   };
 
   const deletePlan = async (planId: string) => {
-    await apiClient.delete(`/api/admin/plans/${planId}`).catch(() => {});
+    // Do not hide server errors or remove the plan locally unless PostgreSQL confirms deletion.
+    await apiClient.delete(`/api/admin/plans/${planId}`);
     setPlans(prev => prev.filter(p => p.id !== planId));
     logAction('PLAN_DELETED', 'Plan', { planId });
   };
