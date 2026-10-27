@@ -423,7 +423,7 @@ export class ApplicationService {
         // Global SaaS administration may inspect cross-tenant dependencies only in system context.
         const [licensesCount, subscriptionsCount, tenantsCount] = await Promise.all([
           prisma.license.count({ where: { applicationId: id } }),
-          prisma.subscription.count({ where: { plan: { applicationId: id } } }),
+          prisma.subscription.count({ where: { plan: { is: { applicationId: id } } } }),
           prisma.tenant.count({
             where: { applicationId: { in: [existing.id, existing.key, existing.slug] } }
           })
